@@ -339,13 +339,15 @@ async function handleUpdateSection(codeLens: CoworkflowCodeLens): Promise<void> 
 		}
 
 		// Create the prompt using supportPrompt
-		const prompt = supportPrompt.create(promptType, {
-			scope,
-			selectedText,
+		await ClineProvider.handleWorkflowAction(
+			promptType,
+			{
+				scope,
+				selectedText,
+				mode,
+			},
 			mode,
-		})
-
-		await ClineProvider.handleWorkflowAction(prompt, mode)
+		)
 
 		// Log detailed context for debugging
 		console.log("CoworkflowCommands: Update section requested", {
@@ -400,12 +402,15 @@ async function handleRunTask(codeLens: CoworkflowCodeLens): Promise<void> {
 		const selectedText = await getTaskBlockContent(commandContext)
 
 		// Create the prompt using supportPrompt
-		const prompt = supportPrompt.create("WORKFLOW_TASK_RUN", {
-			scope,
-			selectedText,
-			mode: taskMode,
-		})
-		await ClineProvider.handleWorkflowAction(prompt, taskMode)
+		await ClineProvider.handleWorkflowAction(
+			"WORKFLOW_TASK_RUN",
+			{
+				scope,
+				selectedText,
+				mode: taskMode,
+			},
+			taskMode,
+		)
 	} catch (error) {
 		handleCommandError("Run Task", error, codeLens?.range)
 	}
@@ -447,14 +452,16 @@ async function handleRetryTask(codeLens: CoworkflowCodeLens): Promise<void> {
 		// Get required parameters for prompt
 		const scope = getScopePath(commandContext.uri)
 		const selectedText = await getTaskBlockContent(commandContext)
-
-		// Create the prompt using supportPrompt
-		const prompt = supportPrompt.create("WORKFLOW_TASK_RETRY", {
-			scope,
-			selectedText,
-			mode: taskMode,
-		})
-		await ClineProvider.handleWorkflowAction(prompt, taskMode)
+		// // Create the prompt using supportPrompt
+		await ClineProvider.handleWorkflowAction(
+			"WORKFLOW_TASK_RETRY",
+			{
+				scope,
+				selectedText,
+				mode: taskMode,
+			},
+			taskMode,
+		)
 	} catch (error) {
 		handleCommandError("Retry Task", error, codeLens?.range)
 	}

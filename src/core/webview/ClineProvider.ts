@@ -746,14 +746,22 @@ export class ClineProvider
 		}
 	}
 
-	public static async handleWorkflowAction(prompt: string, mode: string): Promise<void> {
-		TelemetryService.instance.captureCodeActionUsed(prompt)
-
+	public static async handleWorkflowAction(
+		type: SupportPromptType,
+		params: Record<string, string | any[]>,
+		mode: string,
+	): Promise<void> {
 		const visibleProvider = await ClineProvider.getInstance()
 
 		if (!visibleProvider) {
 			return
 		}
+		const { customSupportPrompts } = await visibleProvider.getState()
+
+		const prompt = supportPrompt.create(type, params, customSupportPrompts)
+
+		TelemetryService.instance.captureCodeActionUsed(prompt)
+
 		await visibleProvider.setMode(mode)
 
 		try {
