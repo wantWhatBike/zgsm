@@ -112,6 +112,7 @@ Output only the summary of the conversation so far, without any additional comme
 - 若未充分理解需求或设计即开始执行任务，可能导致实现偏差或功能错误
 - **该过程不允许修改任何测试相关的文件比如修改测试案例**
 - 执行过程中及时更新 \`tasks.md\` 文档中对应任务的状态，状态说明：\`[ ]\` (未开始)、\`[-]\` (进行中)、\`[x]\` (已完成)
+- 任务开始前把 \`tasks.md\` 中对应任务状态更新为\`[-]\` (进行中)
 
 ## 待完成任务
 
@@ -129,7 +130,7 @@ Output only the summary of the conversation so far, without any additional comme
 	WORKFLOW_TASK_RETRY: {
 		template: `
 
-请开始执行用户需求的实现工作。基于 \`\${scope}\` 目录下已创建的需求文档(requirements.md)、架构设计文档(design.md)推进相应功能实现。
+请重新执行用户需求的实现工作。基于 \`\${scope}\` 目录下已创建的需求文档(requirements.md)、架构设计文档(design.md)推进相应功能实现。
 
 ## 实施前准备
 - 在执行任何开发任务前，请务必仔细阅读并理解 \`\${scope}\` 目录下的 requirements.md、design.md 文档
@@ -160,7 +161,6 @@ Output only the summary of the conversation so far, without any additional comme
 - 分析需求变更对现有设计的影响范围
 - 确认变更涉及的模块和需要调整的现有功能
 - 在没有充分理解变更影响的情况下执行任务将导致不准确的实现
-- 任务开始前把 \`tasks.md\` 中对应任务状态更新为\`[-]\` (进行中)
 
 ## 待更新任务
 
