@@ -136,7 +136,7 @@ Output only the summary of the conversation so far, without any additional comme
 - 若未充分理解需求或设计即开始执行任务，可能导致实现偏差或功能错误
 - **该过程不允许修改任何测试相关的文件比如修改测试案例**
 - 执行过程中及时更新 \`tasks.md\` 文档中对应任务的状态，状态说明：\`[ ]\` (未开始)、\`[-]\` (进行中)、\`[x]\` (已完成)
-- 任务之前开始前把 \`tasks.md\` 中对应任务状态更新为\`[-]\` (进行中)
+- 任务开始前把 \`tasks.md\` 中对应任务状态更新为\`[-]\` (进行中)
 
 ## 待重试任务
 
@@ -160,7 +160,7 @@ Output only the summary of the conversation so far, without any additional comme
 - 分析需求变更对现有设计的影响范围
 - 确认变更涉及的模块和需要调整的现有功能
 - 在没有充分理解变更影响的情况下执行任务将导致不准确的实现
-- 任务之前开始前把 \`tasks.md\` 中对应任务状态更新为\`[-]\` (进行中)
+- 任务开始前把 \`tasks.md\` 中对应任务状态更新为\`[-]\` (进行中)
 
 ## 待更新任务
 
