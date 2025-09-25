@@ -2,7 +2,7 @@ import { WIKI_OUTPUT_DIR } from "./constants"
 
 export const PROJECT_OVERVIEW_ANALYSIS_TEMPLATE = `# 项目技术概览分析
 ## 使用场景
-生成项目的技术概述文档，包括项目定位、技术栈、开发规范等，适用于新人入职或技术交流。
+生成项目的技术概述文档，包括项目定位、技术栈、开发规范等。
 
 ## 输入要求
 - **完整代码仓库**: 项目的完整源代码

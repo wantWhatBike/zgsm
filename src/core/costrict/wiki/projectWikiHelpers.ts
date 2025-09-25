@@ -28,7 +28,7 @@ function getGlobalCommandsDir(): string {
 }
 
 export const projectWikiCommandName = "project-wiki"
-export const projectWikiCommandDescription = `Analyze project deeply and generate a comprehensive project wiki.`
+export const projectWikiCommandDescription = `Perform an in-depth analysis of the project and create a comprehensive project wiki.`
 
 const logger: ILogger = createLogger("ProjectWikiHelpers")
 

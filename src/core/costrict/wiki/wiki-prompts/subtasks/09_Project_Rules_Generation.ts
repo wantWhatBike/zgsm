@@ -1,1300 +1,252 @@
-export const PROJECT_RULES_GENERATION_TEMPLATE = `# 项目规则生成
+import { RULES_OUTPUT_DIR, WIKI_OUTPUT_DIR } from "./constants"
+
+export const PROJECT_RULES_GENERATION_TEMPLATE = `# 项目规则生成任务
 
 ## 使用场景
-从代码仓库中分析项目的架构、模式、最佳实践等，生成完整的项目规则文档。
+基于项目代码仓库深度分析，生成项目特异性的开发编码和测试约束规则文档。专注于"违反会导致系统性问题"的具体实施约束。
 
 ## 输入要求
-- **完整代码仓库**: 项目的完整源代码
-- **配置文件**: 各种配置文件（package.json、tsconfig.json等）
-- **文档**: 现有的项目文档、README等
-- **测试文件**: 单元测试、集成测试等
-
-# 项目规则生成任务
-
-## 任务描述
-请深度分析项目的架构、模式、最佳实践等，从代码规范、架构设计、开发流程、测试策略、部署规范等维度生成完整的项目规则文档。
+- **项目技术文档**: ${WIKI_OUTPUT_DIR} 目录下的所有技术分析文档（优先分析）
+- **完整代码仓库**: 项目源代码、配置文件、构建脚本
+- **技术栈文档**: package.json、go.mod、依赖配置、框架选型说明
+- **测试配置**: 测试框架配置、mock配置、测试数据配置
 
 ## 分析维度
 
-### 1. 代码规范分析
-#### 代码风格规范
-\`\`\`typescript
-// TypeScript代码风格示例
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+### 1. 核心代码开发约束识别（70%）
 
-class UserService {
-  private userRepository: UserRepository;
-  
-  constructor(userRepository: UserRepository) {
-    this.userRepository = userRepository;
-  }
-  
-  async createUser(userData: CreateUserData): Promise<User> {
-    // 参数验证
-    if (!userData.name || !userData.email) {
-      throw new Error('Name and email are required');
-    }
-    
-    // 检查邮箱格式
-    if (!this.isValidEmail(userData.email)) {
-      throw new Error('Invalid email format');
-    }
-    
-    // 检查邮箱是否已存在
-    const existingUser = await this.userRepository.findByEmail(userData.email);
-    if (existingUser) {
-      throw new Error('Email already exists');
-    }
-    
-    // 创建用户
-    const user = await this.userRepository.create(userData);
-    
-    return user;
-  }
-  
-  private isValidEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+\$/;
-    return emailRegex.test(email);
-  }
-}
-\`\`\`
+#### 数据库操作约束
+- **连接管理约束**: 连接池最大/最小连接数、连接超时时间、空闲连接回收策略、连接泄漏检测、连接健康检查
+- **事务处理约束**: 事务隔离级别、超时时间、嵌套事务处理、死锁检测机制、事务回滚策略、分布式事务处理
+- **查询优化约束**: 慢查询阈值、索引使用规范、分页查询限制、批量操作大小限制、查询缓存策略
+- **数据迁移约束**: 迁移脚本版本控制、回滚策略、数据一致性检查、迁移执行权限、增量迁移支持、迁移进度监控
+- **分库分表约束**: 分片键选择规范、跨分片查询限制、分片路由规则、数据重平衡策略、分片扩容机制
+- **读写分离约束**: 主从延迟处理、读写路由规则、故障切换机制、数据一致性保证、从库负载均衡、同步状态监控
 
-#### 命名规范
-| 类型 | 命名规则 | 示例 |
-|------|----------|------|
-| 文件名 | kebab-case | user-service.ts |
-| 类名 | PascalCase | UserService |
-| 接口名 | PascalCase | IUser |
-| 变量名 | camelCase | userName |
-| 常量名 | SCREAMING_SNAKE_CASE | MAX_USERS |
-| 函数名 | camelCase | createUser |
-| 私有属性 | camelCase + _ | _privateProperty |
+#### API开发约束
+- **请求处理约束**: 请求头验证规则、参数校验策略、请求体大小限制、超时时间设置、请求ID生成、请求日志记录
+- **响应格式约束**: 统一响应结构、错误码映射规则、分页响应格式、数据序列化规范、响应压缩策略、国际化支持
+- **认证授权约束**: JWT token格式、权限验证流程、会话管理策略、API密钥管理、多租户权限隔离、权限缓存机制
+- **版本控制约束**: URL版本策略、向后兼容规则、废弃API处理、版本迁移计划、版本文档维护
+- **限流熔断约束**: 请求频率限制、熔断器配置、降级策略、流量控制规则、限流算法选择、熔断恢复机制
+- **接口文档约束**: OpenAPI规范遵循、文档自动生成、接口变更通知、测试用例维护、文档版本管理、示例代码提供
 
-#### 代码组织规范
-\`\`\`typescript
-// 目录结构规范
-src/
-├── components/          // 组件
-│   ├── common/         // 通用组件
-│   └── features/       // 功能组件
-├── services/           // 服务层
-├── repositories/       // 数据访问层
-├── models/            // 数据模型
-├── utils/             // 工具函数
-├── constants/         // 常量定义
-├── types/             // 类型定义
-├── hooks/             // React Hooks
-└── __tests__/         // 测试文件
+#### 缓存使用约束
+- **键命名约束**: 命名空间规范、键过期策略、键冲突避免、键长度限制、键版本管理
+- **数据一致性约束**: 缓存更新策略、缓存穿透防护、缓存雪崩预防、数据同步机制、缓存失效策略、双写一致性
+- **性能优化约束**: 缓存命中率要求、内存使用限制、序列化方式选择、批量操作优化、缓存预热策略
+- **分布式缓存约束**: 集群配置规范、数据分片策略、故障转移机制、一致性哈希算法、节点扩缩容、数据迁移
+- **缓存监控约束**: 性能指标收集、异常告警规则、容量规划策略、清理策略配置、命中率统计、热点数据识别
 
-// 文件组织规范
-// 1. 导入语句
-import { Component } from 'react';
-import { UserService } from '../services/UserService';
-import type { User } from '../types/User';
+#### 错误处理约束
+- **异常分类约束**: 业务异常定义、系统异常处理、第三方异常包装、异常传播规则、异常等级划分
+- **错误码约束**: 错误码分配规则、错误信息国际化、错误上下文记录、错误恢复策略、错误码文档维护、客户端错误处理
+- **日志记录约束**: 日志级别使用、敏感信息脱敏、日志格式规范、日志轮转策略、结构化日志、日志聚合
+- **监控告警约束**: 错误率阈值、告警规则配置、故障自动恢复、运维通知机制、告警收敛策略
+- **用户体验约束**: 友好错误提示、错误页面设计、重试机制提供、帮助信息展示、错误反馈收集
 
-// 2. 类型定义
-interface Props {
-  userId: string;
-  onUserUpdate: (user: User) => void;
-}
+#### 并发处理约束
+- **线程安全约束**: 共享资源保护、锁粒度控制、死锁避免策略、原子操作使用、无锁编程、线程池管理
+- **异步处理约束**: 异步任务队列、回调函数管理、Promise/Future使用、异步异常处理、背压控制
+- **资源管理约束**: 连接池管理、内存泄漏防护、文件句柄管理、网络资源释放、资源监控、资源回收
+- **负载均衡约束**: 请求分发策略、健康检查机制、故障节点隔离、流量权重配置、负载算法选择
+- **分布式锁约束**: 锁超时设置、锁重入处理、锁释放机制、锁竞争优化、锁监控、死锁检测
 
-// 3. 常量定义
-const MAX_RETRIES = 3;
+#### 安全约束
+- **输入验证约束**: 参数类型检查、长度限制验证、特殊字符过滤、SQL注入防护、XSS防护、CSRF防护
+- **认证机制约束**: 密码强度要求、多因素认证、会话管理、令牌刷新策略、单点登录、账户锁定机制
+- **授权控制约束**: RBAC权限模型、资源访问控制、API权限验证、数据权限过滤、权限继承、动态权限
+- **数据保护约束**: 敏感数据加密、传输加密要求、数据脱敏规则、隐私信息处理、数据备份加密
+- **安全审计约束**: 操作日志记录、安全事件监控、合规性检查、漏洞扫描要求、安全评估、渗透测试
 
-// 4. 主组件/类
-export const UserProfile: React.FC<Props> = ({ userId, onUserUpdate }) => {
-  // 组件逻辑
-};
+#### 性能约束
+- **响应时间约束**: API响应时间SLA、数据库查询超时、第三方调用超时、页面加载时间、实时性要求
+- **吞吐量约束**: 并发请求处理能力、数据处理速度、批量操作效率、系统容量规划、峰值处理能力、扩展性要求
+- **资源使用约束**: CPU使用率限制、内存占用控制、磁盘IO优化、网络带宽管理、存储空间管理
+- **缓存策略约束**: 缓存命中率目标、缓存更新频率、缓存容量规划、缓存预热策略、缓存淘汰算法
+- **数据库性能约束**: 查询执行计划优化、索引使用效率、连接数控制、慢查询监控、读写分离、分库分表
 
-// 5. 导出语句
-export default UserProfile;
-\`\`\`
+#### 配置管理约束
+- **环境配置约束**: 多环境配置分离、配置文件格式、环境变量命名、配置验证规则、配置模板管理
+- **敏感信息约束**: 密钥管理策略、配置加密要求、权限访问控制、配置审计日志、密钥轮换机制、安全存储
+- **配置更新约束**: 热更新支持、配置版本控制、回滚机制、变更通知机制、配置同步、灰度发布
+- **配置监控约束**: 配置一致性检查、配置漂移检测、配置使用统计、异常配置告警、配置依赖分析
 
-### 2. 架构设计分析
-#### 分层架构
-\`\`\`typescript
-// 表现层 (Presentation Layer)
-@Controller('/api/users')
-export class UserController {
-  constructor(private readonly userService: UserService) {}
-  
-  @Post()
-  async createUser(@Body() userData: CreateUserData): Promise<User> {
-    return this.userService.createUser(userData);
-  }
-}
+#### 部署约束
+- **容器化约束**: Docker镜像构建规范、容器资源限制、健康检查配置、日志收集策略、镜像安全扫描、多阶段构建
+- **编排约束**: Kubernetes部署配置、服务发现机制、负载均衡设置、滚动更新策略、资源配额管理
+- **环境依赖约束**: 依赖服务检查、环境变量验证、网络连通性测试、存储挂载验证、服务启动顺序、依赖健康检查
+- **监控集成约束**: 指标暴露规范、日志格式要求、追踪数据收集、告警规则配置、监控数据聚合
+- **备份恢复约束**: 数据备份策略、灾难恢复计划、备份验证机制、恢复时间目标、备份存储管理、恢复测试
 
-// 业务逻辑层 (Business Logic Layer)
-@Service()
-export class UserService {
-  constructor(private readonly userRepository: UserRepository) {}
-  
-  async createUser(userData: CreateUserData): Promise<User> {
-    // 业务逻辑处理
-    const user = await this.userRepository.create(userData);
-    return user;
-  }
-}
+### 2. 测试约束识别（20%）
 
-// 数据访问层 (Data Access Layer)
-@Repository()
-export class UserRepository {
-  async create(userData: CreateUserData): Promise<User> {
-    // 数据库操作
-    const user = new User();
-    Object.assign(user, userData);
-    return await this.save(user);
-  }
-}
-\`\`\`
+#### 单元测试约束
+- **Mock框架约束**: Mock工具选择规范、Mock对象生成规则、Mock行为验证、Mock数据管理
+- **测试覆盖率约束**: 代码覆盖率阈值、分支覆盖率要求、函数覆盖率标准、覆盖率报告格式
+- **测试文件约束**: 测试文件命名规范、测试目录结构、测试用例组织、测试标签使用
+- **断言约束**: 断言库选择、断言方式规范、错误消息格式、自定义断言实现
 
-#### 设计模式应用
-\`\`\`typescript
-// 单例模式
-export class DatabaseConnection {
-  private static instance: DatabaseConnection;
-  private connection: any;
-  
-  private constructor() {
-    this.connection = this.createConnection();
-  }
-  
-  public static getInstance(): DatabaseConnection {
-    if (!DatabaseConnection.instance) {
-      DatabaseConnection.instance = new DatabaseConnection();
-    }
-    return DatabaseConnection.instance;
-  }
-  
-  private createConnection(): any {
-    // 创建数据库连接
-    return {};
-  }
-}
+#### 集成测试约束
+- **环境配置约束**: 测试环境搭建、配置文件管理、环境变量设置、依赖服务启动
+- **数据库测试约束**: 测试数据库选择、数据初始化脚本、事务回滚策略、数据清理机制
+- **外部依赖约束**: 第三方服务Mock、API调用模拟、网络请求拦截、依赖注入配置
+- **测试执行约束**: 测试执行顺序、并行测试控制、测试隔离策略、失败重试机制
 
-// 工厂模式
-interface PaymentProcessor {
-  processPayment(amount: number): Promise<boolean>;
-}
+#### 接口测试约束
+- **认证测试约束**: 认证头格式验证、Token有效性测试、权限边界测试、会话管理测试
+- **参数验证约束**: 请求参数校验、边界值测试、异常参数处理、参数类型验证
+- **响应验证约束**: 响应格式检查、状态码验证、响应时间测试、数据结构验证
+- **契约测试约束**: API契约定义、契约验证规则、版本兼容性测试、契约变更管理
 
-class CreditCardProcessor implements PaymentProcessor {
-  async processPayment(amount: number): Promise<boolean> {
-    // 信用卡支付逻辑
-    return true;
-  }
-}
+#### 性能测试约束
+- **负载测试约束**: 并发用户数设置、请求频率控制、测试持续时间、负载递增策略
+- **压力测试约束**: 系统极限测试、资源耗尽场景、故障恢复测试、性能瓶颈识别
+- **基准测试约束**: 性能基线建立、回归测试对比、性能指标监控、优化效果验证
+- **容量测试约束**: 系统容量规划、扩展性测试、资源使用监控、容量预警设置
 
-class PayPalProcessor implements PaymentProcessor {
-  async processPayment(amount: number): Promise<boolean> {
-    // PayPal支付逻辑
-    return true;
-  }
-}
+### 3. 其它领域约束识别（10%）
 
-class PaymentProcessorFactory {
-  static createProcessor(type: 'credit_card' | 'paypal'): PaymentProcessor {
-    switch (type) {
-      case 'credit_card':
-        return new CreditCardProcessor();
-      case 'paypal':
-        return new PayPalProcessor();
-      default:
-        throw new Error('Unsupported payment type');
-    }
-  }
-}
+#### 依赖管理约束
+- **版本锁定约束**: 关键依赖版本固定、依赖冲突解决、安全版本要求
+- **依赖注入约束**: DI容器配置、生命周期管理、循环依赖处理
+- **包管理约束**: 包导入规范、内部包引用、第三方包评估
 
-// 观察者模式
-interface Observer {
-  update(data: any): void;
-}
+#### 代码组织约束
+- **目录结构约束**: 项目目录规范、包结构设计、文件命名规则
+- **命名约束**: 变量命名规范、函数命名约定、类型命名标准
+- **代码风格约束**: 代码格式化规则、注释编写标准、文档生成要求
 
-class EventEmitter {
-  private observers: Observer[] = [];
-  
-  subscribe(observer: Observer): void {
-    this.observers.push(observer);
-  }
-  
-  unsubscribe(observer: Observer): void {
-    this.observers = this.observers.filter(obs => obs !== observer);
-  }
-  
-  notify(data: any): void {
-    this.observers.forEach(observer => observer.update(data));
-  }
-}
-\`\`\`
-
-### 3. 开发流程分析
-#### Git工作流
-\`\`\`mermaid
-graph LR
-    A[main分支] --> B[develop分支]
-    B --> C[feature分支]
-    C --> D[Pull Request]
-    D --> E[代码审查]
-    E --> F[合并到develop]
-    F --> G[发布到main]
-\`\`\`
-
-#### 分支管理规范
-| 分支类型 | 命名规则 | 用途 | 生命周期 |
-|----------|----------|------|----------|
-| main | main | 生产环境 | 长期 |
-| develop | develop | 开发环境 | 长期 |
-| feature | feature/功能名称 | 功能开发 | 临时 |
-| hotfix | hotfix/问题描述 | 紧急修复 | 临时 |
-| release | release/版本号 | 发布准备 | 临时 |
-
-#### 提交信息规范
-\`\`\`bash
-# 提交信息格式
-<类型>(<范围>): <描述>
-
-# 类型说明
-feat: 新功能
-fix: 修复bug
-docs: 文档更新
-style: 代码格式化
-refactor: 重构
-test: 测试相关
-chore: 构建或辅助工具变动
-
-# 示例
-feat(auth): 添加用户登录功能
-fix(user): 修复用户信息更新bug
-docs(api): 更新API文档
-style: 格式化代码
-refactor: 重构用户服务
-test: 添加用户服务测试
-chore: 更新依赖包
-\`\`\`
-
-### 4. 测试策略分析
-#### 测试金字塔
-\`\`\`mermaid
-graph TD
-    A[单元测试] --> B[集成测试]
-    B --> C[端到端测试]
-    
-    A -->|70%| D[测试覆盖率]
-    B -->|20%| D
-    C -->|10%| D
-\`\`\`
-
-#### 测试规范
-\`\`\`typescript
-// 单元测试示例
-import { UserService } from '../UserService';
-import { UserRepository } from '../UserRepository';
-import { User } from '../User';
-
-describe('UserService', () => {
-  let userService: UserService;
-  let userRepository: jest.Mocked<UserRepository>;
-  
-  beforeEach(() => {
-    userRepository = {
-      create: jest.fn(),
-      findByEmail: jest.fn(),
-      findById: jest.fn(),
-    } as any;
-    
-    userService = new UserService(userRepository);
-  });
-  
-  describe('createUser', () => {
-    it('应该成功创建用户', async () => {
-      // Arrange
-      const userData = {
-        name: 'John Doe',
-        email: 'john@example.com',
-        password: 'password123',
-      };
-      
-      const expectedUser: User = {
-        id: '1',
-        ...userData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      
-      userRepository.findByEmail.mockResolvedValue(null);
-      userRepository.create.mockResolvedValue(expectedUser);
-      
-      // Act
-      const result = await userService.createUser(userData);
-      
-      // Assert
-      expect(result).toEqual(expectedUser);
-      expect(userRepository.findByEmail).toHaveBeenCalledWith(userData.email);
-      expect(userRepository.create).toHaveBeenCalledWith(userData);
-    });
-    
-    it('当邮箱已存在时应该抛出错误', async () => {
-      // Arrange
-      const userData = {
-        name: 'John Doe',
-        email: 'john@example.com',
-        password: 'password123',
-      };
-      
-      const existingUser: User = {
-        id: '1',
-        ...userData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      
-      userRepository.findByEmail.mockResolvedValue(existingUser);
-      
-      // Act & Assert
-      await expect(userService.createUser(userData))
-        .rejects.toThrow('Email already exists');
-    });
-  });
-});
-
-// 集成测试示例
-import request from 'supertest';
-import { app } from '../app';
-import { DatabaseConnection } from '../DatabaseConnection';
-
-describe('User API', () => {
-  beforeAll(async () => {
-    await DatabaseConnection.connect();
-  });
-  
-  afterAll(async () => {
-    await DatabaseConnection.disconnect();
-  });
-  
-  beforeEach(async () => {
-    await DatabaseConnection.clear();
-  });
-  
-  describe('POST /api/users', () => {
-    it('应该创建新用户', async () => {
-      const userData = {
-        name: 'John Doe',
-        email: 'john@example.com',
-        password: 'password123',
-      };
-      
-      const response = await request(app)
-        .post('/api/users')
-        .send(userData)
-        .expect(201);
-      
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.name).toBe(userData.name);
-      expect(response.body.email).toBe(userData.email);
-    });
-  });
-});
-\`\`\`
-
-### 5. 安全规范分析
-#### 输入验证
-\`\`\`typescript
-// 参数验证装饰器
-import { validate, ValidationError } from 'class-validator';
-import { plainToClass } from 'class-transformer';
-
-export class CreateUserDto {
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(2)
-  @MaxLength(50)
-  name: string;
-  
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
-  
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(8)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}\$/)
-  password: string;
-}
-
-export async function validateDto<T>(dtoClass: new () => T, data: any): Promise<T> {
-  const dto = plainToClass(dtoClass, data);
-  const errors = await validate(dto as object);
-  
-  if (errors.length > 0) {
-    const errorMessages = errors.map(error => {
-      return Object.values(error.constraints || {}).join(', ');
-    });
-    throw new Error(\`Validation failed: \${errorMessages.join(', ')}\`);
-  }
-  
-  return dto;
-}
-
-// 使用示例
-export class UserController {
-  async createUser(req: Request, res: Response) {
-    try {
-      const createUserDto = await validateDto(CreateUserDto, req.body);
-      // 处理用户创建逻辑
-    } catch (error) {
-      res.status(400).json({ error: error.message });
-    }
-  }
-}
-\`\`\`
-
-#### 权限控制
-\`\`\`typescript
-// 角色定义
-export enum Role {
-  ADMIN = 'admin',
-  USER = 'user',
-  GUEST = 'guest',
-}
-
-// 权限装饰器
-export const RequireRoles = (...roles: Role[]) => {
-  return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
-    const originalMethod = descriptor.value;
-    
-    descriptor.value = function(req: Request, res: Response, next: Function) {
-      const user = req.user;
-      
-      if (!user || !roles.includes(user.role)) {
-        return res.status(403).json({ error: 'Insufficient permissions' });
-      }
-      
-      return originalMethod.apply(this, arguments);
-    };
-    
-    return descriptor;
-  };
-};
-
-// 使用示例
-export class AdminController {
-  @RequireRoles(Role.ADMIN)
-  async deleteUser(req: Request, res: Response) {
-    // 只有管理员可以删除用户
-  }
-}
-\`\`\`
-
-#### 数据加密
-\`\`\`typescript
-import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
-
-export class EncryptionService {
-  private static readonly SALT_ROUNDS = 12;
-  private static readonly ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key';
-  
-  // 密码哈希
-  static async hashPassword(password: string): Promise<string> {
-    return bcrypt.hash(password, this.SALT_ROUNDS);
-  }
-  
-  // 密码验证
-  static async verifyPassword(password: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(password, hash);
-  }
-  
-  // 数据加密
-  static encrypt(data: string): string {
-    const cipher = crypto.createCipher('aes-256-cbc', this.ENCRYPTION_KEY);
-    let encrypted = cipher.update(data, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return encrypted;
-  }
-  
-  // 数据解密
-  static decrypt(encryptedData: string): string {
-    const decipher = crypto.createDecipher('aes-256-cbc', this.ENCRYPTION_KEY);
-    let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  }
-}
-\`\`\`
-
-### 6. 性能优化分析
-#### 缓存策略
-\`\`\`typescript
-import { Redis } from 'ioredis';
-
-export class CacheService {
-  private redis: Redis;
-  
-  constructor() {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST,
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-    });
-  }
-  
-  // 设置缓存
-  async set(key: string, value: any, ttl: number = 3600): Promise<void> {
-    await this.redis.setex(key, ttl, JSON.stringify(value));
-  }
-  
-  // 获取缓存
-  async get<T>(key: string): Promise<T | null> {
-    const value = await this.redis.get(key);
-    return value ? JSON.parse(value) : null;
-  }
-  
-  // 删除缓存
-  async delete(key: string): Promise<void> {
-    await this.redis.del(key);
-  }
-  
-  // 缓存装饰器
-  static Cacheable(key: string, ttl: number = 3600) {
-    return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
-      const originalMethod = descriptor.value;
-      const cacheService = new CacheService();
-      
-      descriptor.value = async function(...args: any[]) {
-        const cacheKey = \`\${key}:\${JSON.stringify(args)}\`;
-        const cached = await cacheService.get(cacheKey);
-        
-        if (cached) {
-          return cached;
-        }
-        
-        const result = await originalMethod.apply(this, args);
-        await cacheService.set(cacheKey, result, ttl);
-        
-        return result;
-      };
-      
-      return descriptor;
-    };
-  }
-}
-
-// 使用示例
-export class UserService {
-  @Cacheable.Cacheable('user:profile', 1800) // 30分钟缓存
-  async getUserProfile(userId: string): Promise<UserProfile> {
-    // 从数据库获取用户信息
-    return this.userRepository.findById(userId);
-  }
-}
-\`\`\`
-
-#### 数据库优化
-\`\`\`typescript
-// 1. 使用参数化查询
-class UserRepository {
-  async findByEmail(email: string): Promise<User | null> {
-    const query = 'SELECT * FROM users WHERE email = \$1';
-    const result = await this.database.query(query, [email]);
-    return result.length > 0 ? result[0] : null;
-  }
-  
-  async create(userData: CreateUserData): Promise<User> {
-    const query = \`
-      INSERT INTO users (name, email, password, created_at)
-      VALUES (\$1, \$2, \$3, NOW())
-      RETURNING *
-    \`;
-    
-    const hashedPassword = await bcrypt.hash(userData.password, 10);
-    const result = await this.database.query(query, [
-      userData.name,
-      userData.email,
-      hashedPassword
-    ]);
-    
-    return result[0];
-  }
-}
-
-// 2. 使用索引
-class DatabaseIndexer {
-  static createUserIndexes() {
-    const indexes = [
-      'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
-      'CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at)',
-      'CREATE INDEX IF NOT EXISTS idx_users_name ON users(name)',
-    ];
-    
-    return indexes;
-  }
-}
-
-// 3. 使用连接池
-import { Pool } from 'pg';
-
-export class DatabaseConnection {
-  private static pool: Pool;
-  
-  static getPool(): Pool {
-    if (!DatabaseConnection.pool) {
-      DatabaseConnection.pool = new Pool({
-        host: process.env.DB_HOST,
-        port: parseInt(process.env.DB_PORT || '5432'),
-        database: process.env.DB_NAME,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        max: 20, // 最大连接数
-        idleTimeoutMillis: 30000, // 空闲超时
-        connectionTimeoutMillis: 2000, // 连接超时
-      });
-    }
-    
-    return DatabaseConnection.pool;
-  }
-}
-\`\`\`
-
-### 7. 错误处理分析
-#### 错误类型定义
-\`\`\`typescript
-// 基础错误类
-export class AppError extends Error {
-  public readonly statusCode: number;
-  public readonly isOperational: boolean;
-  
-  constructor(message: string, statusCode: number = 500) {
-    super(message);
-    this.statusCode = statusCode;
-    this.isOperational = true;
-    Error.captureStackTrace(this, this.constructor);
-  }
-}
-
-// 具体错误类型
-export class ValidationError extends AppError {
-  constructor(message: string) {
-    super(message, 400);
-  }
-}
-
-export class NotFoundError extends AppError {
-  constructor(resource: string) {
-    super(\`\${resource} not found\`, 404);
-  }
-}
-
-export class UnauthorizedError extends AppError {
-  constructor(message: string = 'Unauthorized') {
-    super(message, 401);
-  }
-}
-
-export class ForbiddenError extends AppError {
-  constructor(message: string = 'Forbidden') {
-    super(message, 403);
-  }
-}
-
-// 错误处理中间件
-export const errorHandler = (
-  error: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  if (error instanceof AppError) {
-    return res.status(error.statusCode).json({
-      error: error.message,
-      statusCode: error.statusCode,
-    });
-  }
-  
-  // 未知错误
-  console.error('Unexpected error:', error);
-  return res.status(500).json({
-    error: 'Internal server error',
-    statusCode: 500,
-  });
-};
-\`\`\`
-
-#### 日志记录
-\`\`\`typescript
-import winston from 'winston';
-
-export class Logger {
-  private static logger: winston.Logger;
-  
-  static getLogger(): winston.Logger {
-    if (!Logger.logger) {
-      Logger.logger = winston.createLogger({
-        level: process.env.LOG_LEVEL || 'info',
-        format: winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.errors({ stack: true }),
-          winston.format.json()
-        ),
-        transports: [
-          new winston.transports.File({ filename: 'error.log', level: 'error' }),
-          new winston.transports.File({ filename: 'combined.log' }),
-        ],
-      });
-      
-      // 在开发环境中也输出到控制台
-      if (process.env.NODE_ENV !== 'production') {
-        Logger.logger.add(new winston.transports.Console({
-          format: winston.format.simple()
-        }));
-      }
-    }
-    
-    return Logger.logger;
-  }
-  
-  static info(message: string, meta?: any): void {
-    this.getLogger().info(message, meta);
-  }
-  
-  static error(message: string, error?: Error): void {
-    this.getLogger().error(message, { error: error?.stack });
-  }
-  
-  static warn(message: string, meta?: any): void {
-    this.getLogger().warn(message, meta);
-  }
-  
-  static debug(message: string, meta?: any): void {
-    this.getLogger().debug(message, meta);
-  }
-}
-\`\`\`
-
-### 8. 文档规范分析
-#### 代码文档
-\`\`\`typescript
-/**
- * 用户服务类
- * @class UserService
- * @description 提供用户相关的业务逻辑处理
- */
-export class UserService {
-  private userRepository: UserRepository;
-  
-  /**
-   * 创建用户服务实例
-   * @constructor
-   * @param {UserRepository} userRepository - 用户仓库实例
-   */
-  constructor(userRepository: UserRepository) {
-    this.userRepository = userRepository;
-  }
-  
-  /**
-   * 创建新用户
-   * @async
-   * @method createUser
-   * @param {CreateUserData} userData - 用户数据
-   * @returns {Promise<User>} 创建的用户对象
-   * @throws {Error} 当用户数据无效或邮箱已存在时抛出错误
-   * @example
-   * const userData = {
-   *   name: 'John Doe',
-   *   email: 'john@example.com',
-   *   password: 'password123'
-   * };
-   * const user = await userService.createUser(userData);
-   */
-  async createUser(userData: CreateUserData): Promise<User> {
-    // 实现逻辑
-  }
-}
-\`\`\`
-
-#### API文档
-\`\`\`typescript
-/**
- * @swagger
- * /api/users:
- *   post:
- *     summary: 创建新用户
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - name
- *               - email
- *               - password
- *             properties:
- *               name:
- *                 type: string
- *                 description: 用户姓名
- *                 example: John Doe
- *               email:
- *                 type: string
- *                 format: email
- *                 description: 用户邮箱
- *                 example: john@example.com
- *               password:
- *                 type: string
- *                 format: password
- *                 description: 用户密码
- *                 example: password123
- *     responses:
- *       201:
- *         description: 用户创建成功
- *         content:
- *           application/json:
- *             schema:
- *               \$ref: '#/components/schemas/User'
- *       400:
- *         description: 请求数据无效
- *       409:
- *         description: 邮箱已存在
- */
-\`\`\`
+#### 监控集成约束
+- **指标收集约束**: 业务指标定义、技术指标监控、自定义指标实现
+- **链路追踪约束**: 追踪数据格式、Span标签规范、采样策略配置
+- **健康检查约束**: 健康检查端点、检查项目定义、响应格式规范
 
 ## 输出格式要求
 
-生成完整的项目规则文档：
+### 规则数量分布指导原则
+- **开发领域约束（70%）**：重点关注项目核心开发约束，根据项目技术栈和架构特点选择相关维度
+  - 从数据库操作、API开发、缓存使用、错误处理、并发处理、安全约束、性能约束、配置管理、部署约束等维度中选择项目相关的分类
+  - 各分类的规则数量根据项目实际情况和复杂度确定，重点分类可包含更多规则
 
-### 文档结构
+- **测试领域约束（20%）**：适度覆盖项目测试约束，根据项目测试策略选择相关维度
+  - 从单元测试、集成测试、接口测试、性能测试等维度中选择项目相关的分类
+  - 各分类的规则数量根据项目测试复杂度和覆盖需求确定
+
+- **其它领域约束（10%）**：精简覆盖其他项目特有约束，根据项目组织和工具链选择相关维度
+  - 从依赖管理、代码组织、监控集成等维度中选择项目相关的分类
+  - 各分类的规则数量根据项目特定需求确定，保持精简但完整
+
+### 维度选择原则
+- 基于项目代码仓库分析结果，识别项目实际使用的技术栈和架构模式
+- 优先选择对项目代码质量和系统稳定性影响最大的约束维度
+- 确保生成的规则能够指导AI生成代码与既有项目代码风格和架构保持一致
+
+生成的项目规则文档必须严格遵循以下格式：
+
+### 文档结构模板
 \`\`\`markdown
-# {项目名称} 项目规则
+# {项目名称} Development Rules
 
-## 代码规范
+## Database Operations
+- 分库分表请求必须包含X-Database-Id头
+- 数据库连接池最大连接数不超过50
+- 事务超时时间必须设置为30秒
+- 数据库迁移脚本必须包含回滚逻辑
+- 查询语句必须使用参数化查询防止SQL注入
 
-### 代码风格
-\`\`\`typescript
-// TypeScript代码风格示例
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+## API Development
+- 所有接口必须包含Authorization和X-UserId请求头
+- API响应必须使用统一的JSON结构格式
+- 错误码必须使用项目定义的枚举值
+- 接口版本控制必须在URL路径中体现
+- 请求参数验证必须在控制器层完成
 
-class UserService {
-  private userRepository: UserRepository;
-  
-  constructor(userRepository: UserRepository) {
-    this.userRepository = userRepository;
-  }
-  
-  async createUser(userData: CreateUserData): Promise<User> {
-    // 参数验证
-    if (!userData.name || !userData.email) {
-      throw new Error('Name and email are required');
-    }
-    
-    // 检查邮箱格式
-    if (!this.isValidEmail(userData.email)) {
-      throw new Error('Invalid email format');
-    }
-    
-    // 检查邮箱是否已存在
-    const existingUser = await this.userRepository.findByEmail(userData.email);
-    if (existingUser) {
-      throw new Error('Email already exists');
-    }
-    
-    // 创建用户
-    const user = await this.userRepository.create(userData);
-    
-    return user;
-  }
-}
+## Caching Strategy
+- Redis key必须使用项目前缀"myapp:"
+- 用户会话缓存过期时间30分钟，数据缓存24小时
+- 分布式锁key必须使用"lock:myapp:"前缀
+- 缓存更新必须使用写穿透模式
+- 缓存失效必须使用主动清理策略
+
+## Testing Requirements
+
+- 单元测试必须使用gomock进行外部依赖mock
+- 核心业务逻辑测试覆盖率不低于85%
+- 测试文件必须以_test.go结尾
+- 集成测试必须使用独立的测试数据库实例
+- 测试环境配置必须使用test.env文件
+- 第三方API依赖必须使用WireMock进行mock
+- 接口测试必须包含Authorization和X-UserId请求头
+- 测试数据必须使用fixtures目录下的JSON文件
+- 测试用例必须包含正常和异常场景覆盖
+
+## Framework & Libraries
+
+- 框架版本必须精确锁定（如Echo v4.10.2）
+- ORM库版本必须锁定（如GORM v1.25.0）
+- JWT库版本必须锁定（如jwt-go v4.4.2）
+- 中间件配置必须遵循项目标准
+- 路由定义必须使用统一的命名规范
+
+## Configuration Management
+- 环境变量必须使用APP_前缀命名
+- 配置文件必须使用YAML格式
+- 敏感配置必须使用base64编码
+- 多环境配置必须分离管理
+- 配置验证必须在启动时完成
+
+## Code Organization
+- 使用项目特定的目录结构
+- 文件命名必须遵循统一规范
+- 模块导入必须按照指定顺序
+- 包结构必须符合领域划分
+- 代码注释必须使用标准格式
+
+## Error Handling
+- 使用项目统一的错误类型定义
+- 错误信息必须包含具体的上下文信息
+- 异常处理必须记录详细的错误日志
+- 错误恢复策略必须符合业务需求
+- 错误码必须使用项目标准枚举
+
+## Performance Standards
+- API响应时间必须满足具体的SLA要求
+- 数据库查询必须使用索引优化
+- 内存使用必须控制在指定范围内
+- 并发处理必须使用项目标准配置
+- 性能监控必须集成到CI/CD流程
 \`\`\`
 
-### 命名规范
-| 类型 | 命名规则 | 示例 |
-|------|----------|------|
-| 文件名 | kebab-case | user-service.ts |
-| 类名 | PascalCase | UserService |
-| 接口名 | PascalCase | IUser |
-| 变量名 | camelCase | userName |
-| 常量名 | SCREAMING_SNAKE_CASE | MAX_USERS |
-| 函数名 | camelCase | createUser |
-| 私有属性 | camelCase + _ | _privateProperty |
+### 格式特点要求
+- **简洁标题**: 使用"{项目名称} Development Rules"格式
+- **分类组织**: 按功能模块清晰分组（如Database Operations、API Development等）
+- **条目式规则**: 每个分类下使用简洁的破折号列表
+- **具体指导**: 每条规则必须是具体的、可操作的约束
+- **避免抽象**: 禁止包含抽象的设计原则和通用最佳实践
 
-### 代码组织
-\`\`\`typescript
-// 目录结构规范
-src/
-├── components/          // 组件
-│   ├── common/         // 通用组件
-│   └── features/       // 功能组件
-├── services/           // 服务层
-├── repositories/       // 数据访问层
-├── models/            // 数据模型
-├── utils/             // 工具函数
-├── constants/         // 常量定义
-├── types/             // 类型定义
-├── hooks/             // React Hooks
-└── __tests__/         // 测试文件
-\`\`\`
+### 内容质量标准
+- **项目特异性**: 100%的规则必须是项目特有的实施细节
+- **可操作性**: 每条规则都有明确的实施方法
+- **具体数值**: 包含具体的配置参数、版本号、阈值
+- **验证可行性**: 规则应该可以通过工具或代码检查验证
 
-## 架构设计
+### 文档长度控制
+- **总长度**: 控制在20-100行
+- **规则数量分布**:
+  - 开发领域（70%）：根据项目技术栈复杂度确定各分类规则数量
+  - 测试领域（20%）：根据项目测试策略确定各分类规则数量
+  - 其它领域（10%）：根据项目特定需求确定各分类规则数量
+- **描述精度**: 每条规则描述简洁明了，一行完成
+- **避免冗余**: 不重复通用的编程最佳实践
 
-### 分层架构
-\`\`\`typescript
-// 表现层
-@Controller('/api/users')
-export class UserController {
-  constructor(private readonly userService: UserService) {}
-  
-  @Post()
-  async createUser(@Body() userData: CreateUserData): Promise<User> {
-    return this.userService.createUser(userData);
-  }
-}
+## 输出文件命名
+\`${RULES_OUTPUT_DIR}generated_rules.md\`
+注意：如果${RULES_OUTPUT_DIR} 目录不存在，则创建。
 
-// 业务逻辑层
-@Service()
-export class UserService {
-  constructor(private readonly userRepository: UserRepository) {}
-  
-  async createUser(userData: CreateUserData): Promise<User> {
-    const user = await this.userRepository.create(userData);
-    return user;
-  }
-}
-
-// 数据访问层
-@Repository()
-export class UserRepository {
-  async create(userData: CreateUserData): Promise<User> {
-    const user = new User();
-    Object.assign(user, userData);
-    return await this.save(user);
-  }
-}
-\`\`\`
-
-### 设计模式
-\`\`\`typescript
-// 单例模式
-export class DatabaseConnection {
-  private static instance: DatabaseConnection;
-  private connection: any;
-  
-  private constructor() {
-    this.connection = this.createConnection();
-  }
-  
-  public static getInstance(): DatabaseConnection {
-    if (!DatabaseConnection.instance) {
-      DatabaseConnection.instance = new DatabaseConnection();
-    }
-    return DatabaseConnection.instance;
-  }
-}
-\`\`\`
-
-## 开发流程
-
-### Git工作流
-\`\`\`mermaid
-graph LR
-    A[main分支] --> B[develop分支]
-    B --> C[feature分支]
-    C --> D[Pull Request]
-    D --> E[代码审查]
-    E --> F[合并到develop]
-    F --> G[发布到main]
-\`\`\`
-
-### 分支管理
-| 分支类型 | 命名规则 | 用途 | 生命周期 |
-|----------|----------|------|----------|
-| main | main | 生产环境 | 长期 |
-| develop | develop | 开发环境 | 长期 |
-| feature | feature/功能名称 | 功能开发 | 临时 |
-| hotfix | hotfix/问题描述 | 紧急修复 | 临时 |
-| release | release/版本号 | 发布准备 | 临时 |
-
-### 提交规范
-\`\`\`bash
-# 提交信息格式
-<类型>(<范围>): <描述>
-
-# 类型说明
-feat: 新功能
-fix: 修复bug
-docs: 文档更新
-style: 代码格式化
-refactor: 重构
-test: 测试相关
-chore: 构建或辅助工具变动
-
-# 示例
-feat(auth): 添加用户登录功能
-fix(user): 修复用户信息更新bug
-docs(api): 更新API文档
-\`\`\`
-
-## 测试策略
-
-### 测试金字塔
-\`\`\`mermaid
-graph TD
-    A[单元测试] --> B[集成测试]
-    B --> C[端到端测试]
-    
-    A -->|70%| D[测试覆盖率]
-    B -->|20%| D
-    C -->|10%| D
-\`\`\`
-
-### 测试规范
-\`\`\`typescript
-describe('UserService', () => {
-  let userService: UserService;
-  let userRepository: jest.Mocked<UserRepository>;
-  
-  beforeEach(() => {
-    userRepository = {
-      create: jest.fn(),
-      findByEmail: jest.fn(),
-    } as any;
-    
-    userService = new UserService(userRepository);
-  });
-  
-  describe('createUser', () => {
-    it('应该成功创建用户', async () => {
-      // Arrange
-      const userData = {
-        name: 'John Doe',
-        email: 'john@example.com',
-        password: 'password123',
-      };
-      
-      // Act
-      const result = await userService.createUser(userData);
-      
-      // Assert
-      expect(result).toBeDefined();
-    });
-  });
-});
-\`\`\`
-
-## 安全规范
-
-### 输入验证
-\`\`\`typescript
-export class CreateUserDto {
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(2)
-  @MaxLength(50)
-  name: string;
-  
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
-  
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(8)
-  password: string;
-}
-\`\`\`
-
-### 权限控制
-\`\`\`typescript
-export enum Role {
-  ADMIN = 'admin',
-  USER = 'user',
-  GUEST = 'guest',
-}
-
-export const RequireRoles = (...roles: Role[]) => {
-  return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
-    const originalMethod = descriptor.value;
-    
-    descriptor.value = function(req: Request, res: Response, next: Function) {
-      const user = req.user;
-      
-      if (!user || !roles.includes(user.role)) {
-        return res.status(403).json({ error: 'Insufficient permissions' });
-      }
-      
-      return originalMethod.apply(this, arguments);
-    };
-    
-    return descriptor;
-  };
-};
-\`\`\`
-
-## 性能优化
-
-### 缓存策略
-\`\`\`typescript
-export class CacheService {
-  private redis: Redis;
-  
-  constructor() {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST,
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-    });
-  }
-  
-  async set(key: string, value: any, ttl: number = 3600): Promise<void> {
-    await this.redis.setex(key, ttl, JSON.stringify(value));
-  }
-  
-  async get<T>(key: string): Promise<T | null> {
-    const value = await this.redis.get(key);
-    return value ? JSON.parse(value) : null;
-  }
-}
-\`\`\`
-
-### 数据库优化
-\`\`\`typescript
-class UserRepository {
-  async findByEmail(email: string): Promise<User | null> {
-    const query = 'SELECT * FROM users WHERE email = \$1';
-    const result = await this.database.query(query, [email]);
-    return result.length > 0 ? result[0] : null;
-  }
-}
-\`\`\`
-
-## 错误处理
-
-### 错误类型
-\`\`\`typescript
-export class AppError extends Error {
-  public readonly statusCode: number;
-  public readonly isOperational: boolean;
-  
-  constructor(message: string, statusCode: number = 500) {
-    super(message);
-    this.statusCode = statusCode;
-    this.isOperational = true;
-  }
-}
-
-export class ValidationError extends AppError {
-  constructor(message: string) {
-    super(message, 400);
-  }
-}
-\`\`\`
-
-### 日志记录
-\`\`\`typescript
-export class Logger {
-  static info(message: string, meta?: any): void {
-    this.getLogger().info(message, meta);
-  }
-  
-  static error(message: string, error?: Error): void {
-    this.getLogger().error(message, { error: error?.stack });
-  }
-  
-  static warn(message: string, meta?: any): void {
-    this.getLogger().warn(message, meta);
-  }
-}
-\`\`\`
-
-## 文档规范
-
-### 代码文档
-\`\`\`typescript
-/**
- * 用户服务类
- * @class UserService
- * @description 提供用户相关的业务逻辑处理
- */
-export class UserService {
-  /**
-   * 创建新用户
-   * @async
-   * @method createUser
-   * @param {CreateUserData} userData - 用户数据
-   * @returns {Promise<User>} 创建的用户对象
-   * @throws {Error} 当用户数据无效或邮箱已存在时抛出错误
-   */
-  async createUser(userData: CreateUserData): Promise<User> {
-    // 实现逻辑
-  }
-}
-\`\`\`
-
-## 检查清单
-
-### 代码质量检查
-- [ ] 代码符合命名规范
-- [ ] 代码符合组织规范
-- [ ] 代码有适当的注释
-- [ ] 代码通过了所有测试
-- [ ] 代码通过了静态分析
-
-### 架构设计检查
-- [ ] 遵循分层架构
-- [ ] 使用了合适的设计模式
-- [ ] 模块间耦合度低
-- [ ] 接口设计合理
-- [ ] 扩展性良好
-
-### 安全检查
-- [ ] 输入数据已验证
-- [ ] 权限控制已实现
-- [ ] 敏感数据已加密
-- [ ] SQL注入已防护
-- [ ] XSS攻击已防护
-
-### 性能检查
-- [ ] 数据库查询已优化
-- [ ] 缓存策略已实现
-- [ ] 资源使用合理
-- [ ] 响应时间可接受
-- [ ] 并发处理正确
-
-## 最佳实践
-
-### 开发最佳实践
-1. **保持代码简洁**: 避免过度设计，保持代码简单易懂
-2. **遵循DRY原则**: 避免重复代码，提取公共逻辑
-3. **编写测试**: 为所有功能编写单元测试和集成测试
-4. **代码审查**: 所有代码变更都需要经过审查
-5. **持续集成**: 使用CI/CD自动化构建和测试
-
-### 架构最佳实践
-1. **分层架构**: 清晰的层次结构，避免跨层调用
-2. **依赖注入**: 使用依赖注入管理组件间依赖
-3. **接口设计**: 定义清晰的接口，隐藏实现细节
-4. **错误处理**: 统一的错误处理机制
-5. **日志记录**: 完善的日志记录系统
-
-### 安全最佳实践
-1. **输入验证**: 对所有输入数据进行验证
-2. **权限控制**: 基于角色的访问控制
-3. **数据加密**: 敏感数据加密存储
-4. **安全审计**: 定期进行安全审计
-5. **漏洞修复**: 及时修复安全漏洞
-
-## 注意事项
-1. **规则执行**: 所有开发人员必须严格遵守项目规则
-2. **持续改进**: 定期回顾和改进项目规则
-3. **文档更新**: 规则变更时及时更新文档
-4. **培训教育**: 对新成员进行规则培训
-5. **工具支持**: 使用工具辅助规则执行和检查
-\`\`\`
-`
+## 示例输出特征
+- 使用简洁的分类组织结构
+- 专注于项目特有的技术约束
+- 提供具体的实施细节和配置要求
+- 避免抽象的架构原则和通用指导
+- 重点关注可验证的具体约束规则`

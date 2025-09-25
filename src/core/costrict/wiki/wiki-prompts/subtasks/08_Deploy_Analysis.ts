@@ -1,3 +1,5 @@
+import { WIKI_OUTPUT_DIR } from "./constants"
+
 export const DEPLOY_ANALYSIS_TEMPLATE = `# 部署分析
 
 ## 使用场景
@@ -1305,6 +1307,10 @@ spec:
 - [ ] 测试回滚流程
 - [ ] 通知相关人员
 \`\`\`
+
+## 输出文件命名
+\`${WIKI_OUTPUT_DIR}07_{PROJECT_NAME}_Deploy_Analysis.md\`
+注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 注意事项
 1. **安全第一**: 所有敏感信息必须使用Kubernetes Secret管理
