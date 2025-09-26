@@ -6,6 +6,14 @@ export const DEPLOY_ANALYSIS_TEMPLATE = `# 部署分析
 从代码仓库中分析项目的部署架构、流程、配置等，生成详细的部署技术文档。
 
 ## 输入要求
+- **前置任务分析结果**:（如果文件不存在则忽略）
+  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
+  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
+  - \`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
+  - \`${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md\`
+  - \`${WIKI_OUTPUT_DIR}06_{PROJECT_NAME}_Database_Schema.md\`
+  - \`${WIKI_OUTPUT_DIR}07_{PROJECT_NAME}_API_Interface.md\`
 - **完整代码仓库**: 项目的完整源代码
 - **部署配置**: Dockerfile、docker-compose.yml、Kubernetes配置等
 - **CI/CD配置**: GitHub Actions、Jenkins、GitLab CI等配置文件

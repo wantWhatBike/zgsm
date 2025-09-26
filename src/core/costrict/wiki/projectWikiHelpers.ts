@@ -1,7 +1,8 @@
 import { promises as fs } from "fs"
 import * as path from "path"
-import * as os from "os"
-import { PROJECT_WIKI_TEMPLATE } from "./wiki-prompts/project-wiki"
+import { formatError, getGlobalCommandsDir, subtaskDir } from "./wiki-prompts/subtasks/constants"
+import { PROJECT_WIKI_TEMPLATE } from "./wiki-prompts/project_wiki"
+import { SUBTASK_FILENAMES, MAIN_WIKI_FILENAME } from "./wiki-prompts/subtasks/constants"
 import { PROJECT_OVERVIEW_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/01_Project_Overview_Analysis"
 import { OVERALL_ARCHITECTURE_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/02_Overall_Architecture_Analysis"
 import { SERVICE_DEPENDENCIES_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/03_Service_Dependencies_Analysis"
@@ -10,49 +11,29 @@ import { SERVICE_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/05_Service_An
 import { DATABASE_SCHEMA_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/06_Database_Schema_Analysis"
 import { API_INTERFACE_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/07_API_Interface_Analysis"
 import { DEPLOY_ANALYSIS_TEMPLATE } from "./wiki-prompts/subtasks/08_Deploy_Analysis"
-import { PROJECT_RULES_GENERATION_TEMPLATE } from "./wiki-prompts/subtasks/09_Project_Rules_Generation"
+import { PROJECT_RULES_GENERATION_TEMPLATE } from "./wiki-prompts/subtasks/10_Project_Rules_Generation"
 import { ILogger, createLogger } from "../../../utils/logger"
+import { INDEX_GENERATION_TEMPLATE } from "./wiki-prompts/subtasks/09_Index_Generation"
 
-// Safely get home directory
-function getHomeDir(): string {
-	const homeDir = os.homedir()
-	if (!homeDir) {
-		throw new Error("Unable to determine home directory")
-	}
-	return homeDir
-}
-
-// Get global commands directory path
-function getGlobalCommandsDir(): string {
-	return path.join(getHomeDir(), ".roo", "commands")
-}
 
 export const projectWikiCommandName = "project-wiki"
 export const projectWikiCommandDescription = `Perform an in-depth analysis of the project and create a comprehensive project wiki.`
 
 const logger: ILogger = createLogger("ProjectWikiHelpers")
 
-// Unified error handling function, preserving stack information
-function formatError(error: unknown): string {
-	if (error instanceof Error) {
-		return error.stack || error.message
-	}
-	return String(error)
-}
-
-const mainFileName: string = projectWikiCommandName + ".md"
 // Template data mapping
 const TEMPLATES = {
-	[mainFileName]: PROJECT_WIKI_TEMPLATE,
-	"01_Project_Overview_Analysis.md": PROJECT_OVERVIEW_ANALYSIS_TEMPLATE,
-	"02_Overall_Architecture_Analysis.md": OVERALL_ARCHITECTURE_ANALYSIS_TEMPLATE,
-	"03_Service_Dependencies_Analysis.md": SERVICE_DEPENDENCIES_ANALYSIS_TEMPLATE,
-	"04_Data_Flow_Integration_Analysis.md": DATA_FLOW_INTEGRATION_ANALYSIS_TEMPLATE,
-	"05_Service_Analysis_Template.md": SERVICE_ANALYSIS_TEMPLATE,
-	"06_Database_Schema_Analysis.md": DATABASE_SCHEMA_ANALYSIS_TEMPLATE,
-	"07_API_Interface_Analysis.md": API_INTERFACE_ANALYSIS_TEMPLATE,
-	"08_Deploy_Analysis.md": DEPLOY_ANALYSIS_TEMPLATE,
-	"09_Project_Rules_Generation.md": PROJECT_RULES_GENERATION_TEMPLATE,
+	[MAIN_WIKI_FILENAME]: PROJECT_WIKI_TEMPLATE,
+	[SUBTASK_FILENAMES.PROJECT_OVERVIEW_TASK_FILE]: PROJECT_OVERVIEW_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE]: OVERALL_ARCHITECTURE_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE]: SERVICE_DEPENDENCIES_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE]: DATA_FLOW_INTEGRATION_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.SERVICE_ANALYSIS_TASK_FILE]: SERVICE_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.DATABASE_SCHEMA_TASK_FILE]: DATABASE_SCHEMA_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.API_INTERFACE_TASK_FILE]: API_INTERFACE_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.DEPLOY_ANALYSIS_TASK_FILE]: DEPLOY_ANALYSIS_TEMPLATE,
+	[SUBTASK_FILENAMES.PROJECT_RULES_TASK_FILE]: PROJECT_RULES_GENERATION_TEMPLATE,
+	[SUBTASK_FILENAMES.INDEX_GENERATION_TASK_FILE]: INDEX_GENERATION_TEMPLATE,
 }
 
 export async function ensureProjectWikiCommandExists() {
@@ -64,10 +45,9 @@ export async function ensureProjectWikiCommandExists() {
 		await fs.mkdir(globalCommandsDir, { recursive: true })
 
 		const projectWikiFile = path.join(globalCommandsDir, `${projectWikiCommandName}.md`)
-		const subTaskDir = path.join(globalCommandsDir, "subtasks")
 
 		// Check if setup is needed
-		const needsSetup = await checkIfSetupNeeded(projectWikiFile, subTaskDir)
+		const needsSetup = await checkIfSetupNeeded(projectWikiFile, subtaskDir)
 		if (!needsSetup) {
 			logger.info("[projectWikiHelpers] project-wiki command already exists")
 			return
@@ -78,11 +58,11 @@ export async function ensureProjectWikiCommandExists() {
 		// Clean up existing files
 		await Promise.allSettled([
 			fs.rm(projectWikiFile, { force: true }),
-			fs.rm(subTaskDir, { recursive: true, force: true }),
+			fs.rm(subtaskDir, { recursive: true, force: true }),
 		])
 
 		// Generate Wiki files
-		await generateWikiCommandFiles(projectWikiFile, subTaskDir)
+		await generateWikiCommandFiles(projectWikiFile, subtaskDir)
 
 		const duration = Date.now() - startTime
 		logger.info(`[projectWikiHelpers] project-wiki command setup completed in ${duration}ms`)
@@ -120,6 +100,16 @@ async function checkIfSetupNeeded(projectWikiFile: string, subTaskDir: string): 
 		// Check if subtask directory has .md files
 		const subTaskFiles = await fs.readdir(subTaskDir)
 		const mdFiles = subTaskFiles.filter((file) => file.endsWith(".md"))
+		
+		// 精细化检查：验证每个必需的子任务文件是否存在
+		const subTaskFileNames = Object.keys(TEMPLATES).filter(file => file !== MAIN_WIKI_FILENAME)
+		const missingSubTaskFiles = subTaskFileNames.filter(fileName => !mdFiles.includes(fileName))
+		
+		if (missingSubTaskFiles.length > 0) {
+			logger.info(`[projectWikiHelpers] Missing subtask files: ${missingSubTaskFiles.join(', ')}`)
+			return true
+		}
+		
 		return mdFiles.length === 0
 	} catch (error) {
 		logger.error("[projectWikiHelpers] Error checking setup status:", formatError(error))
@@ -131,7 +121,7 @@ async function checkIfSetupNeeded(projectWikiFile: string, subTaskDir: string): 
 async function generateWikiCommandFiles(projectWikiFile: string, subTaskDir: string): Promise<void> {
 	try {
 		// Generate main file
-		const mainTemplate = TEMPLATES[mainFileName]
+		const mainTemplate = TEMPLATES[MAIN_WIKI_FILENAME]
 		if (!mainTemplate) {
 			throw new Error("Main template not found")
 		}
@@ -143,7 +133,7 @@ async function generateWikiCommandFiles(projectWikiFile: string, subTaskDir: str
 		await fs.mkdir(subTaskDir, { recursive: true })
 
 		// Generate subtask files
-		const subTaskFiles = Object.keys(TEMPLATES).filter((file) => file !== mainFileName)
+		const subTaskFiles = Object.keys(TEMPLATES).filter((file) => file !== MAIN_WIKI_FILENAME)
 		const generateResults = await Promise.allSettled(
 			subTaskFiles.map(async (file) => {
 				const template = TEMPLATES[file as keyof typeof TEMPLATES]
@@ -165,7 +155,7 @@ async function generateWikiCommandFiles(projectWikiFile: string, subTaskDir: str
 
 		if (failed.length > 0) {
 			logger.warn(`[projectWikiHelpers] Failed to generate ${failed.length} subtask files:`)
-			failed.forEach((result, index) => {
+			failed.forEach((result) => {
 				if (result.status === "rejected") {
 					logger.warn(`  - ${subTaskFiles[generateResults.indexOf(result)]}: ${formatError(result.reason)}`)
 				}
