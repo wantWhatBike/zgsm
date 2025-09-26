@@ -4,6 +4,7 @@
 	"instructions": {
 		"wantsToFetch": "Costrict wants to fetch detailed instructions to assist with the current task"
 	},
+	"error": "Costrict will automatically fix",
 	"text": {
 		"rooSaid": "Costrict said"
 	},
@@ -108,7 +109,7 @@
 	"rooTips": {
 		"test": {
 			"title": "Test",
-			"description": "Automatically generate and run unit tests to validate your code"
+			"description": "Automatically generate and run tests to ensure code reliability and stability"
 		},
 		"projectWiki": {
 			"title": "Project Wiki",

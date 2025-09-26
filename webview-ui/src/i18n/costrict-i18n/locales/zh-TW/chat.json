@@ -4,6 +4,7 @@
 	"instructions": {
 		"wantsToFetch": "Costrict 想要獲取詳細指令以協助當前任務"
 	},
+	"error": "Costrict 將自動修復",
 	"text": {
 		"rooSaid": "Costrict 說"
 	},
@@ -111,7 +112,7 @@
 	"rooTips": {
 		"test": {
 			"title": "測試",
-			"description": "自動產生並執行單元測試來驗證程式碼"
+			"description": "自動生成並運行測試，確保代碼可靠與穩定"
 		},
 		"projectWiki": {
 			"title": "專案文件",

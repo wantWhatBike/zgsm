@@ -101,7 +101,7 @@ export const ErrorRow = memo(
 						}`}
 						onClick={handleToggleExpand}>
 						<div className="flex items-center gap-2 flex-grow">
-							<MessageCircleWarning className="w-4 text-vscode-errorForeground" />
+							<MessageCircleWarning className="w-4" />
 							<span className="font-bold">{errorTitle}</span>
 						</div>
 						<div className="flex items-center">
@@ -130,20 +130,17 @@ export const ErrorRow = memo(
 			<>
 				{errorTitle && (
 					<div className={headerClassName || "flex items-center gap-2 break-words"}>
-						<MessageCircleWarning className="w-4 text-vscode-errorForeground" />
-						<span className="text-vscode-errorForeground font-bold">{errorTitle}</span>
+						<MessageCircleWarning className="w-4 opacity-80" />
+						<span className="font-bold opacity-80">{errorTitle}</span>
 					</div>
 				)}
 				{apiConfiguration.apiProvider !== "zgsm" ? (
-					<p
-						className={
-							messageClassName || "ml-6 my-0 whitespace-pre-wrap break-words text-vscode-errorForeground"
-						}>
+					<p className={messageClassName || "ml-6 my-0 whitespace-pre-wrap break-words opacity-80"}>
 						{message}
 					</p>
 				) : (
 					<p
-						className={messageClassName || "ml-6 my-0 whitespace-pre-wrap break-words"}
+						className={messageClassName || "ml-6 my-0 whitespace-pre-wrap break-words opacity-80"}
 						dangerouslySetInnerHTML={{
 							__html: message,
 						}}></p>
