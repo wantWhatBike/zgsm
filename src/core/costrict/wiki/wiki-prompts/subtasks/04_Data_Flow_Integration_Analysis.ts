@@ -6,6 +6,10 @@ export const DATA_FLOW_INTEGRATION_ANALYSIS_TEMPLATE = `# 数据流和集成深�
 从代码仓库中分析数据在系统中的流动路径和集成方式，生成详细的数据流文档，包括数据流转、集成模式、数据一致性等。
 
 ## 输入要求
+- **前置任务分析结果**:（如果文件不存在则忽略）
+  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
+  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
 - **完整代码仓库**: 项目的完整源代码
 - **数据模型**: 数据库模型和数据结构定义
 - **API接口**: 数据传输接口定义
@@ -585,4 +589,5 @@ func (m *DataFlowMonitor) RecordMessage(duration time.Duration) {
 - 完整的集成模式和应用场景分析
 - 全面的数据一致性保证机制
 - 实用的数据安全和加密策略
-- 具体的性能优化和故障处理方案`
+- 具体的性能优化和故障处理方案
+`

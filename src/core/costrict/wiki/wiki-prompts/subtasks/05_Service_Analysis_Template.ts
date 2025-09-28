@@ -6,6 +6,11 @@ export const SERVICE_ANALYSIS_TEMPLATE = `# 服务模块深度分析
 从代码仓库中分析各个服务模块的架构、功能、接口、依赖关系等，生成详细的服务模块技术文档。
 
 ## 输入要求
+- **前置任务分析结果**:（如果文件不存在则忽略）
+  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
+  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
+  - \`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
 - **完整代码仓库**: 项目的完整源代码
 - **服务配置**: 各服务的配置文件
 - **接口定义**: 服务间接口定义
@@ -953,4 +958,5 @@ graph TB
 - 完整的API接口和数据模型定义
 - 全面的服务依赖关系和通信方式分析
 - 具体的性能特性和监控指标
-- 实用的部署策略和优化建议`
+- 实用的部署策略和优化建议
+`

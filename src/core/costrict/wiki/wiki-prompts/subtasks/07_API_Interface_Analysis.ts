@@ -6,6 +6,13 @@ export const API_INTERFACE_ANALYSIS_TEMPLATE = `# API接口深度分析
 从代码仓库中分析API接口设计、接口规范、数据格式、错误处理等，生成详细的API接口技术文档。
 
 ## 输入要求
+- **前置任务分析结果**:（如果文件不存在则忽略）
+  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
+  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
+  - \`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
+  - \`${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md\`
+  - \`${WIKI_OUTPUT_DIR}06_{PROJECT_NAME}_Database_Schema.md\`
 - **完整代码仓库**: 项目的完整源代码
 - **API定义文件**: API接口定义和规范文件
 - **路由配置**: API路由和控制器配置
@@ -1637,4 +1644,5 @@ type DataSearchResponse struct {
 - 完整的数据模型和响应格式定义
 - 全面的错误处理和安全控制机制
 - 具体的性能优化和缓存策略
-- 实用的API文档和版本管理建议`
+- 实用的API文档和版本管理建议
+`

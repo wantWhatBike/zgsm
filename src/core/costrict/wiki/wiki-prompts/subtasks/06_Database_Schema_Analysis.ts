@@ -6,6 +6,12 @@ export const DATABASE_SCHEMA_ANALYSIS_TEMPLATE = `# 数据库架构深度分析
 从代码仓库中分析数据库架构、表结构、索引设计、关系模型等，生成详细的数据库技术文档。
 
 ## 输入要求
+- **前置任务分析结果**:（如果文件不存在则忽略）
+  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
+  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
+  - \`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
+  - \`${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md\`
 - **完整代码仓库**: 项目的完整源代码
 - **数据库迁移文件**: 数据库迁移和初始化脚本
 - **ORM模型定义**: 数据库模型和关系定义
@@ -1248,4 +1254,5 @@ CREATE TRIGGER configurations_audit_trigger AFTER INSERT OR UPDATE OR DELETE ON 
 - 完整的索引设计和优化策略
 - 全面的关系模型和约束设计
 - 具体的性能优化和安全措施
-- 实用的监控和维护建议`
+- 实用的监控和维护建议
+`

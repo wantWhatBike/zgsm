@@ -6,6 +6,9 @@ export const SERVICE_DEPENDENCIES_ANALYSIS_TEMPLATE = `# 服务依赖深度分�
 从代码仓库中分析服务间的依赖关系，生成详细的依赖文档，包括服务调用、数据流、接口依赖等。
 
 ## 输入要求
+- **前置任务分析结果**:（如果文件不存在则忽略）
+  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Overall_Architecture.md\`
 - **完整代码仓库**: 项目的完整源代码
 - **服务配置**: 各服务的配置文件
 - **API定义**: 服务间接口定义
@@ -512,4 +515,5 @@ websocket:
 - 清晰的数据依赖和配置依赖分析
 - 全面的第三方服务依赖评估
 - 实用的依赖风险评估和优化建议
-- 完整的依赖管理策略和监控方案`
+- 完整的依赖管理策略和监控方案
+`
