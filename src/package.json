@@ -3,7 +3,7 @@
 	"displayName": "%extension.displayName.long%",
 	"description": "%extension.description%",
 	"publisher": "zgsm-ai",
-	"version": "1.6.15-wf12",
+	"version": "1.6.16",
 	"icon": "assets/images/shenma_robot_logo_big.png",
 	"galleryBanner": {
 		"color": "#617A91",
@@ -87,7 +87,8 @@
 				{
 					"type": "webview",
 					"id": "zgsm.SidebarProvider",
-					"name": "%views.sidebar.name%"
+					"name": "%views.sidebar.name%",
+					"icon": "assets/images/shenma_robot_logo_big.png"
 				}
 			]
 		},
@@ -265,6 +266,12 @@
 				"command": "zgsm.coworkflow.refreshDecorations",
 				"title": "Refresh Decorations",
 				"category": "Coworkflow"
+			},
+			{
+				"command": "zgsm.generateCommitMessage",
+				"title": "%command.generateCommitMessage.title%",
+				"category": "%configuration.title%",
+				"icon": "assets/images/shenma_robot_logo_big.png"
 			}
 		],
 		"menus": {
@@ -445,6 +452,13 @@
 					"command": "zgsm.rejectIssue",
 					"group": "navigation@2",
 					"when": "commentThread == CostrictCodeReview"
+				}
+			],
+			"scm/title": [
+				{
+					"command": "zgsm.generateCommitMessage",
+					"group": "navigation",
+					"when": "scmProvider == git"
 				}
 			]
 		},
