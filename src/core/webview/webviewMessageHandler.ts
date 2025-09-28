@@ -48,7 +48,6 @@ import { playTts, setTtsEnabled, setTtsSpeed, stopTts } from "../../utils/tts"
 import { searchCommits } from "../../utils/git"
 import { exportSettings, importSettingsWithFeedback } from "../config/importExport"
 import { getOpenAiModels } from "../../api/providers/openai"
-import { getZgsmModels } from "../../api/providers/fetchers/zgsm"
 import { getVsCodeLmModels } from "../../api/providers/vscode-lm"
 import { openMention } from "../mentions"
 import { getWorkspacePath } from "../../utils/path"
@@ -71,6 +70,7 @@ import { ZgsmCodebaseIndexManager, IndexSwitchRequest, IndexStatusInfo } from ".
 import { ErrorCodeManager } from "../costrict/error-code"
 import { writeCostrictAccessToken } from "../costrict/codebase-index/utils"
 import { workspaceEventMonitor } from "../costrict/codebase-index/workspace-event-monitor"
+import { fetchZgsmQuotaInfo } from "../../api/providers/fetchers/zgsm"
 
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
@@ -2407,9 +2407,25 @@ export const webviewMessageHandler = async (
 
 		case "telemetrySetting": {
 			const telemetrySetting = message.text as TelemetrySetting
-			await updateGlobalState("telemetrySetting", telemetrySetting)
+			const previousSetting = getGlobalState("telemetrySetting") || "unset"
 			const isOptedIn = telemetrySetting !== "disabled"
-			TelemetryService.instance.updateTelemetryState(isOptedIn)
+			const wasPreviouslyOptedIn = previousSetting !== "disabled"
+
+			// If turning telemetry OFF, fire event BEFORE disabling
+			if (wasPreviouslyOptedIn && !isOptedIn && TelemetryService.hasInstance()) {
+				TelemetryService.instance.captureTelemetrySettingsChanged(previousSetting, telemetrySetting)
+			}
+			// Update the telemetry state
+			await updateGlobalState("telemetrySetting", telemetrySetting)
+			if (TelemetryService.hasInstance()) {
+				TelemetryService.instance.updateTelemetryState(isOptedIn)
+			}
+
+			// If turning telemetry ON, fire event AFTER enabling
+			if (!wasPreviouslyOptedIn && isOptedIn && TelemetryService.hasInstance()) {
+				TelemetryService.instance.captureTelemetrySettingsChanged(previousSetting, telemetrySetting)
+			}
+
 			await provider.postStateToWebview()
 			break
 		}
@@ -3432,6 +3448,22 @@ export const webviewMessageHandler = async (
 				type: "dismissedUpsells",
 				list: dismissedUpsells,
 			})
+			break
+		}
+		case "fetchZgsmQuotaInfo": {
+			const { apiConfiguration } = await provider.getState()
+
+			// zgsmQuotaInfo
+			const data = await fetchZgsmQuotaInfo(
+				apiConfiguration.zgsmBaseUrl || ZgsmAuthConfig.getInstance().getDefaultApiBaseUrl(),
+				apiConfiguration.zgsmAccessToken,
+			)
+			if (data) {
+				await provider.postMessageToWebview({
+					type: "zgsmQuotaInfo",
+					values: data,
+				})
+			}
 			break
 		}
 	}

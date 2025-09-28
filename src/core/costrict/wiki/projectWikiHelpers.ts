@@ -19,7 +19,7 @@ import { INDEX_GENERATION_TEMPLATE } from "./wiki-prompts/subtasks/09_Index_Gene
 export const projectWikiCommandName = "project-wiki"
 export const projectWikiCommandDescription = `Perform an in-depth analysis of the project and create a comprehensive project wiki.`
 
-const logger: ILogger = createLogger("ProjectWikiHelpers")
+const logger: ILogger = createLogger()
 
 // Template data mapping
 const TEMPLATES = {

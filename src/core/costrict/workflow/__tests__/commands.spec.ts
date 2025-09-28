@@ -86,17 +86,6 @@ vi.mock("../../webview/ClineProvider", () => ({
 	},
 }))
 
-// Mock diff-utils
-vi.mock("./diff-utils", () => ({
-	getCospecFileDiff: vi.fn().mockResolvedValue({
-		filePath: "test.md",
-		checkpointContent: null,
-		localContent: null,
-		diffString: null,
-		hasDifference: false,
-	}),
-}))
-
 // Mock utils/path
 vi.mock("../../../utils/path", () => ({
 	getWorkspacePath: vi.fn().mockReturnValue("/test"),
@@ -123,6 +112,14 @@ vi.mock("path", async (importOriginal) => {
 			dirname: vi.fn((p: string) => p.split("/").slice(0, -1).join("/")),
 			relative: vi.fn((from: string, to: string) => to.replace(from, "").replace(/^\//, "")),
 			join: vi.fn((...paths: string[]) => paths.join("/")),
+			basename: vi.fn((p: string) => {
+				// 处理 Windows 路径（反斜杠）
+				const normalizedPath = p.replace(/\\/g, "/")
+				const parts = normalizedPath.split("/")
+				return parts[parts.length - 1] || ""
+			}),
+			normalize: vi.fn((p: string) => p.replace(/\\/g, "/")),
+			sep: "/",
 		},
 	}
 })
@@ -254,9 +251,9 @@ describe("Coworkflow Commands", () => {
 			const designUri = vscode.Uri.file("/test/.cospec/design.md")
 			const tasksUri = vscode.Uri.file("/test/.cospec/tasks.md")
 
-			expect(isCoworkflowDocument(requirementsUri)).toBe(true)
-			expect(isCoworkflowDocument(designUri)).toBe(true)
-			expect(isCoworkflowDocument(tasksUri)).toBe(true)
+			expect(isCoworkflowDocument(requirementsUri.fsPath)).toBe(true)
+			expect(isCoworkflowDocument(designUri.fsPath)).toBe(true)
+			expect(isCoworkflowDocument(tasksUri.fsPath)).toBe(true)
 		})
 
 		it("should return false for invalid coworkflow documents", () => {
@@ -264,9 +261,9 @@ describe("Coworkflow Commands", () => {
 			const invalidUri2 = vscode.Uri.file("/test/.cospec/other.md")
 			const invalidUri3 = vscode.Uri.file("/test/.cospec/requirements.txt")
 
-			expect(isCoworkflowDocument(invalidUri1)).toBe(false)
-			expect(isCoworkflowDocument(invalidUri2)).toBe(false)
-			expect(isCoworkflowDocument(invalidUri3)).toBe(false)
+			expect(isCoworkflowDocument(invalidUri1.fsPath)).toBe(false)
+			expect(isCoworkflowDocument(invalidUri2.fsPath)).toBe(false)
+			expect(isCoworkflowDocument(invalidUri3.fsPath)).toBe(false)
 		})
 	})
 
