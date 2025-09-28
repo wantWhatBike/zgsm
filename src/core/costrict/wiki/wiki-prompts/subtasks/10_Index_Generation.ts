@@ -1,4 +1,4 @@
-import { RULES_OUTPUT_DIR, WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR } from "./constants"
 
 export const INDEX_GENERATION_TEMPLATE = `# 项目技术文档索引生成
 

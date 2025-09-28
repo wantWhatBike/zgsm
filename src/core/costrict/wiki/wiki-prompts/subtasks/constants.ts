@@ -2,7 +2,7 @@ import * as os from "os"
 import * as path from "path"
 
 export const WIKI_OUTPUT_DIR = path.join(".cospec", "wiki") + path.sep
-export const RULES_OUTPUT_DIR = ".roo" + path.sep
+export const GENERAL_RULES_OUTPUT_DIR = path.join(".roo", "rules") + path.sep
 
 // Safely get home directory
 export function getHomeDir(): string {
@@ -40,8 +40,9 @@ export const SUBTASK_FILENAMES = {
 	DATABASE_SCHEMA_TASK_FILE: "06_Database_Schema_Analysis.md",
 	API_INTERFACE_TASK_FILE: "07_API_Interface_Analysis.md",
 	DEPLOY_ANALYSIS_TASK_FILE: "08_Deploy_Analysis.md",
-	INDEX_GENERATION_TASK_FILE: "09_Index_Generation.md",
-	PROJECT_RULES_TASK_FILE: "10_Project_Rules_Generation.md"
+	Develop_TEST_ANALYSIS_TASK_FILE: "09_Develop_Test_Analysis.md",
+	INDEX_GENERATION_TASK_FILE: "10_Index_Generation.md",
+	PROJECT_RULES_TASK_FILE: "11_Project_Rules_Generation.md"
 } as const
 
 // 主文件名
