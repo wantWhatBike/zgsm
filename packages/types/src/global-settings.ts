@@ -313,7 +313,7 @@ export const EVALS_SETTINGS: RooCodeSettings = {
 
 	enableCheckpoints: false,
 
-	rateLimitSeconds: 0,
+	rateLimitSeconds: 1,
 	maxOpenTabsContext: 20,
 	maxWorkspaceFiles: 200,
 	showRooIgnoredFiles: true,

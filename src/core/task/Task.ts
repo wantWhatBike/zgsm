@@ -130,7 +130,6 @@ export interface TaskOptions extends CreateTaskOptions {
 	enableCheckpoints?: boolean
 	useZgsmCustomConfig?: boolean
 	zgsmCodebaseIndexEnabled?: boolean
-	enableTaskBridge?: boolean
 	enableBridge?: boolean
 	fuzzyMatchThreshold?: number
 	consecutiveMistakeLimit?: number
@@ -230,7 +229,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	api: ApiHandler & {
 		setChatType?: (type: "user" | "system") => void
 		getChatType?: () => "user" | "system"
-		cancelChat?: (cancelType: ClineApiReqCancelReason) => void
+		cancelChat?: (cancelType?: ClineApiReqCancelReason) => void
 	}
 	private static lastGlobalApiRequestTime?: number
 	private autoApprovalHandler: AutoApprovalHandler
@@ -632,7 +631,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		// if (shouldCaptureMessage) {
 		// 	CloudService.instance.captureEvent({
-		// 		event: TelemetryEventName.TASK_MESSAGE as any,
+		// 		event: TelemetryEventName.TASK_MESSAGE,
 		// 		properties: { taskId: this.taskId, message },
 		// 	})
 		// }
@@ -665,7 +664,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		if (shouldCaptureMessage) {
 			CloudService.instance.captureEvent({
-				event: TelemetryEventName.TASK_MESSAGE as any,
+				event: TelemetryEventName.TASK_MESSAGE,
 				properties: { taskId: this.taskId, message },
 			})
 		}
@@ -1089,6 +1088,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		if (this.abort) {
 			throw new Error(`[Costrict#say] task ${this.taskId}.${this.instanceId} aborted`)
 		}
+		const isRateLimitRetry = !!(type === "api_req_retry_delayed" && text && text?.startsWith("Rate limiting for"))
 
 		if (type === "checkpoint_saved") {
 		}
@@ -1123,7 +1123,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 						images,
 						partial,
 						contextCondense,
-						metadata: options.metadata,
+						metadata: { ...options.metadata, isRateLimitRetry },
 					})
 				}
 			} else {
@@ -1578,7 +1578,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		if (this.enableBridge) {
 			BridgeOrchestrator.getInstance()
 				?.unsubscribeFromTask(this.taskId)
-				.catch((error: { message: any }) =>
+				.catch((error) =>
 					console.error(
 						`[Task#dispose] BridgeOrchestrator#unsubscribeFromTask() failed: ${error instanceof Error ? error.message : String(error)}`,
 					),
@@ -2022,6 +2022,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 						if (this.abort) {
 							console.log(`aborting stream, this.abandoned = ${this.abandoned}`)
+							this?.api?.cancelChat?.(this.abortReason)
 
 							if (!this.abandoned) {
 								// Only need to gracefully abort if this instance
@@ -2234,7 +2235,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 						// Now abort (emits TaskAborted which provider listens to)
 						await this.abortTask()
-
+						this?.api?.cancelChat?.(cancelReason)
 						// Do not rehydrate here; provider owns rehydration to avoid duplication races
 					}
 				} finally {
@@ -2571,15 +2572,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		}
 
 		let rateLimitDelay = 0
-		const rateLimit = apiConfiguration?.rateLimitSeconds || 0
-		if (Task.lastGlobalApiRequestTime && rateLimit > 0) {
+
+		// Use the shared timestamp so that subtasks respect the same rate-limit
+		// window as their parent tasks.
+		if (Task.lastGlobalApiRequestTime) {
 			const now = Date.now()
 			const timeSinceLastRequest = now - Task.lastGlobalApiRequestTime
-			const remainingDelay = rateLimit * 1000 - timeSinceLastRequest
-			// Only apply rate limit if there's actually time remaining to wait
-			if (remainingDelay > 0) {
-				rateLimitDelay = Math.ceil(remainingDelay / 1000)
-			}
+			const rateLimit = apiConfiguration?.rateLimitSeconds || 0
+			rateLimitDelay = Math.ceil(Math.max(0, rateLimit * 1000 - timeSinceLastRequest) / 1000)
 		}
 
 		// Only show rate limiting message if we're not retrying. If retrying, we'll include the delay there.
@@ -2587,11 +2587,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// Show countdown timer
 			for (let i = rateLimitDelay; i > 0; i--) {
 				const delayMessage = `Rate limiting for ${i} seconds...`
-				await this.say("api_req_retry_delayed", delayMessage, undefined, true, undefined, undefined, {
-					metadata: {
-						isRateLimit: true,
-					},
-				})
+				this.providerRef.deref()?.log(`[Task#${this.taskId}] ${delayMessage}`)
+				await this.say("api_req_retry_delayed", delayMessage, undefined, true)
 				await delay(1000)
 			}
 		}
@@ -2791,7 +2788,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				for (let i = finalDelay; i > 0; i--) {
 					await this.say(
 						"api_req_retry_delayed",
-						`${errorMsg}\nRetry attempt ${retryAttempt + 1}\nRetrying in ${i} seconds...`,
+						`${errorMsg}\n\nRetry attempt ${retryAttempt + 1}\nRetrying in ${i} seconds...`,
 						undefined,
 						true,
 					)
@@ -2800,7 +2797,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 				await this.say(
 					"api_req_retry_delayed",
-					`${errorMsg}\nRetry attempt ${retryAttempt + 1}\nRetrying now...`,
+					`${errorMsg}\n\nRetry attempt ${retryAttempt + 1}\nRetrying now...`,
 					undefined,
 					false,
 				)
