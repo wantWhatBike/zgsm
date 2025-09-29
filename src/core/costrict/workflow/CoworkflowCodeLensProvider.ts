@@ -403,6 +403,7 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 
 			// Look for task items with checkboxes
 			const taskItemRegex = /^-\s+\[([ x-])\]\s+(.+)/
+			let firstTaskFound = false
 
 			lines.forEach((line, index) => {
 				try {
@@ -449,13 +450,31 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 							if (status === " ") {
 								// 未开始任务 - 只显示 "run"
 								actions.push("run")
+
+								// 如果是第一个任务，添加 "run all task" 选项
+								if (!firstTaskFound) {
+									actions.push("run_all")
+									firstTaskFound = true
+								}
 							} else if (status === "-") {
 								// 进行中任务 - 显示 loading 状态和 retry 选项
 								actions.push("loading")
 								actions.push("retry")
+
+								// 如果是第一个任务，添加 "run all task" 选项
+								if (!firstTaskFound) {
+									actions.push("run_all")
+									firstTaskFound = true
+								}
 							} else if (status === "x") {
 								// 已完成任务 - 只显示 "retry"
 								actions.push("retry")
+
+								// 如果是第一个任务，添加 "run all task" 选项
+								if (!firstTaskFound) {
+									actions.push("run_all")
+									firstTaskFound = true
+								}
 							} else {
 								// Unknown status, default to run
 								this.errorHandler.logError(
@@ -468,6 +487,12 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 									),
 								)
 								actions.push("run")
+
+								// 如果是第一个任务，添加 "run all task" 选项
+								if (!firstTaskFound) {
+									actions.push("run_all")
+									firstTaskFound = true
+								}
 							}
 						} catch (error) {
 							this.errorHandler.logError(
@@ -480,6 +505,12 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 								),
 							)
 							actions.push("run") // Fallback action
+
+							// 如果是第一个任务，添加 "run all task" 选项
+							if (!firstTaskFound) {
+								actions.push("run_all")
+								firstTaskFound = true
+							}
 						}
 
 						// Create CodeLens for each available action
@@ -540,6 +571,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 				return getCommand("coworkflow.updateSection")
 			case "run":
 				return getCommand("coworkflow.runTask")
+			case "run_all":
+				return getCommand("coworkflow.runAllTasks")
 			case "retry":
 				return getCommand("coworkflow.retryTask")
 			case "loading":
@@ -557,6 +590,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 				return "$(edit) Update"
 			case "run":
 				return "$(play) Run"
+			case "run_all":
+				return "$(play-circle) Run All Tasks"
 			case "retry":
 				return "$(refresh) Retry"
 			case "loading":

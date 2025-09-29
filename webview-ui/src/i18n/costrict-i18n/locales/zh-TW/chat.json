@@ -4,6 +4,7 @@
 	"instructions": {
 		"wantsToFetch": "Costrict 想要獲取詳細指令以協助當前任務"
 	},
+	"about": "企業嚴肅開發的AI智慧夥伴",
 	"error": "Costrict 將自動修復",
 	"text": {
 		"rooSaid": "Costrict 說"
@@ -113,6 +114,10 @@
 		"test": {
 			"title": "測試",
 			"description": "自動生成並運行測試，確保代碼可靠與穩定"
+		},
+		"debug": {
+			"title": "自動偵錯",
+			"description": "診斷並修復軟體問題"
 		},
 		"projectWiki": {
 			"title": "專案文件",

@@ -32,7 +32,7 @@ export interface CoworkflowDocumentInfo {
 /**
  * CodeLens action types for different operations
  */
-export type CoworkflowActionType = "update" | "run" | "retry" | "loading"
+export type CoworkflowActionType = "update" | "run" | "retry" | "loading" | "run_all"
 
 /**
  * Task status model representing a task item in tasks.md
@@ -356,6 +356,20 @@ export interface IHierarchyDetector {
 	 * @returns 层级深度（-1表示非任务行，0为根级别）
 	 */
 	detectHierarchyLevel(line: string): number
+
+	/**
+	 * 检测是否为任务行（包括无缩进的任务行）
+	 * @param line 文本行内容
+	 * @returns 是否为任务行
+	 */
+	isTaskLine(line: string): boolean
+
+	/**
+	 * 检测是否为子内容行（包括无缩进的子内容）
+	 * @param line 文本行内容
+	 * @returns 是否为子内容行
+	 */
+	isChildContentLine(line: string): boolean
 
 	/**
 	 * 构建层级关系树

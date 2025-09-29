@@ -21,6 +21,7 @@ import { createTwoFilesPatch } from "diff"
 export const COWORKFLOW_COMMANDS = {
 	UPDATE_SECTION: "coworkflow.updateSection",
 	RUN_TASK: "coworkflow.runTask",
+	RUN_ALL_TASKS: "coworkflow.runAllTasks",
 	RETRY_TASK: "coworkflow.retryTask",
 	REFRESH_CODELENS: "coworkflow.refreshCodeLens",
 	REFRESH_DECORATIONS: "coworkflow.refreshDecorations",
@@ -85,6 +86,12 @@ export function registerCoworkflowCommands(context: vscode.ExtensionContext): vs
 		// 2.Register run task command
 		// 应用 supportPromptConfigs 的 WORKFLOW_TASK_RUN 执行任务的提示词
 		disposables.push(vscode.commands.registerCommand(getCommand(COWORKFLOW_COMMANDS.RUN_TASK), handleRunTask))
+
+		// 2.1.Register run all tasks command
+		// 应用 supportPromptConfigs 的 WORKFLOW_TASK_RUN 执行所有任务的提示词
+		disposables.push(
+			vscode.commands.registerCommand(getCommand(COWORKFLOW_COMMANDS.RUN_ALL_TASKS), handleRunAllTasks),
+		)
 
 		// 3.Register retry task command
 		// 应用 supportPromptConfigs 的 WORKFLOW_TASK_RETRY 重试任务的提示词
@@ -283,6 +290,43 @@ function getTaskWithSubContent(document: vscode.TextDocument, taskLineNumber: nu
 }
 
 /**
+ * Get all tasks content from the document
+ */
+async function getAllTasksContent(commandContext: CoworkflowCommandContext): Promise<string> {
+	const activeEditor = vscode.window.activeTextEditor
+	if (!activeEditor) {
+		return ""
+	}
+
+	try {
+		const document = activeEditor.document
+		const text = document.getText()
+		const lines = text.split("\n")
+		const allTasks: string[] = []
+
+		// Look for all task items with checkboxes
+		const taskItemRegex = /^-\s+\[([ x-])\]\s+(.+)/
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i]
+			const match = taskItemRegex.exec(line)
+
+			if (match) {
+				// 获取任务及其子内容
+				const taskContent = getTaskWithSubContent(document, i)
+				allTasks.push(taskContent)
+			}
+		}
+
+		return allTasks.join("\n\n")
+	} catch (error) {
+		console.error("Error getting all tasks content:", error)
+		// 回退到只获取当前任务内容
+		return await getTaskBlockContent(commandContext)
+	}
+}
+
+/**
  * Get indentation level of a line
  */
 function getIndentLevel(line: string): number {
@@ -362,7 +406,7 @@ async function handleUpdateSection(codeLens: CoworkflowCodeLens): Promise<void> 
 			}
 		} catch (error) {
 			// 回退到原有的 getTaskBlockContent 逻辑
-			selectedText = await getTaskBlockContent(commandContext)
+			//selectedText = await getTaskBlockContent(commandContext)
 			console.log(
 				"CoworkflowCommands: 获取文件差异失败，回退到原有逻辑:",
 				error instanceof Error ? error.message : String(error),
@@ -441,6 +485,46 @@ async function handleRunTask(codeLens: CoworkflowCodeLens): Promise<void> {
 		)
 	} catch (error) {
 		handleCommandError("Run Task", error, codeLens?.range)
+	}
+}
+
+/**
+ * Handle run all tasks command
+ */
+async function handleRunAllTasks(codeLens: CoworkflowCodeLens): Promise<void> {
+	try {
+		// Validate CodeLens parameter
+		if (!codeLens) {
+			throw new Error("CodeLens parameter is required")
+		}
+
+		if (!codeLens.documentType || codeLens.documentType !== "tasks") {
+			throw new Error("Run all tasks command requires a tasks document CodeLens")
+		}
+
+		if (!codeLens.actionType || codeLens.actionType !== "run_all") {
+			throw new Error('CodeLens actionType must be "run_all" for run all tasks command')
+		}
+
+		const commandContext = createCommandContext(codeLens)
+		// Get required parameters for prompt
+		const scope = getScopePath(commandContext.uri)
+
+		// 获取所有任务内容
+		const allTasksContent = await fs.readFile(commandContext.uri.fsPath, "utf8")
+
+		// Create the prompt using supportPrompt
+		await ClineProvider.handleWorkflowAction(
+			"WORKFLOW_TASK_RUN",
+			{
+				scope,
+				selectedText: allTasksContent,
+				mode: taskMode,
+			},
+			taskMode,
+		)
+	} catch (error) {
+		handleCommandError("Run All Tasks", error, codeLens?.range)
 	}
 }
 

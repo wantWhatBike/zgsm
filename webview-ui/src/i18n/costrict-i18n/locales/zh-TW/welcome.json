@@ -6,5 +6,13 @@
 		"title": "幫助改進 Costrict",
 		"anonymousTelemetry": "傳送匿名錯誤和使用資料，以協助我們修復錯誤並改善擴充功能。我們絕不會傳送任何程式碼、命令提示詞、或個人資訊 (除非您使用了 Costrict)。詳細資訊請參閱我們的<privacyLink>隱私權政策</privacyLink>。"
 	},
-	"chooseProvider": "Costrict  需要一個 API 金鑰才能發揮魔力。"
+	"chooseProvider": "Costrict  需要一個 API 金鑰才能發揮魔力。",
+	"vibe": {
+		"description": "對話式程式設計。透過討論需求，迭代式建構程式碼。",
+		"incentive": "適用情境：\n\n快速原型設計與實驗、需求不斷變化的專案、任務導向的開發"
+	},
+	"strict": {
+		"description": "結構化開發。在實施前進行充分規劃。",
+		"incentive": "適用情境：\n\n複雜功能開發、企業級應用、需要詳細架構設計的專案"
+	}
 }
