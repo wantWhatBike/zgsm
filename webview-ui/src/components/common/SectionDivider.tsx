@@ -8,14 +8,13 @@ interface SectionDividerProps {
 
 const SectionDivider: React.FC<SectionDividerProps> = ({ title, icon, className = "" }) => {
 	if (!title) {
-		// 如果没有标题，只显示一条简单的分隔线
 		return <div className={`h-px bg-vscode-input-border my-1 ${className}`} />
 	}
 
 	return (
 		<div className={`flex items-center gap-2 my-1 ${className}`}>
 			{icon && <span className={`codicon ${icon} text-lg`} />}
-			<h3 className="text-sm font-semibold text-vscode-foreground whitespace-nowrap">{title}</h3>
+			<h3 className="text-base font-semibold text-vscode-foreground whitespace-nowrap">{title}</h3>
 			<div className="flex-1 h-px bg-vscode-input-border" />
 		</div>
 	)
