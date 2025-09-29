@@ -1931,9 +1931,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					// from disk, as abortTask can not be awaited on in nature.
 					this.didFinishAbortingStream = true
 
-					if (cancelReason === "user_cancelled") {
-						this?.api?.cancelChat?.(cancelReason)
-					}
+					this?.api?.cancelChat?.(cancelReason)
 				}
 
 				// Reset streaming state for each new API request
@@ -2025,9 +2023,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 						if (this.abort) {
 							console.log(`aborting stream, this.abandoned = ${this.abandoned}`)
-							if (this.abortReason === "user_cancelled") {
-								this?.api?.cancelChat?.(this.abortReason)
-							}
+							this?.api?.cancelChat?.(this.abortReason)
 
 							if (!this.abandoned) {
 								// Only need to gracefully abort if this instance
@@ -2241,10 +2237,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 						// Now abort (emits TaskAborted which provider listens to)
 						await this.abortTask()
 
-						if (cancelReason === "user_cancelled") {
-							this?.api?.cancelChat?.(cancelReason)
-						}
-
+						this?.api?.cancelChat?.(cancelReason)
 						// Do not rehydrate here; provider owns rehydration to avoid duplication races
 					}
 				} finally {
