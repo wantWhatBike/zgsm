@@ -511,7 +511,7 @@ async function handleRunAllTasks(codeLens: CoworkflowCodeLens): Promise<void> {
 		const scope = getScopePath(commandContext.uri)
 
 		// 获取所有任务内容
-		const allTasksContent = await getAllTasksContent(commandContext)
+		const allTasksContent = await fs.readFile(commandContext.uri.fsPath, "utf8")
 
 		// Create the prompt using supportPrompt
 		await ClineProvider.handleWorkflowAction(

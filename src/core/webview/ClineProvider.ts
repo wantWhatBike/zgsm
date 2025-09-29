@@ -2711,8 +2711,11 @@ export class ClineProvider
 			},
 		).catch(() => {
 			console.error("Failed to abort task")
-			task?.api?.cancelChat?.(task.abortReason)
 		})
+
+		if (task.abortReason === "user_cancelled") {
+			task?.api?.cancelChat?.(task.abortReason)
+		}
 
 		// Defensive safeguard: if current instance already changed, skip rehydrate
 		const current = this.getCurrentTask()

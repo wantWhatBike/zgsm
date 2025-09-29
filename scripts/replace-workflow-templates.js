@@ -6,6 +6,7 @@ const path = require("path")
 // Define the mapping between workflow types and markdown files
 const workflowMapping = {
 	WORKFLOW_TASK_RUN: "run-tasks.md",
+	WORKFLOW_TEST_RUN: "run-tests.md",
 	WORKFLOW_TASK_RETRY: "retry-tasks.md",
 	WORKFLOW_RQS_UPDATE: "requirements.md",
 	WORKFLOW_DESIGN_UPDATE: "design.md",

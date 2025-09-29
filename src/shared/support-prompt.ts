@@ -54,6 +54,7 @@ type SupportPromptType =
 	| "ZGSM_PERFORMANCE"
 	| "ZGSM_ADD_TEST"
 	| "WORKFLOW_TASK_RUN"
+	| "WORKFLOW_TEST_RUN"
 	| "WORKFLOW_TASK_RETRY"
 	| "WORKFLOW_RQS_UPDATE"
 	| "WORKFLOW_DESIGN_UPDATE"
@@ -136,6 +137,37 @@ todo list 中必须包含以下操作，**请勿遗漏任何一个步骤**:
 
 当前任务开发完成后，请使用 attempt_completion 工具提交实现结果总结。请注意，以上具体操作指令优先于常规的\${mode}指令。`,
 	},
+	WORKFLOW_TEST_RUN: {
+		template: `基于 \`\${scope}\` 目录下已创建的需求文档(requirements.md)、架构设计文档(design.md)和任务规划文档(tasks.md),生成配套测试用例。
+
+### 进度跟踪
+
+* **任务开始时的第一步**: 必须使用\`update_todo_list\`工具列出任务清单，此操作必须在其它任何动作之前
+* 通过任务清单的勾选状态跟踪实现进度
+
+### 任务执行约束
+
+todo list 中必须包含以下操作，**请勿遗漏任何一个步骤**:
+
+- 在执行任何更新任务前，请仔细阅读\`\${scope}\`下的requirements.md、design.md和tasks.md文件
+- 结合需求文档，分析架构设计文档、任务规划文档对现有测试用例的影响范围
+- 为关键任务生成测试用例，并更新测试位置信息到tasks.md
+- 完成后使用attempt_completion工具提供简洁但全面的总结
+
+###  测试生成要求：
+- 只执行测试生成阶段的工作，不要涉及需求分析、架构设计或任务规划
+- 不包含具体测试要求
+- 不包含与部署相关的测试
+- 不包含与监控和日志相关的测试
+- 不包含与性能相关的测试
+- 不包含与安全相关的测试
+- 不包含与集成相关的测试
+- 不包含非功能测试点（边界测试、异常测试、容错测试等）
+- 让test mode来决策，不给任何内容生成上的要求
+- 不应要求所有任务都生成测试
+
+完成后使用attempt_completion工具提供变更总结，包括更新的功能点、受影响模块和验证要点。这些具体指令优先于\${mode}的常规指令。`,
+	},
 	WORKFLOW_TASK_RETRY: {
 		template: `请开始执行用户需求的实现工作。基于 \`\${scope}\` 目录下已创建的需求文档(requirements.md)、架构设计文档(design.md)推进相应功能实现。
 
@@ -213,7 +245,6 @@ todo list 中必须包含以下操作，**请勿遗漏任何一个步骤**:
 - 理解用户架构设计文档变更，如果没有用户架构设计文档内容，则充分理解架构设计文档
 - 结合需求文档，分析架构设计文档对现有任务规划的影响范围
 - 变更的 \`\${scope}\`下的 tasks.md需要和requirements.md中的功能清单能对应，删除tasks.md多余任务和补充功能清单中没有的任务
-- tasks.md需要
 - 任务开始前把 \`\${scope}\`下的design.md末尾加入文档更新时间，**\`design.md\`文档内容仅用于更新任务规划文档，不允许其它用途**
 
 ### 用户需求变更 (包含添加或删除，变更为空时则整体理解design.md文档)

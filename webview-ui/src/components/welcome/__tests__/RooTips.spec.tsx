@@ -51,8 +51,78 @@ describe("RooTips Component", () => {
 		})
 
 		test("renders only the top two tips", () => {
-			// Ensure only two tips are present plus the docs link in the Trans component (3 total links)
-			expect(screen.getAllByRole("link")).toHaveLength(4)
+			// After our changes, there's only one link (DocsLink in Trans component)
+			// The providers and tips are now clickable divs, not links
+			expect(screen.getAllByRole("link")).toHaveLength(1)
+
+			// Verify that the section dividers are rendered
+			expect(screen.getByText("开发模式")).toBeInTheDocument()
+			expect(screen.getByText("常用功能")).toBeInTheDocument()
+		})
+
+		test("renders SectionDivider components with correct props", () => {
+			// 验证"开发模式"分隔线
+			const devModeHeading = screen.getByRole("heading", { name: "开发模式" })
+			expect(devModeHeading).toBeInTheDocument()
+			expect(devModeHeading).toHaveClass("text-sm", "font-semibold", "text-vscode-foreground")
+
+			// 验证"常用功能"分隔线
+			const commonFeaturesHeading = screen.getByRole("heading", { name: "常用功能" })
+			expect(commonFeaturesHeading).toBeInTheDocument()
+			expect(commonFeaturesHeading).toHaveClass("text-sm", "font-semibold", "text-vscode-foreground")
+
+			// 验证图标存在
+			const gearIcon = document.querySelector(".codicon-settings-gear")
+			const toolsIcon = document.querySelector(".codicon-tools")
+			expect(gearIcon).toBeInTheDocument()
+			expect(toolsIcon).toBeInTheDocument()
+		})
+
+		test("renders provider cards with correct styling", () => {
+			// 验证 Vibe 和 Strict 模式卡片
+			const vibeText = screen.getByText("Vibe")
+			const strictText = screen.getByText("Strict")
+
+			// 获取包含卡片样式的父容器
+			const vibeCard = vibeText.closest(".flex-1")
+			const strictCard = strictText.closest(".flex-1")
+
+			expect(vibeCard).toBeInTheDocument()
+			expect(strictCard).toBeInTheDocument()
+			expect(vibeCard).toHaveClass("flex-1", "border", "border-vscode-panel-border", "cursor-pointer")
+			expect(strictCard).toHaveClass("flex-1", "border", "border-vscode-panel-border", "cursor-pointer")
+		})
+
+		test("renders tip cards with correct styling", () => {
+			// 验证功能提示卡片的样式
+			const tipCards = document.querySelectorAll(".cursor-pointer")
+			expect(tipCards.length).toBeGreaterThan(0)
+
+			// 检查第一个提示卡片的样式
+			const firstTipCard = Array.from(tipCards).find(
+				(card) =>
+					card.textContent?.includes("rooTips.debug.title") ||
+					card.textContent?.includes("rooTips.projectWiki.title"),
+			)
+			expect(firstTipCard).toHaveClass(
+				"flex-1",
+				"border",
+				"border-vscode-panel-border",
+				"hover:bg-secondary",
+				"rounded-md",
+			)
+		})
+
+		test("uses VSCode theme colors correctly", () => {
+			// 验证 VSCode 主题颜色的使用
+			const headings = screen.getAllByRole("heading")
+			headings.forEach((heading) => {
+				expect(heading).toHaveClass("text-vscode-foreground")
+			})
+
+			// 验证分隔线使用正确的颜色
+			const separatorLines = document.querySelectorAll(".bg-vscode-input-border")
+			expect(separatorLines.length).toBeGreaterThan(0)
 		})
 	})
 })

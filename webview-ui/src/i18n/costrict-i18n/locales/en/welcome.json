@@ -13,6 +13,6 @@
 	},
 	"strict": {
 		"description": "Structured development methodology. Plan thoroughly before implementation.",
-		"incentive": "Best suited for:\n\nComplex feature development\nEnterprise-grade applications\nProjects requiring detailed architecture"
+		"incentive": "Ideal for:\n\nComplex feature development\nEnterprise-grade applications\nProjects requiring detailed architecture"
 	}
 }
