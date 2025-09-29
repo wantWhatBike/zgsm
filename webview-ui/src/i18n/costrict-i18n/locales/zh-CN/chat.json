@@ -116,12 +116,12 @@
 			"description": "自动生成并运行测试，确保代码可靠与稳定"
 		},
 		"debug": {
-			"title": "自动调试",
-			"description": "诊断并修复软件问题"
+			"title": "Auto Debug",
+			"description": "输入问题日志或故障描述，AI协助定位问题根源，提供修复方案。"
 		},
 		"projectWiki": {
-			"title": "项目文档",
-			"description": "深度分析项目并生成全面的项目文档"
+			"title": "Project Wiki",
+			"description": "大模型生成「适配AI读取」的项目知识库与规则（Rules），帮助AI理解业务，提升代码生成准确度。"
 		}
 	}
 }

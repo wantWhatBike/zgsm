@@ -8,11 +8,11 @@
 	},
 	"chooseProvider": "To do its magic, Costrict needs an API key.",
 	"vibe": {
-		"description": "Conversational coding approach. Discuss requirements and build iteratively.",
-		"incentive": "Ideal for:\n\nQuick prototyping and experimentation\nProjects with evolving requirements\nTask-oriented development"
+		"description": "Lightweight conversational coding. Alternates between discussing requirements and generating code. Perfect for quick development and simple tasks."
 	},
 	"strict": {
-		"description": "Structured development methodology. Plan thoroughly before implementation.",
-		"incentive": "Ideal for:\n\nComplex feature development\nEnterprise-grade applications\nProjects requiring detailed architecture"
-	}
+		"description": "Structured development methodology. Follows requirement → design → task → test. Uses test-driven development for self-validation and repair."
+	},
+	"developmentMode": "Development Mode",
+	"commonFeatures": "Common Features"
 }

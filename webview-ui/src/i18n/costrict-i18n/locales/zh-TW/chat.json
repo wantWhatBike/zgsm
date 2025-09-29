@@ -116,12 +116,12 @@
 			"description": "自動生成並運行測試，確保代碼可靠與穩定"
 		},
 		"debug": {
-			"title": "自動偵錯",
-			"description": "診斷並修復軟體問題"
+			"title": "Auto Debug",
+			"description": "輸入問題日誌或故障描述，AI協助定位問題根源，提供修復方案。"
 		},
 		"projectWiki": {
-			"title": "專案文件",
-			"description": "深度分析專案並產生全面的專案文件"
+			"title": "Project Wiki",
+			"description": "大模型生成「適配AI讀取」的專案知識庫與規則（Rules），幫助AI理解業務，提升代碼生成準確度。"
 		}
 	}
 }

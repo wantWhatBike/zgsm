@@ -75,7 +75,6 @@ const RooTips = () => {
 			name: "Vibe",
 			slug: "vibe",
 			description: tWelcome("vibe.description"),
-			incentive: tWelcome("vibe.incentive"),
 			switchMode: (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
 				e.stopPropagation()
 				switchMode("vibe")
@@ -85,7 +84,6 @@ const RooTips = () => {
 			name: "Strict",
 			slug: "strict",
 			description: tWelcome("strict.description"),
-			incentive: tWelcome("strict.incentive"),
 			switchMode: (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
 				e.stopPropagation()
 				switchMode("strict")
@@ -94,7 +92,7 @@ const RooTips = () => {
 	]
 	return (
 		<div className="relative">
-			<p className="text-vscode-editor-foreground leading-tight font-vscode-font-family text-center text-balance max-w-[380px] mx-auto my-0">
+			<p className="text-lg font-bold text-vscode-editor-foreground leading-tight font-vscode-font-family text-center text-balance max-w-[380px] mx-auto my-0">
 				<Trans
 					i18nKey="chat:about"
 					components={{
@@ -106,7 +104,7 @@ const RooTips = () => {
 					}}
 				/>
 			</p>
-			<SectionDivider title="开发模式" icon="codicon-settings-gear" />
+			<SectionDivider title={tWelcome("developmentMode")} icon="codicon-settings-gear" />
 			<div className="flex flex-row sm:flex-row gap-4">
 				{providers.map((provider, index) => (
 					<div
@@ -114,16 +112,13 @@ const RooTips = () => {
 						onClick={provider.switchMode}
 						className={`flex-1 border border-vscode-panel-border hover:bg-secondary rounded-md py-3 px-4 flex flex-row gap-3 cursor-pointer transition-all no-underline text-inherit ${zgsmCodeMode === provider.slug ? "border border-vscode-focusBorder outline outline-vscode-focusBorder focus-visible:ring-vscode-focusBorder" : ""}`}>
 						<div>
-							<div className="text-sm font-medium text-vscode-foreground">{provider.name}</div>
-							<div>
-								<div className="text-xs text-vscode-descriptionForeground">{provider.description}</div>
-								{provider.incentive && <div className="text-xs mt-1">{provider.incentive}</div>}
-							</div>
+							<div className="text-base font-bold text-vscode-foreground">{provider.name}</div>
+							<div className="text-sm text-vscode-descriptionForeground">{provider.description}</div>
 						</div>
 					</div>
 				))}
 			</div>
-			<SectionDivider title="常用功能" icon="codicon-tools" />
+			<SectionDivider title={tWelcome("commonFeatures")} icon="codicon-tools" />
 			<div className="flex flex-row sm:flex-row gap-4">
 				{tips.map((tip, index) => (
 					<div
@@ -131,9 +126,9 @@ const RooTips = () => {
 						onClick={tip.click}
 						className={`flex-1 border border-vscode-panel-border hover:bg-secondary rounded-md py-3 px-4 flex flex-row gap-3 cursor-pointer transition-all no-underline text-inherit`}>
 						<div>
-							<div className="text-sm font-medium text-vscode-foreground">{t(tip.titleKey)}</div>
+							<div className="text-base font-medium text-vscode-foreground">{t(tip.titleKey)}</div>
 							<div>
-								<div className="text-xs text-vscode-descriptionForeground">{t(tip.descriptionKey)}</div>
+								<div className="text-sm text-vscode-descriptionForeground">{t(tip.descriptionKey)}</div>
 							</div>
 						</div>
 					</div>
