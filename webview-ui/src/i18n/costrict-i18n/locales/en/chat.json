@@ -4,6 +4,7 @@
 	"instructions": {
 		"wantsToFetch": "Costrict wants to fetch detailed instructions to assist with the current task"
 	},
+	"about": "An enterprise-grade AI agent built for serious development",
 	"error": "Costrict will automatically fix",
 	"text": {
 		"rooSaid": "Costrict said"
@@ -110,6 +111,10 @@
 		"test": {
 			"title": "Test",
 			"description": "Automatically generate and run tests to ensure code reliability and stability"
+		},
+		"debug": {
+			"title": "Auto Debug",
+			"description": "Diagnose and fix software issues"
 		},
 		"projectWiki": {
 			"title": "Project Wiki",

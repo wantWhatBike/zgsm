@@ -177,8 +177,8 @@ describe("Coworkflow Commands", () => {
 		it("should register all coworkflow commands", () => {
 			const disposables = registerCoworkflowCommands(mockContext)
 
-			expect(disposables).toHaveLength(5)
-			expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(5)
+			expect(disposables).toHaveLength(6)
+			expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(6)
 
 			// Verify all commands are registered
 			expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
@@ -187,6 +187,10 @@ describe("Coworkflow Commands", () => {
 			)
 			expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
 				expect.stringContaining(COWORKFLOW_COMMANDS.RUN_TASK),
+				expect.any(Function),
+			)
+			expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
+				expect.stringContaining(COWORKFLOW_COMMANDS.RUN_ALL_TASKS),
 				expect.any(Function),
 			)
 			expect(vscode.commands.registerCommand).toHaveBeenCalledWith(

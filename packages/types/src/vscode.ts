@@ -89,6 +89,7 @@ export const costrictCommandIds = [
 	"refreshToken",
 	"coworkflow.updateSection",
 	"coworkflow.runTask",
+	"coworkflow.runAllTasks",
 	"coworkflow.retryTask",
 	"coworkflow.refreshCodeLens",
 	"coworkflow.refreshDecorations",

@@ -6,5 +6,13 @@
 		"title": "Help Improve Costrict",
 		"anonymousTelemetry": "Send anonymous error and usage data to help us fix bugs and improve the extension. No code, prompts, or personal information is ever sent (unless you connect to Costrict). See our <privacyLink>privacy policy</privacyLink> for more details."
 	},
-	"chooseProvider": "To do its magic, Costrict needs an API key."
+	"chooseProvider": "To do its magic, Costrict needs an API key.",
+	"vibe": {
+		"description": "Conversational coding approach. Discuss requirements and build iteratively.",
+		"incentive": "Ideal for:\n\nQuick prototyping and experimentation\nProjects with evolving requirements\nTask-oriented development"
+	},
+	"strict": {
+		"description": "Structured development methodology. Plan thoroughly before implementation.",
+		"incentive": "Ideal for:\n\nComplex feature development\nEnterprise-grade applications\nProjects requiring detailed architecture"
+	}
 }

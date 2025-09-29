@@ -607,7 +607,6 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			if (text || images.length > 0) {
 				if (sendingDisabled) {
 					try {
-						console.log("queueMessage", text, images)
 						vscode.postMessage({ type: "queueMessage", text, images })
 						setInputValue("")
 						setSelectedImages([])
