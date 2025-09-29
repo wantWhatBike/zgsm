@@ -6,5 +6,13 @@
 		"title": "帮助改进 Costrict",
 		"anonymousTelemetry": "发送匿名的错误和使用数据，以帮助我们修复错误并改进扩展程序。不会涉及代码、提示词或个人隐私信息。"
 	},
-	"chooseProvider": "Costrict 需要一个 API 密钥才能发挥魔力。"
+	"chooseProvider": "Costrict 需要一个 API 密钥才能发挥魔力。",
+	"vibe": {
+		"description": "对话式编程。通过讨论需求，迭代式构建代码。",
+		"incentive": "适合场景：\n\n快速原型设计与实验、需求不断变化的项目、任务驱动的开发"
+	},
+	"strict": {
+		"description": "结构化开发。在实施前进行充分规划。",
+		"incentive": "最佳选择：\n\n复杂功能开发、企业级应用、需要详细架构设计的项目"
+	}
 }

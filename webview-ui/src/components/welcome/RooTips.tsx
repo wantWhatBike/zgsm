@@ -30,6 +30,9 @@ const tips = [
 			vscode.postMessage({
 				type: "newTask",
 				text: "/project-wiki",
+				values: {
+					checkProjectWiki: true,
+				},
 			})
 		},
 		titleKey: "rooTips.projectWiki.title",
@@ -81,6 +84,7 @@ const tips = [
 }[]
 const RooTips = () => {
 	const { t } = useTranslation("chat")
+	const { t: tWelcome } = useTranslation("welcome")
 	const { zgsmCodeMode, setZgsmCodeMode } = useExtensionState()
 	const switchMode = useCallback(
 		(slug: ZgsmCodeMode) => {
@@ -101,13 +105,8 @@ const RooTips = () => {
 		{
 			name: "Vibe",
 			slug: "vibe",
-			description: "Chat first, then build. Explore ideas and iterate as you discover needs.",
-			// description: t("welcome:routers.openrouter.description"),
-			incentive: `Great for:
-
-Rapid exploration and testing
-Building when requirements are unclear
-Implementing a task`,
+			description: tWelcome("vibe.description"),
+			incentive: tWelcome("vibe.incentive"),
 			switchMode: (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
 				e.stopPropagation()
 				switchMode("vibe")
@@ -116,13 +115,8 @@ Implementing a task`,
 		{
 			name: "Strict",
 			slug: "strict",
-			description: "Chat first, then build. Explore ideas and iterate as you discover needs.",
-			// description: t("welcome:routers.requesty.description"),
-			// incentive: t("welcome:routers.requesty.incentive"),
-			incentive: `Great for:
-Thinking through features in-depth
-Projects needing upfront planning
-Building features in a structured way`,
+			description: tWelcome("strict.description"),
+			incentive: tWelcome("strict.incentive"),
 			switchMode: (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
 				e.stopPropagation()
 				switchMode("strict")

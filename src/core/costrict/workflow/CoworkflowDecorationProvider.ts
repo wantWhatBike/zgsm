@@ -5,7 +5,6 @@
 import * as vscode from "vscode"
 import {
 	IHierarchicalCoworkflowDecorationProvider,
-	ICoworkflowDecorationProvider,
 	TaskStatus,
 	TaskStatusType,
 	HierarchicalTaskStatus,
@@ -25,6 +24,7 @@ class HierarchyDetector implements IHierarchyDetector {
 		/^(\s*)-\s+\[([ x-])\]\s+(.+)$/, // 空格缩进
 		/^(\t*)-\s+\[([ x-])\]\s+(.+)$/, // Tab缩进
 	]
+	private readonly TASK_PATTERN = /^-\s+\[([ x-])\]\s+(.+)$/ // 无缩进任务模式
 
 	/**
 	 * 检测任务的层级深度
@@ -41,7 +41,51 @@ class HierarchyDetector implements IHierarchyDetector {
 				return Math.floor(spaceCount / 2) + tabCount
 			}
 		}
+		// 检查无缩进的任务
+		if (this.TASK_PATTERN.test(trimmedLine)) {
+			return 0 // 根级别
+		}
 		return -1 // 非任务行
+	}
+
+	/**
+	 * 检测是否为任务行（包括无缩进的任务行）
+	 */
+	isTaskLine(line: string): boolean {
+		const trimmedLine = line.trimEnd()
+		// 检查有缩进的任务
+		for (const pattern of this.INDENT_PATTERNS) {
+			if (pattern.test(trimmedLine)) {
+				return true
+			}
+		}
+		// 检查无缩进的任务
+		return this.TASK_PATTERN.test(trimmedLine)
+	}
+
+	/**
+	 * 检测是否为子内容行（包括无缩进的子内容）
+	 */
+	isChildContentLine(line: string): boolean {
+		const trimmedLine = line.trim()
+
+		// 空行不是子内容
+		if (trimmedLine === "") {
+			return false
+		}
+
+		// 任务行不是子内容
+		if (this.isTaskLine(line)) {
+			return false
+		}
+
+		// Markdown 标题行不是子内容
+		if (trimmedLine.startsWith("#")) {
+			return false
+		}
+
+		// 其他所有行都视为子内容（包括无缩进的普通文本、列表项等）
+		return true
 	}
 
 	/**
@@ -777,26 +821,27 @@ export class CoworkflowDecorationProvider implements IHierarchicalCoworkflowDeco
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i]
 
-			// 跳过空行和任务行
-			if (!line.trim() || /^(\s*)-\s+\[([ x-])\]\s+/.test(line)) {
+			// 使用层级检测器的新方法来判断是否为子内容
+			if (!this.hierarchyDetector.isChildContentLine(line)) {
 				continue
 			}
 
+			// 计算缩进层级（支持无缩进内容）
+			let indentLevel = 0
 			const match = childContentRegex.exec(line)
 			if (match) {
-				const [, indentStr, content] = match
-
-				// 计算缩进层级
+				const [, indentStr] = match
 				const spaceCount = (indentStr.match(/\s/g) || []).length
 				const tabCount = (indentStr.match(/\t/g) || []).length
-				const indentLevel = Math.floor(spaceCount / 2) + tabCount
+				indentLevel = Math.floor(spaceCount / 2) + tabCount
+			}
+			// 对于无缩进的内容，indentLevel 保持为 0
 
-				// 查找此行应该属于哪个父任务
-				const parentTask = this.findParentTaskForContent(hierarchicalTasks, i, indentLevel)
+			// 查找此行应该属于哪个父任务
+			const parentTask = this.findParentTaskForContent(hierarchicalTasks, i, indentLevel)
 
-				if (parentTask) {
-					parentTask.childContentLines.push(i)
-				}
+			if (parentTask) {
+				parentTask.childContentLines.push(i)
 			}
 		}
 	}
@@ -809,17 +854,22 @@ export class CoworkflowDecorationProvider implements IHierarchicalCoworkflowDeco
 		contentLine: number,
 		contentIndentLevel: number,
 	): HierarchicalTaskStatus | undefined {
-		// 从当前行向上查找最近的任务，且该任务的缩进层级小于当前内容的缩进层级
+		// 从当前行向上查找最近的任务
 		for (let i = hierarchicalTasks.length - 1; i >= 0; i--) {
 			const task = hierarchicalTasks[i]
 
-			// 任务必须在内容行之前，且缩进层级小于内容的缩进层级
-			if (task.line < contentLine && task.hierarchyLevel < contentIndentLevel) {
+			// 任务必须在内容行之前
+			if (task.line >= contentLine) {
+				continue
+			}
+
+			// 对于无缩进的内容（contentIndentLevel === 0），查找最近的同级或上级任务
+			if (contentIndentLevel === 0) {
 				// 检查是否有更近的任务在这个任务之后但仍在内容行之前
 				let hasCloserTask = false
 				for (let j = i + 1; j < hierarchicalTasks.length; j++) {
 					const laterTask = hierarchicalTasks[j]
-					if (laterTask.line < contentLine && laterTask.hierarchyLevel <= contentIndentLevel) {
+					if (laterTask.line < contentLine) {
 						hasCloserTask = true
 						break
 					}
@@ -827,6 +877,23 @@ export class CoworkflowDecorationProvider implements IHierarchicalCoworkflowDeco
 
 				if (!hasCloserTask) {
 					return task
+				}
+			} else {
+				// 对于有缩进的内容，使用原有的逻辑：任务的缩进层级必须小于内容的缩进层级
+				if (task.hierarchyLevel < contentIndentLevel) {
+					// 检查是否有更近的任务在这个任务之后但仍在内容行之前
+					let hasCloserTask = false
+					for (let j = i + 1; j < hierarchicalTasks.length; j++) {
+						const laterTask = hierarchicalTasks[j]
+						if (laterTask.line < contentLine && laterTask.hierarchyLevel <= contentIndentLevel) {
+							hasCloserTask = true
+							break
+						}
+					}
+
+					if (!hasCloserTask) {
+						return task
+					}
 				}
 			}
 		}
