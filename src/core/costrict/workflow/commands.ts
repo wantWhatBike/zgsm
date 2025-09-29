@@ -25,6 +25,7 @@ export const COWORKFLOW_COMMANDS = {
 	RETRY_TASK: "coworkflow.retryTask",
 	REFRESH_CODELENS: "coworkflow.refreshCodeLens",
 	REFRESH_DECORATIONS: "coworkflow.refreshDecorations",
+	RUN_TEST: "coworkflow.runTest", // 添加这一行
 } as const
 
 /**
@@ -109,6 +110,9 @@ export function registerCoworkflowCommands(context: vscode.ExtensionContext): vs
 				handleRefreshDecorations,
 			),
 		)
+
+		// 6.Register run test command
+		disposables.push(vscode.commands.registerCommand(getCommand(COWORKFLOW_COMMANDS.RUN_TEST), handleRunTest))
 	} catch (error) {
 		const coworkflowError = errorHandler.createError(
 			"command_error",
@@ -348,6 +352,8 @@ const requirementMode = "architect"
 const designMode = "task"
 // 任务：task
 const taskMode = "code"
+// 测试：test
+const testMode = "test"
 
 /**
  * Handle update section command
@@ -563,6 +569,44 @@ async function handleRetryTask(codeLens: CoworkflowCodeLens): Promise<void> {
 		)
 	} catch (error) {
 		handleCommandError("Retry Task", error, codeLens?.range)
+	}
+}
+
+/**
+ * Handle run test command
+ */
+async function handleRunTest(codeLens: CoworkflowCodeLens): Promise<void> {
+	try {
+		// Validate CodeLens parameter
+		if (!codeLens) {
+			throw new Error("CodeLens parameter is required")
+		}
+
+		if (!codeLens.documentType || codeLens.documentType !== "tasks") {
+			throw new Error("Run test command requires a tasks document CodeLens")
+		}
+
+		if (!codeLens.actionType || codeLens.actionType !== "run_test") {
+			throw new Error('CodeLens actionType must be "run_test" for run test command')
+		}
+
+		const commandContext = createCommandContext(codeLens)
+		// Get required parameters for prompt
+		const scope = getScopePath(commandContext.uri)
+		// const selectedText = await getTaskBlockContent(commandContext)
+
+		// Create the prompt using supportPrompt
+		await ClineProvider.handleWorkflowAction(
+			"WORKFLOW_TASK_RUN_TESTS", // 使用测试相关的提示词类型
+			{
+				scope,
+				// selectedText,
+				mode: testMode,
+			},
+			testMode,
+		)
+	} catch (error) {
+		handleCommandError("Run Test", error, codeLens?.range)
 	}
 }
 

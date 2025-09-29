@@ -32,7 +32,7 @@ export interface CoworkflowDocumentInfo {
 /**
  * CodeLens action types for different operations
  */
-export type CoworkflowActionType = "update" | "run" | "retry" | "loading" | "run_all"
+export type CoworkflowActionType = "update" | "run" | "retry" | "loading" | "run_all" | "run_test"
 
 /**
  * Task status model representing a task item in tasks.md
