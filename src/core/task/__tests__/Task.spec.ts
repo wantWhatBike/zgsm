@@ -980,6 +980,7 @@ describe("Cline", () => {
 						apiConfiguration: mockApiConfig,
 					}),
 					say: vi.fn(),
+					log: vi.fn(),
 					postStateToWebview: vi.fn().mockResolvedValue(undefined),
 					postMessageToWebview: vi.fn().mockResolvedValue(undefined),
 					updateTaskHistory: vi.fn().mockResolvedValue(undefined),
@@ -1320,6 +1321,7 @@ describe("Cline", () => {
 						globalStorageUri: { fsPath: "/test/storage" },
 					},
 					getState: vi.fn(),
+					log: vi.fn(),
 				}
 			})
 
