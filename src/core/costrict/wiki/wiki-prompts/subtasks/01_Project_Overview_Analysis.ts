@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const PROJECT_OVERVIEW_ANALYSIS_TEMPLATE = `# 项目技术概览分析
 
@@ -266,7 +266,7 @@ make build
 5. 提供实用的开发指导和最佳实践
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征

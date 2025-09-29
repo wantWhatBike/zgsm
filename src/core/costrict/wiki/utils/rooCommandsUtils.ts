@@ -9,7 +9,7 @@ import { getGlobalCommandsDir } from "../wiki-prompts/subtasks/constants"
 export function isRooGlobalCommandsDirectory(filePath: string): boolean {
 	const absolutePath = path.resolve(filePath)
 	const globalCommandsDir = getGlobalCommandsDir()
-	
+
 	// Check if the path starts with the .roo/commands directory
 	return absolutePath.startsWith(globalCommandsDir + path.sep) || absolutePath === globalCommandsDir
 }
@@ -26,7 +26,7 @@ export function handleRooCommandsApprovalSkip(
 	fileResult: any,
 	relPath: string,
 	cline: any,
-	updateFileResult: (relPath: string, result: any) => void
+	updateFileResult: (relPath: string, result: any) => void,
 ): boolean {
 	if (fileResult.status === "pending") {
 		const fullPath = path.resolve(cline.cwd, relPath)

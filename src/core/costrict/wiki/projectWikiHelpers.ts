@@ -16,7 +16,6 @@ import { PROJECT_RULES_GENERATION_TEMPLATE } from "./wiki-prompts/subtasks/11_Pr
 import { ILogger, createLogger } from "../../../utils/logger"
 import { INDEX_GENERATION_TEMPLATE } from "./wiki-prompts/subtasks/10_Index_Generation"
 
-
 export const projectWikiCommandName = "project-wiki"
 export const projectWikiCommandDescription = `Perform an in-depth analysis of the project and create a comprehensive project wiki.`
 
@@ -78,14 +77,14 @@ export async function ensureProjectWikiCommandExists() {
 async function checkFileVersion(projectWikiFile: string): Promise<boolean> {
 	try {
 		const existingContent = await fs.readFile(projectWikiFile, "utf-8")
-		
+
 		// Extract front matter section (between --- and ---)
 		const frontMatterMatch = existingContent.match(/^---\s*\n([\s\S]*?)\n---/)
 		if (!frontMatterMatch) {
 			logger.info("[projectWikiHelpers] No valid front matter found in existing file")
 			return false
 		}
-		
+
 		// Parse version from front matter
 		const frontMatterContent = frontMatterMatch[1]
 		const versionMatch = frontMatterContent.match(/^version:\s*"([^"]+)"/m)
@@ -93,13 +92,15 @@ async function checkFileVersion(projectWikiFile: string): Promise<boolean> {
 			logger.info("[projectWikiHelpers] Version field not found in front matter")
 			return false
 		}
-		
+
 		const existingVersion = versionMatch[1].trim()
 		if (existingVersion !== projectWikiVersion) {
-			logger.info(`[projectWikiHelpers] Version mismatch. Current: ${existingVersion}, Expected: ${projectWikiVersion}`)
+			logger.info(
+				`[projectWikiHelpers] Version mismatch. Current: ${existingVersion}, Expected: ${projectWikiVersion}`,
+			)
 			return false
 		}
-		
+
 		logger.info(`[projectWikiHelpers] Version check passed: ${existingVersion}`)
 		return true
 	} catch (error) {
@@ -112,7 +113,7 @@ async function checkFileVersion(projectWikiFile: string): Promise<boolean> {
 async function checkSubtaskDirectory(subTaskDir: string): Promise<boolean> {
 	try {
 		const subDirResult = await fs.stat(subTaskDir)
-		
+
 		if (!subDirResult.isDirectory()) {
 			logger.info("[projectWikiHelpers] subTaskDir exists but is not a directory")
 			return false
@@ -121,16 +122,16 @@ async function checkSubtaskDirectory(subTaskDir: string): Promise<boolean> {
 		// Check if subtask directory has .md files
 		const subTaskFiles = await fs.readdir(subTaskDir)
 		const mdFiles = subTaskFiles.filter((file) => file.endsWith(".md"))
-		
+
 		// subtask file check.
-		const subTaskFileNames = Object.keys(TEMPLATES).filter(file => file !== MAIN_WIKI_FILENAME)
-		const missingSubTaskFiles = subTaskFileNames.filter(fileName => !mdFiles.includes(fileName))
-		
+		const subTaskFileNames = Object.keys(TEMPLATES).filter((file) => file !== MAIN_WIKI_FILENAME)
+		const missingSubTaskFiles = subTaskFileNames.filter((fileName) => !mdFiles.includes(fileName))
+
 		if (missingSubTaskFiles.length > 0) {
-			logger.info(`[projectWikiHelpers] Missing subtask files: ${missingSubTaskFiles.join(', ')}`)
+			logger.info(`[projectWikiHelpers] Missing subtask files: ${missingSubTaskFiles.join(", ")}`)
 			return false
 		}
-		
+
 		return mdFiles.length > 0
 	} catch (error) {
 		logger.info("[projectWikiHelpers] subTaskDir not accessible:", formatError(error))

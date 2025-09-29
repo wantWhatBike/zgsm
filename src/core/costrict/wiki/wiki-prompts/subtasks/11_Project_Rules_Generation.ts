@@ -1,4 +1,4 @@
-import { GENERAL_RULES_OUTPUT_DIR, WIKI_OUTPUT_DIR } from "./constants"
+import { GENERAL_RULES_OUTPUT_DIR, WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const PROJECT_RULES_GENERATION_TEMPLATE = `# 项目规则生成任务
 
@@ -6,14 +6,14 @@ export const PROJECT_RULES_GENERATION_TEMPLATE = `# 项目规则生成任务
 基于项目代码仓库深度分析，生成项目特异性的开发编码和测试约束规则文档。专注于"项目特有的，必须强制遵守的，不遵守会引起bug、系统崩溃、运行失败、项目架构风格破坏"的具体实施约束。
 
 ## 输入要求
-- **项目索引文档**: ${WIKI_OUTPUT_DIR}index.md（**优先读取，了解项目技术文档结构和导航**）
+- **项目索引文档**: ${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.INDEX_GENERATION_TASK_FILE}（**优先读取，了解项目技术文档结构和导航**）
 - **项目技术文档**: ${WIKI_OUTPUT_DIR} 目录下的具体技术分析文档（**根据索引导航有选择性地读取相关文档**）
 
 ## 执行策略：智能维度选择 + 项目特异性生成
 
 ### 第一步：基于索引导航的文档定位
 
-1. **读取索引文档** ${WIKI_OUTPUT_DIR}index.md，了解：
+1. **读取索引文档** ${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.INDEX_GENERATION_TASK_FILE}，了解：
    - 项目有哪些技术分析文档
    - 各文档的主要内容概述
    - 项目技术栈和架构特征
@@ -330,7 +330,7 @@ export const PROJECT_RULES_GENERATION_TEMPLATE = `# 项目规则生成任务
 - ❌ 编写高质量的代码
 
 ## 输出文件命名
-\`${GENERAL_RULES_OUTPUT_DIR}generated_rules.md\`
+\`${GENERAL_RULES_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_RULES_TASK_FILE}\`
 注意：如果${GENERAL_RULES_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征
@@ -339,4 +339,3 @@ export const PROJECT_RULES_GENERATION_TEMPLATE = `# 项目规则生成任务
 - 提供具体的实施细节和配置要求
 - 避免抽象的架构原则、设计原则和通用最佳实践
 - 重点关注可验证、可操作的具体约束规则`
-

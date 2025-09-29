@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const OVERALL_ARCHITECTURE_ANALYSIS_TEMPLATE = `# 整体架构深度分析
 
@@ -7,7 +7,7 @@ export const OVERALL_ARCHITECTURE_ANALYSIS_TEMPLATE = `# 整体架构深度分�
 
 ## 分析依据
 - **前置任务分析结果**:（如果文件不存在则忽略）
-  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\` 
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`
 - **完整代码仓库**: 项目的完整源代码
 - **配置文件**: 项目配置和依赖管理
 - **部署文件**: Docker、Kubernetes等部署配置
@@ -466,7 +466,7 @@ graph LR
 5. 提供实用的架构优化建议和最佳实践
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征

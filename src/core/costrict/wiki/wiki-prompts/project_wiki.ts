@@ -1,9 +1,10 @@
 import {
-  WIKI_OUTPUT_DIR,
-  GENERAL_RULES_OUTPUT_DIR,
-  SUBTASK_FILENAMES,
-  subtaskDir,
-  deepAnalyzeThreshold
+	WIKI_OUTPUT_DIR,
+	GENERAL_RULES_OUTPUT_DIR,
+	SUBTASK_FILENAMES,
+	SUBTASK_OUTPUT_FILENAMES,
+	subtaskDir,
+	deepAnalyzeThreshold,
 } from "./subtasks/constants"
 
 export const projectWikiVersion = "v1.0.0"
@@ -143,21 +144,21 @@ ELSE 使用工具扫描：
 
 ### 📖 技术文档目录：\`${WIKI_OUTPUT_DIR}\`
 \`\`\`
-├── index.md                           # AI知识库索引文件
-├── 01_{PROJECT_NAME}_Overview.md      # 项目概览分析
-├── 02_{PROJECT_NAME}_Architecture.md  # 整体架构分析
-├── 03_{PROJECT_NAME}_Dependencies.md  # 服务依赖分析
-├── 04_{PROJECT_NAME}_DataFlow.md      # 数据流分析
-├── 05_{PROJECT_NAME}_Services.md      # 服务模块分析
-├── 06_{PROJECT_NAME}_Database.md      # 数据库分析
-├── 07_{PROJECT_NAME}_API.md           # API接口分析
-├── 08_{PROJECT_NAME}_Deploy.md        # 部署配置分析
-├── 09_{PROJECT_NAME}_Develop_Test.md   # 开发测试分析
+├── ${SUBTASK_OUTPUT_FILENAMES.INDEX_GENERATION_TASK_FILE}                           # AI知识库索引文件
+├── ${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}      # 项目概览分析
+├── ${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}  # 整体架构分析
+├── ${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}  # 服务依赖分析
+├── ${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}      # 数据流分析
+├── ${SUBTASK_OUTPUT_FILENAMES.SERVICE_ANALYSIS_TASK_FILE}      # 服务模块分析
+├── ${SUBTASK_OUTPUT_FILENAMES.DATABASE_SCHEMA_TASK_FILE}      # 数据库分析
+├── ${SUBTASK_OUTPUT_FILENAMES.API_INTERFACE_TASK_FILE}           # API接口分析
+├── ${SUBTASK_OUTPUT_FILENAMES.DEPLOY_ANALYSIS_TASK_FILE}        # 部署配置分析
+├── ${SUBTASK_OUTPUT_FILENAMES.DEVELOPMENT_TEST_ANALYSIS_TASK_FILE}   # 开发测试分析
 \`\`\`
 
 ### 📜 编码规则目录：\`${GENERAL_RULES_OUTPUT_DIR}\`
 \`\`\`
-└── generated_rules.md                 # 项目特有编码约束规则
+└── ${SUBTASK_OUTPUT_FILENAMES.PROJECT_RULES_TASK_FILE}                 # 项目特有编码约束规则
 \`\`\`
 
 ---

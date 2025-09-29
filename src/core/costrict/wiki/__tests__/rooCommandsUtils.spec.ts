@@ -7,12 +7,12 @@ const globalCommandsDir = path.join(mockHomeDir, ".roo", "commands")
 
 // Mock os module
 vi.mock("os", () => ({
-	homedir: () => mockHomeDir
+	homedir: () => mockHomeDir,
 }))
 
 // Mock constants module
 vi.mock("../../wiki-prompts/subtasks/constants", () => ({
-	getGlobalCommandsDir: () => globalCommandsDir
+	getGlobalCommandsDir: () => globalCommandsDir,
 }))
 
 // Import the functions to test after mocking
@@ -62,7 +62,7 @@ describe("rooCommandsUtils", () => {
 
 	describe("handleRooCommandsApprovalSkip", () => {
 		const mockCline = {
-			cwd: mockHomeDir
+			cwd: mockHomeDir,
 		}
 		const mockUpdateFileResult = vi.fn()
 
@@ -73,9 +73,9 @@ describe("rooCommandsUtils", () => {
 		it("should return false when file status is not pending", () => {
 			const fileResult = { status: "approved" }
 			const relPath = "some/file.txt"
-			
+
 			const result = handleRooCommandsApprovalSkip(fileResult, relPath, mockCline, mockUpdateFileResult)
-			
+
 			expect(result).toBe(false)
 			expect(mockUpdateFileResult).not.toHaveBeenCalled()
 		})
@@ -83,9 +83,9 @@ describe("rooCommandsUtils", () => {
 		it("should return false when file is not in global commands directory", () => {
 			const fileResult = { status: "pending" }
 			const relPath = "some/file.txt"
-			
+
 			const result = handleRooCommandsApprovalSkip(fileResult, relPath, mockCline, mockUpdateFileResult)
-			
+
 			expect(result).toBe(false)
 			expect(mockUpdateFileResult).not.toHaveBeenCalled()
 		})
@@ -93,24 +93,24 @@ describe("rooCommandsUtils", () => {
 		it("should return true and update file result when file is in global commands directory", () => {
 			const fileResult = { status: "pending" }
 			const relPath = ".roo/commands/command.md"
-			
+
 			const result = handleRooCommandsApprovalSkip(fileResult, relPath, mockCline, mockUpdateFileResult)
-			
+
 			expect(result).toBe(true)
 			expect(mockUpdateFileResult).toHaveBeenCalledWith(relPath, {
-				status: "approved"
+				status: "approved",
 			})
 		})
 
 		it("should return true and update file result for subdirectory files", () => {
 			const fileResult = { status: "pending" }
 			const relPath = ".roo/commands/subtasks/task.md"
-			
+
 			const result = handleRooCommandsApprovalSkip(fileResult, relPath, mockCline, mockUpdateFileResult)
-			
+
 			expect(result).toBe(true)
 			expect(mockUpdateFileResult).toHaveBeenCalledWith(relPath, {
-				status: "approved"
+				status: "approved",
 			})
 		})
 
@@ -118,23 +118,23 @@ describe("rooCommandsUtils", () => {
 			const fileResult = { status: "pending" }
 			const relPath = "commands/command.md"
 			const customCline = {
-				cwd: path.join(mockHomeDir, ".roo")
+				cwd: path.join(mockHomeDir, ".roo"),
 			}
-			
+
 			const result = handleRooCommandsApprovalSkip(fileResult, relPath, customCline, mockUpdateFileResult)
-			
+
 			expect(result).toBe(true)
 			expect(mockUpdateFileResult).toHaveBeenCalledWith(relPath, {
-				status: "approved"
+				status: "approved",
 			})
 		})
 
 		it("should not update file result when path is not in global commands directory", () => {
 			const fileResult = { status: "pending" }
 			const relPath = ".roo/other/command.md"
-			
+
 			const result = handleRooCommandsApprovalSkip(fileResult, relPath, mockCline, mockUpdateFileResult)
-			
+
 			expect(result).toBe(false)
 			expect(mockUpdateFileResult).not.toHaveBeenCalled()
 		})

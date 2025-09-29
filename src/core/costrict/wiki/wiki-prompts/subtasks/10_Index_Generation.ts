@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const INDEX_GENERATION_TEMPLATE = `# 项目技术文档索引生成
 
@@ -16,7 +16,7 @@ export const INDEX_GENERATION_TEMPLATE = `# 项目技术文档索引生成
 扫描 ${WIKI_OUTPUT_DIR} 目录下的所有技术文档，分析其内容结构，生成一个结构化的索引文件，为AI提供快速的信息导航和定位能力。
 
 ### 项目概述信息提取
-从 \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\` 文件中提取以下关键信息：
+从 \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\` 文件中提取以下关键信息：
 1. **项目定位**: 从"项目概述"或"项目定位"章节提取核心定位描述，控制在50字以内
 2. **技术栈**: 从"技术栈分析"章节提取主要技术组件，控制在40字以内
 3. **架构特点**: 从"架构设计"章节提取核心架构特色，控制在40字以内
@@ -60,32 +60,32 @@ src/
 
 | 文档名称 | 文件路径 | 主要内容 | 适用场景 |
 |---------|---------|---------|---------|
-| **项目概览** | [\`01_{PROJECT_NAME}_Overview.md\`](${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md) | {项目定位摘要} | 项目理解、技术选型、功能开发 |
-| **整体架构** | [\`02_{PROJECT_NAME}_Architecture.md\`](${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md) | {架构模式摘要} | 架构设计、模块开发、系统集成 |
-| **服务依赖** | [\`03_{PROJECT_NAME}_Service_Dependencies.md\`](${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md) | {服务间依赖摘要} | 依赖管理、性能优化、故障排查 |
-| **数据流分析** | [\`04_{PROJECT_NAME}_Data_Flow_Integration.md\`](${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md) | {数据流模式摘要} | 数据处理、集成开发、性能调优 |
-| **服务模块** | [\`05_{PROJECT_NAME}_Service_Analysis.md\`](${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md) | {核心服务摘要} | 服务开发、代码重构、功能扩展 |
-| **数据库分析** | [\`06_{PROJECT_NAME}_Database_Schema.md\`](${WIKI_OUTPUT_DIR}06_{PROJECT_NAME}_Database_Schema.md) | {数据库架构摘要} | 数据库设计、查询优化、数据迁移 |
-| **API接口** | [\`07_{PROJECT_NAME}_API.md\`](${WIKI_OUTPUT_DIR}07_{PROJECT_NAME}_API.md) | {接口规范摘要} | API开发、接口测试、集成开发 |
-| **部署分析** | [\`08_{PROJECT_NAME}_Deploy.md\`](${WIKI_OUTPUT_DIR}08_{PROJECT_NAME}_Deploy.md) | {部署方式摘要} | 部署配置、运维管理、扩容缩容 |
+| **项目概览** | [\`${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}) | {项目定位摘要} | 项目理解、技术选型、功能开发 |
+| **整体架构** | [\`${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}) | {架构模式摘要} | 架构设计、模块开发、系统集成 |
+| **服务依赖** | [\`${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}) | {服务间依赖摘要} | 依赖管理、性能优化、故障排查 |
+| **数据流分析** | [\`${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}) | {数据流模式摘要} | 数据处理、集成开发、性能调优 |
+| **服务模块** | [\`${SUBTASK_OUTPUT_FILENAMES.SERVICE_ANALYSIS_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_ANALYSIS_TASK_FILE}) | {核心服务摘要} | 服务开发、代码重构、功能扩展 |
+| **数据库分析** | [\`${SUBTASK_OUTPUT_FILENAMES.DATABASE_SCHEMA_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATABASE_SCHEMA_TASK_FILE}) | {数据库架构摘要} | 数据库设计、查询优化、数据迁移 |
+| **API接口** | [\`${SUBTASK_OUTPUT_FILENAMES.API_INTERFACE_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.API_INTERFACE_TASK_FILE}) | {接口规范摘要} | API开发、接口测试、集成开发 |
+| **部署分析** | [\`${SUBTASK_OUTPUT_FILENAMES.DEPLOY_ANALYSIS_TASK_FILE}\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DEPLOY_ANALYSIS_TASK_FILE}) | {部署方式摘要} | 部署配置、运维管理、扩容缩容 |
 
 ### 🚀 角色导向导航
 
 #### 🆕 新手入门路径
-1. **快速了解项目**: [\`项目概览\`](${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md) → [\`API接口\`](${WIKI_OUTPUT_DIR}07_{PROJECT_NAME}_API.md)
-2. **开发环境准备**: [\`项目规则\`](.roo/code-rules/generated_rules.md) → [\`部署分析\`](${WIKI_OUTPUT_DIR}08_{PROJECT_NAME}_Deploy.md)
+1. **快速了解项目**: [\`项目概览\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}) → [\`API接口\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.API_INTERFACE_TASK_FILE})
+2. **开发环境准备**: [\`项目规则\`](.roo/code-rules/generated_rules.md) → [\`部署分析\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DEPLOY_ANALYSIS_TASK_FILE})
 
 #### 🏗️ 架构设计路径
-1. **架构理解**: [\`整体架构\`](${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md) → [\`服务依赖\`](${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md)
-2. **数据架构**: [\`数据流分析\`](${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md) → [\`数据库分析\`](${WIKI_OUTPUT_DIR}06_{PROJECT_NAME}_Database_Schema.md)
+1. **架构理解**: [\`整体架构\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}) → [\`服务依赖\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE})
+2. **数据架构**: [\`数据流分析\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}) → [\`数据库分析\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATABASE_SCHEMA_TASK_FILE})
 
 #### 💻 开发实施路径
-1. **编码规范**: [\`项目规则\`](.roo/code-rules/generated_rules.md) → [\`服务模块\`](${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md)
-2. **接口开发**: [\`API接口\`](${WIKI_OUTPUT_DIR}07_{PROJECT_NAME}_API.md) → [\`数据库分析\`](${WIKI_OUTPUT_DIR}06_{PROJECT_NAME}_Database_Schema.md)
+1. **编码规范**: [\`项目规则\`](.roo/code-rules/generated_rules.md) → [\`服务模块\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_ANALYSIS_TASK_FILE})
+2. **接口开发**: [\`API接口\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.API_INTERFACE_TASK_FILE}) → [\`数据库分析\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATABASE_SCHEMA_TASK_FILE})
 
 #### 🔧 运维部署路径
-1. **部署配置**: [\`部署分析\`](${WIKI_OUTPUT_DIR}08_{PROJECT_NAME}_Deploy.md) → [\`项目规则\`](.roo/code-rules/generated_rules.md)
-2. **系统维护**: [\`服务依赖\`](${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md) → [\`数据流分析\`](${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md)
+1. **部署配置**: [\`部署分析\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DEPLOY_ANALYSIS_TASK_FILE}) → [\`项目规则\`](.roo/code-rules/generated_rules.md)
+2. **系统维护**: [\`服务依赖\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}) → [\`数据流分析\`](${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE})
 \`\`\`
 
 ## 特别注意事项
@@ -98,5 +98,5 @@ src/
 7. 所有摘要信息控制在30字以内，简洁明了；
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}index.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.INDEX_GENERATION_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。`
