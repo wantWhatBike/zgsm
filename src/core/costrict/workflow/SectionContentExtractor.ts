@@ -251,7 +251,7 @@ export class SectionContentExtractor {
 		// 添加任务行本身
 		lines.push(taskLine.text)
 
-		// 查找子内容（缩进的后续行）
+		// 查找子内容
 		for (let i = taskLineNumber + 1; i < document.lineCount; i++) {
 			const line = document.lineAt(i)
 			const lineText = line.text.trim()
@@ -263,16 +263,28 @@ export class SectionContentExtractor {
 
 			const lineIndent = this.getIndentLevel(line.text)
 
-			// 如果遇到同级或更高级别的任务，停止
-			if (lineIndent <= taskIndent && (lineText.startsWith("- [") || lineText.startsWith("* ["))) {
+			// 检查是否为任务项（带状态的列表项）
+			const isTaskItem = lineText.match(/^[-*]\s*\[[x\-\s]\]/)
+
+			// 如果遇到新的任务项，停止
+			if (isTaskItem) {
 				break
 			}
 
-			// 如果是更深层次的内容，添加到结果中
+			// 如果是缩进的内容，添加到结果中
 			if (lineIndent > taskIndent) {
 				lines.push(line.text)
+			} else if (lineIndent === taskIndent) {
+				// 同级别的内容，检查是否为任务的子内容
+				// 如果是以 "- " 开头但不是任务项的列表，视为子内容
+				if (lineText.startsWith("- ") && !isTaskItem) {
+					lines.push(line.text)
+				} else {
+					// 其他同级内容，停止
+					break
+				}
 			} else {
-				// 同级或更高级别的非任务内容，停止
+				// 更高级别的内容，停止
 				break
 			}
 		}

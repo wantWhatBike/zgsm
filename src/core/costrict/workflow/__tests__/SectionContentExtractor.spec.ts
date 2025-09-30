@@ -264,6 +264,77 @@ describe("SectionContentExtractor", () => {
 			expect(result.content).toContain("  子内容1")
 			expect(result.content).not.toContain("- [ ] 任务2")
 		})
+
+		it("应该正确提取没有缩进的任务子内容", async () => {
+			// 模拟 .cospec/add-demo/tasks.md 的格式
+			const content = `- [x] 1. 实现【用户注册】功能子需求
+- 实现用户注册API接口，包括用户名、密码、邮箱验证
+- 添加用户名唯一性验证和密码强度验证逻辑
+- 实现密码哈希存储功能
+- 创建用户注册前端页面和表单验证
+- 确保子需求可独立运行
+- _需求：[FR-001]_
+- _测试：[testcases/login/user_registration.json - 有效用户注册、用户名唯一性验证、密码强度验证]_
+
+- [x] 2. 实现【用户登录】功能子需求
+- 实现用户登录API接口，包括用户名密码验证`
+
+			mockDocument.getText.mockReturnValue(content)
+			mockDocument.lineCount = content.split("\n").length
+
+			const lines = content.split("\n")
+			mockDocument.lineAt.mockImplementation((index: number) => ({
+				text: lines[index] || "",
+			}))
+
+			mockContext.documentType = "tasks"
+			mockContext.lineNumber = 0 // 第一个任务行
+
+			const result = await extractor.extractContentForCodeLens(mockContext)
+
+			expect(result.success).toBe(true)
+			expect(result.type).toBe("line")
+			expect(result.content).toContain("- [x] 1. 实现【用户注册】功能子需求")
+			expect(result.content).toContain("- 实现用户注册API接口，包括用户名、密码、邮箱验证")
+			expect(result.content).toContain("- 添加用户名唯一性验证和密码强度验证逻辑")
+			expect(result.content).toContain("- 实现密码哈希存储功能")
+			expect(result.content).toContain("- 创建用户注册前端页面和表单验证")
+			expect(result.content).toContain("- 确保子需求可独立运行")
+			expect(result.content).toContain("- _需求：[FR-001]_")
+			expect(result.content).toContain("- _测试：[testcases/login/user_registration.json")
+			// 不应该包含下一个任务
+			expect(result.content).not.toContain("- [x] 2. 实现【用户登录】功能子需求")
+		})
+
+		it("应该正确区分任务项和普通列表项", async () => {
+			const content = `- [x] 1. 主任务项
+- 这是普通列表项，应该被包含
+- 这也是普通列表项
+- _特殊格式的列表项_
+
+- [ ] 2. 另一个任务项
+- 这是第二个任务的子项`
+
+			mockDocument.getText.mockReturnValue(content)
+			mockDocument.lineCount = content.split("\n").length
+
+			const lines = content.split("\n")
+			mockDocument.lineAt.mockImplementation((index: number) => ({
+				text: lines[index] || "",
+			}))
+
+			mockContext.documentType = "tasks"
+			mockContext.lineNumber = 0
+
+			const result = await extractor.extractContentForCodeLens(mockContext)
+
+			expect(result.success).toBe(true)
+			expect(result.content).toContain("- [x] 1. 主任务项")
+			expect(result.content).toContain("- 这是普通列表项，应该被包含")
+			expect(result.content).toContain("- 这也是普通列表项")
+			expect(result.content).toContain("- _特殊格式的列表项_")
+			expect(result.content).not.toContain("- [ ] 2. 另一个任务项")
+		})
 	})
 
 	describe("createContentExtractionContext", () => {

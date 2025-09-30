@@ -603,7 +603,7 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 			case "run_all":
 				return "$(play-circle) Run All Tasks"
 			case "run_test":
-				return "$(beaker) Run test"
+				return "$(beaker) Generate Test Case"
 			case "retry":
 				return "$(refresh) Retry"
 			case "loading":
