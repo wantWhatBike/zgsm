@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const SERVICE_DEPENDENCIES_ANALYSIS_TEMPLATE = `# 服务依赖深度分析
 
@@ -7,8 +7,8 @@ export const SERVICE_DEPENDENCIES_ANALYSIS_TEMPLATE = `# 服务依赖深度分�
 
 ## 输入要求
 - **前置任务分析结果**:（如果文件不存在则忽略）
-  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
-  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Overall_Architecture.md\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}\`
 - **完整代码仓库**: 项目的完整源代码
 - **服务配置**: 各服务的配置文件
 - **API定义**: 服务间接口定义
@@ -506,7 +506,7 @@ websocket:
 5. 提供实用的依赖管理建议和容错策略
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征

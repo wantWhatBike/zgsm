@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const SERVICE_ANALYSIS_TEMPLATE = `# 服务模块深度分析
 
@@ -7,10 +7,10 @@ export const SERVICE_ANALYSIS_TEMPLATE = `# 服务模块深度分析
 
 ## 输入要求
 - **前置任务分析结果**:（如果文件不存在则忽略）
-  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
-  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
-  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
-  - \`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}\`
 - **完整代码仓库**: 项目的完整源代码
 - **服务配置**: 各服务的配置文件
 - **接口定义**: 服务间接口定义
@@ -949,7 +949,7 @@ graph TB
 5. 提供实用的部署和运维建议
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_ANALYSIS_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征

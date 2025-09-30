@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const DATABASE_SCHEMA_ANALYSIS_TEMPLATE = `# 数据库架构深度分析
 
@@ -7,11 +7,11 @@ export const DATABASE_SCHEMA_ANALYSIS_TEMPLATE = `# 数据库架构深度分析
 
 ## 输入要求
 - **前置任务分析结果**:（如果文件不存在则忽略）
-  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
-  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
-  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
-  - \`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
-  - \`${WIKI_OUTPUT_DIR}05_{PROJECT_NAME}_Service_Analysis.md\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_ANALYSIS_TASK_FILE}\`
 - **完整代码仓库**: 项目的完整源代码
 - **数据库迁移文件**: 数据库迁移和初始化脚本
 - **ORM模型定义**: 数据库模型和关系定义
@@ -1245,7 +1245,7 @@ CREATE TRIGGER configurations_audit_trigger AFTER INSERT OR UPDATE OR DELETE ON 
 5. 提供实用的监控和维护策略
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}06_{PROJECT_NAME}_Database_Schema.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATABASE_SCHEMA_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征

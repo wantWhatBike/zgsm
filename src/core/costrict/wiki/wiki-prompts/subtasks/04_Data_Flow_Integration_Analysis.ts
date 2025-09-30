@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_DIR } from "./constants"
+import { WIKI_OUTPUT_DIR, SUBTASK_OUTPUT_FILENAMES } from "./constants"
 
 export const DATA_FLOW_INTEGRATION_ANALYSIS_TEMPLATE = `# 数据流和集成深度分析
 
@@ -7,9 +7,9 @@ export const DATA_FLOW_INTEGRATION_ANALYSIS_TEMPLATE = `# 数据流和集成深�
 
 ## 输入要求
 - **前置任务分析结果**:（如果文件不存在则忽略）
-  - \`${WIKI_OUTPUT_DIR}01_{PROJECT_NAME}_Overview.md\`
-  - \`${WIKI_OUTPUT_DIR}02_{PROJECT_NAME}_Architecture.md\`
-  - \`${WIKI_OUTPUT_DIR}03_{PROJECT_NAME}_Service_Dependencies.md\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.PROJECT_OVERVIEW_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.OVERALL_ARCHITECTURE_TASK_FILE}\`
+  - \`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.SERVICE_DEPENDENCIES_TASK_FILE}\`
 - **完整代码仓库**: 项目的完整源代码
 - **数据模型**: 数据库模型和数据结构定义
 - **API接口**: 数据传输接口定义
@@ -580,7 +580,7 @@ func (m *DataFlowMonitor) RecordMessage(duration time.Duration) {
 5. 提供实用的故障处理和恢复策略
 
 ## 输出文件命名
-\`${WIKI_OUTPUT_DIR}04_{PROJECT_NAME}_Data_Flow_Integration.md\`
+\`${WIKI_OUTPUT_DIR}${SUBTASK_OUTPUT_FILENAMES.DATA_FLOW_INTEGRATION_TASK_FILE}\`
 注意：如果${WIKI_OUTPUT_DIR} 目录不存在，则创建。
 
 ## 示例输出特征
