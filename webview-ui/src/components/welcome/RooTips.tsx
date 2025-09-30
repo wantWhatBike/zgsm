@@ -8,6 +8,8 @@ import { useCallback } from "react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ZgsmCodeMode } from "@roo/modes"
 import SectionDivider from "@/components/common/SectionDivider"
+import { StandardTooltip } from "../ui"
+import { Button } from "@/components/ui"
 
 const tips = [
 	{
@@ -22,6 +24,26 @@ const tips = [
 		disabled: true,
 		titleKey: "rooTips.debug.title",
 		descriptionKey: "rooTips.debug.description",
+	},
+	{
+		icon: "codicon-book",
+		click: (e: any) => {
+			e.preventDefault()
+			vscode.postMessage({
+				type: "mode",
+				text: "code",
+			})
+			// 调用 project-wiki 自定义指令
+			vscode.postMessage({
+				type: "newTask",
+				text: "/test-guide",
+				values: {
+					checkProjectWiki: true,
+				},
+			})
+		},
+		titleKey: "rooTips.testGuide.title",
+		descriptionKey: "rooTips.testGuide.description",
 	},
 	{
 		icon: "codicon-book",
@@ -121,17 +143,11 @@ const RooTips = () => {
 			<SectionDivider title={tWelcome("commonFeatures")} icon="codicon-tools" />
 			<div className="flex flex-row sm:flex-row gap-4">
 				{tips.map((tip, index) => (
-					<div
-						key={`${index}${tip.titleKey}`}
-						onClick={tip.click}
-						className={`flex-1 border border-vscode-panel-border hover:bg-secondary rounded-md py-3 px-4 flex flex-row gap-3 cursor-pointer transition-all no-underline text-inherit`}>
-						<div>
-							<div className="text-base font-medium text-vscode-foreground">{t(tip.titleKey)}</div>
-							<div>
-								<div className="text-sm text-vscode-descriptionForeground">{t(tip.descriptionKey)}</div>
-							</div>
-						</div>
-					</div>
+					<StandardTooltip key={`${index}${tip.titleKey}`} content={t(tip.descriptionKey)} maxWidth={200}>
+						<Button variant="outline" onClick={tip.click}>
+							{t(tip.titleKey)}
+						</Button>
+					</StandardTooltip>
 				))}
 			</div>
 		</div>
