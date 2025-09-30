@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import * as path from "path"
 
 // Set up mocks before importing the modules
-const mockHomeDir = "C:\\home\\user"
+const mockHomeDir = "/home/user"
 const globalCommandsDir = path.join(mockHomeDir, ".roo", "commands")
 
 // Mock os module

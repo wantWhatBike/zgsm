@@ -56,20 +56,20 @@ describe("RooTips Component", () => {
 			expect(screen.getAllByRole("link")).toHaveLength(1)
 
 			// Verify that the section dividers are rendered
-			expect(screen.getByText("开发模式")).toBeInTheDocument()
-			expect(screen.getByText("常用功能")).toBeInTheDocument()
+			expect(screen.getByText("developmentMode")).toBeInTheDocument()
+			expect(screen.getByText("commonFeatures")).toBeInTheDocument()
 		})
 
 		test("renders SectionDivider components with correct props", () => {
 			// 验证"开发模式"分隔线
-			const devModeHeading = screen.getByRole("heading", { name: "开发模式" })
+			const devModeHeading = screen.getByRole("heading", { name: "developmentMode" })
 			expect(devModeHeading).toBeInTheDocument()
-			expect(devModeHeading).toHaveClass("text-sm", "font-semibold", "text-vscode-foreground")
+			expect(devModeHeading).toHaveClass("text-base", "font-semibold", "text-vscode-foreground")
 
 			// 验证"常用功能"分隔线
-			const commonFeaturesHeading = screen.getByRole("heading", { name: "常用功能" })
+			const commonFeaturesHeading = screen.getByRole("heading", { name: "commonFeatures" })
 			expect(commonFeaturesHeading).toBeInTheDocument()
-			expect(commonFeaturesHeading).toHaveClass("text-sm", "font-semibold", "text-vscode-foreground")
+			expect(commonFeaturesHeading).toHaveClass("text-base", "font-semibold", "text-vscode-foreground")
 
 			// 验证图标存在
 			const gearIcon = document.querySelector(".codicon-settings-gear")

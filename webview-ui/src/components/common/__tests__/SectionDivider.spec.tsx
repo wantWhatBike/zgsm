@@ -7,9 +7,9 @@ describe("SectionDivider Component", () => {
 		test("应该渲染简单的分隔线", () => {
 			const { container } = render(<SectionDivider />)
 
-			const divider = container.querySelector(".h-px.bg-vscode-input-border.my-4")
+			const divider = container.querySelector(".h-px.bg-vscode-input-border.my-1")
 			expect(divider).toBeInTheDocument()
-			expect(divider).toHaveClass("h-px", "bg-vscode-input-border", "my-4")
+			expect(divider).toHaveClass("h-px", "bg-vscode-input-border", "my-1")
 		})
 
 		test("应该应用自定义 className", () => {
@@ -44,7 +44,7 @@ describe("SectionDivider Component", () => {
 			render(<SectionDivider title="测试标题" />)
 
 			const heading = screen.getByRole("heading", { level: 3 })
-			expect(heading).toHaveClass("text-sm", "font-semibold", "text-vscode-foreground", "whitespace-nowrap")
+			expect(heading).toHaveClass("text-base", "font-semibold", "text-vscode-foreground", "whitespace-nowrap")
 		})
 
 		test("应该包含分隔线元素", () => {
@@ -58,7 +58,7 @@ describe("SectionDivider Component", () => {
 		test("应该应用自定义 className", () => {
 			render(<SectionDivider title="测试标题" className="custom-class" />)
 
-			const container = document.querySelector(".flex.items-center.gap-2.my-4.custom-class")
+			const container = document.querySelector(".flex.items-center.gap-2.my-1.custom-class")
 			expect(container).toBeInTheDocument()
 		})
 	})
@@ -67,7 +67,7 @@ describe("SectionDivider Component", () => {
 		test("容器应该有正确的布局类", () => {
 			render(<SectionDivider title="测试标题" />)
 
-			const container = document.querySelector(".flex.items-center.gap-2.my-4")
+			const container = document.querySelector(".flex.items-center.gap-2.my-1")
 			expect(container).toBeInTheDocument()
 		})
 
