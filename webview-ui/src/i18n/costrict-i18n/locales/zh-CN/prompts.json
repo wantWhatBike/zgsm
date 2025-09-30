@@ -60,6 +60,10 @@
 			"WORKFLOW_DESIGN_UPDATE": {
 				"label": "设计更新",
 				"description": "当设计文档确认更新后，Costrict 将更新相关的任务文档"
+			},
+			"WORKFLOW_TASK_RUN_TESTS": {
+				"label": "测试案例更新",
+				"description": "当测试案例文档确认更新后，Costrict 将更新相关的任务文档"
 			}
 		}
 	},

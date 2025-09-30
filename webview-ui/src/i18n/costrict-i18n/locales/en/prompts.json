@@ -60,6 +60,10 @@
 			"WORKFLOW_DESIGN_UPDATE": {
 				"label": "Design Update",
 				"description": "When the design document is confirmed to be updated, Costrict will update the associated tasks document"
+			},
+			"WORKFLOW_TASK_RUN_TESTS": {
+				"label": "Test Case Update",
+				"description": "When the test case document is confirmed to be updated, Costrict will update the associated tasks document"
 			}
 		}
 	},
