@@ -114,11 +114,11 @@
 		},
 		"debug": {
 			"title": "Auto Debug",
-			"description": "Diagnose and fix software issues"
+			"description": "Enter problem logs or fault descriptions, AI assists in locating the root cause and providing repair solutions."
 		},
 		"projectWiki": {
 			"title": "Project Wiki",
-			"description": "Analyze project deeply and generate a comprehensive project wiki"
+			"description": "Large model generates project knowledge base and rules adapted for AI reading, helping AI understand business and improve code generation accuracy."
 		}
 	}
 }

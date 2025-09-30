@@ -272,6 +272,11 @@
 				"command": "zgsm.coworkflow.refreshDecorations",
 				"title": "Refresh Decorations",
 				"category": "Coworkflow"
+			},
+			{
+				"command": "zgsm.coworkflow.runTest",
+				"title": "Run Test",
+				"category": "Coworkflow"
 			}
 		],
 		"menus": {

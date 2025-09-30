@@ -454,6 +454,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 								// 如果是第一个任务，添加 "run all task" 选项
 								if (!firstTaskFound) {
 									actions.push("run_all")
+									// 添加 "run test" 选项
+									actions.push("run_test")
 									firstTaskFound = true
 								}
 							} else if (status === "-") {
@@ -464,6 +466,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 								// 如果是第一个任务，添加 "run all task" 选项
 								if (!firstTaskFound) {
 									actions.push("run_all")
+									// 添加 "run test" 选项
+									actions.push("run_test")
 									firstTaskFound = true
 								}
 							} else if (status === "x") {
@@ -473,6 +477,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 								// 如果是第一个任务，添加 "run all task" 选项
 								if (!firstTaskFound) {
 									actions.push("run_all")
+									// 添加 "run test" 选项
+									actions.push("run_test")
 									firstTaskFound = true
 								}
 							} else {
@@ -491,6 +497,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 								// 如果是第一个任务，添加 "run all task" 选项
 								if (!firstTaskFound) {
 									actions.push("run_all")
+									// 添加 "run test" 选项
+									actions.push("run_test")
 									firstTaskFound = true
 								}
 							}
@@ -573,6 +581,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 				return getCommand("coworkflow.runTask")
 			case "run_all":
 				return getCommand("coworkflow.runAllTasks")
+			case "run_test":
+				return getCommand("coworkflow.runTest")
 			case "retry":
 				return getCommand("coworkflow.retryTask")
 			case "loading":
@@ -592,6 +602,8 @@ export class CoworkflowCodeLensProvider implements ICoworkflowCodeLensProvider {
 				return "$(play) Run"
 			case "run_all":
 				return "$(play-circle) Run All Tasks"
+			case "run_test":
+				return "$(beaker) Run test"
 			case "retry":
 				return "$(refresh) Retry"
 			case "loading":
