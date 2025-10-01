@@ -1,6 +1,6 @@
 import { SUBTASK_FILENAMES, subtaskDir, deepAnalyzeThreshold } from "./subtasks/constants"
 
-export const projectWikiVersion = "v1.0.2"
+export const projectWikiVersion = "v1.0.3"
 const projectWikiCreateTime = new Date().toLocaleString()
 
 export const PROJECT_WIKI_TEMPLATE = `---
