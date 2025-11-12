@@ -1,15 +1,13 @@
 import * as path from "path"
 import * as fs from "fs"
 import * as fsPromises from "fs/promises"
-
-import { Task } from "../../task/Task"
-import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag } from "../../../shared/tools"
-import { ClineSayTool } from "../../../shared/ExtensionMessage"
-import { getReadablePath } from "../../../utils/path"
-import { isPathOutsideWorkspace } from "../../../utils/pathUtils"
-import { listFiles } from "../../../services/glob/list-files"
 import ignore from "ignore"
-import { OUTPUT_FILENAMES, OUTPUT_PATHS } from "./knowledge_graph_extractor"
+import { listFiles } from "../../services/glob/list-files"
+import { ClineSayTool } from "../../shared/ExtensionMessage"
+import { Task } from "../task/Task"
+import { AskApproval, HandleError, PushToolResult, RemoveClosingTag, ToolUse } from "../../shared/tools"
+import { isPathOutsideWorkspace } from "../../utils/pathUtils"
+import { getReadablePath } from "../../utils/path"
 
 // 默认忽略规则，用于防止项目没有ignore文件时包含不必要的文件
 const DEFAULT_IGNORE = `
@@ -162,6 +160,7 @@ const MAX_FILES_PER_BATCH = 1000 // 每批处理的最大文件数
 const MAX_TOTAL_FILES = 100000 // 最大总文件数限制，防止OOM
 const WRITE_BUFFER_SIZE = 64 * 1024 // 64KB 写入缓冲区
 const OPERATION_TIMEOUT_MS = 60 * 1000 // 60秒超时
+const FILE_LIST = "files.txt"
 
 // 常见的包含点的目录
 const DOT_DIRECTORIES = [
@@ -270,7 +269,7 @@ export async function generateFilesListTool(
 			}
 
 			// 创建输出文件路径
-			const outputFile = path.join(absoluteTargetPath, OUTPUT_FILENAMES.FILE_LIST)
+			const outputFile = path.join(absoluteTargetPath, FILE_LIST)
 
 			// 使用流式写入，避免大文件占用过多内存
 			const writeStream = fs.createWriteStream(outputFile, { 
