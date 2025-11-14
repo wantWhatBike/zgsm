@@ -61,6 +61,7 @@ import { CheckpointSettings } from "./CheckpointSettings"
 import { NotificationSettings } from "./NotificationSettings"
 import { ContextManagementSettings } from "./ContextManagementSettings"
 import { ZgsmCodebaseSettings } from "./ZgsmCodebaseSettings"
+import { KnowledgeGraphSettings } from "./ZgsmKnowledgeGraphSettings"
 import { TerminalSettings } from "./TerminalSettings"
 import { ExperimentalSettings } from "./ExperimentalSettings"
 import { LanguageSettings } from "./LanguageSettings"
@@ -773,6 +774,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					{/* ZgsmCodebase Section */}
 					{activeTab === "contextManagement" && (
 						<ZgsmCodebaseSettings setCachedStateField={setCachedStateField} />
+					)}
+					{/* Knowledge Graph Section - Moved to bottom */}
+					{activeTab === "contextManagement" && (
+						<KnowledgeGraphSettings setCachedStateField={setCachedStateField} />
 					)}
 
 					{/* Terminal Section */}

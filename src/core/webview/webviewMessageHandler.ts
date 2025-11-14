@@ -73,7 +73,8 @@ import { ErrorCodeManager } from "../costrict/error-code"
 import { writeCostrictAccessToken } from "../costrict/codebase-index/utils"
 import { workspaceEventMonitor } from "../costrict/codebase-index/workspace-event-monitor"
 import { fetchZgsmQuotaInfo, fetchZgsmInviteCode } from "../../api/providers/fetchers/zgsm"
-// import { ensureProjectWikiSubtasksExists } from "../costrict/wiki/projectWikiHelpers"
+import { getKnowledgeGraphMessageHandler } from "../knowledge-graph/knowledgeGraphMessageHandler"
+import { initializeKnowledgeGraphMessageHandler } from "../knowledge-graph/knowledgeGraphMessageHandler"
 
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
@@ -3604,6 +3605,44 @@ export const webviewMessageHandler = async (
 				await provider.postMessageToWebview({
 					type: "zgsmQuotaInfo",
 					values: data,
+				})
+			}
+			break
+		}
+		case "knowledgeGraphEnabled":
+		case "knowledgeGraphGetStatus":
+		case "knowledgeGraphBuild":
+		case "knowledgeGraphPause":
+		case "knowledgeGraphResume":
+		case "knowledgeGraphClear": {
+			// 使用知识图谱消息处理器处理所有知识图谱相关消息
+			try {
+				
+				const handler = getKnowledgeGraphMessageHandler()
+				
+				if (!handler) {
+					// 如果处理器未初始化，先初始化它
+					initializeKnowledgeGraphMessageHandler(provider)
+					const newHandler = getKnowledgeGraphMessageHandler()
+					if (newHandler) {
+						await newHandler.handleMessage(message)
+					} else {
+						throw new Error("无法初始化知识图谱消息处理器")
+					}
+				} else {
+					await handler.handleMessage(message)
+				}
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : "处理知识图谱消息失败"
+				provider.log(errorMessage, "error", "KnowledgeGraphMessageHandler")
+				
+				// 发送错误响应
+				await provider.postMessageToWebview({
+					type: "knowledgeGraphStatusResponse",
+					payload: {
+						success: false,
+						error: errorMessage,
+					},
 				})
 			}
 			break

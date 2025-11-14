@@ -1992,6 +1992,7 @@ export class ClineProvider
 			openRouterImageGenerationSelectedModel,
 			openRouterUseMiddleOutTransform,
 			featureRoomoteControlEnabled,
+			knowledgeGraphEnabled,
 		} = await this.getState()
 
 		// let cloudOrganizations: CloudOrganizationMembership[] = []
@@ -2149,6 +2150,7 @@ export class ClineProvider
 			openRouterImageGenerationSelectedModel,
 			openRouterUseMiddleOutTransform,
 			featureRoomoteControlEnabled,
+			knowledgeGraphEnabled: false, // 默认值为false，后续可以从配置中读取
 		}
 	}
 
@@ -2250,6 +2252,7 @@ export class ClineProvider
 		providerSettings.openAiHeaders = providerSettings.openAiHeaders ?? {}
 		return {
 			apiConfiguration: providerSettings,
+			knowledgeGraphEnabled: stateValues.knowledgeGraphEnabled ?? false,
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
 			customInstructions: stateValues.customInstructions,
 			apiModelId: stateValues.apiModelId,

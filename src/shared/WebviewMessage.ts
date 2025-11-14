@@ -14,6 +14,21 @@ import {
 import { Mode } from "./modes"
 import { IndexStatusResponse } from "../core/costrict/codebase-index"
 
+// Knowledge Graph types
+export interface KnowledgeGraphStatusInfo {
+	status: "success" | "failed" | "running" | "pending" | "paused"
+	process: number
+	totalFiles: number
+	totalSucceed: number
+	totalFailed: number
+	failedReason: string
+	failedFiles: string[]
+	processTs: number
+	currentStage: "root_analysis" | "file_summary" | "directory_summary" | "dependency_graph" | "completed"
+	stageProgress: number
+}
+
+
 export type ClineAskResponse = "yesButtonClicked" | "noButtonClicked" | "messageResponse" | "objectResponse"
 
 export type PromptMode = Mode | "enhance"
@@ -227,6 +242,13 @@ export interface WebviewMessage {
 		| "fetchZgsmQuotaInfo"
 		| "fetchZgsmInviteCode"
 		| "fixCodebase"
+		// knowledge graph
+		| "knowledgeGraphEnabled"
+		| "knowledgeGraphGetStatus"
+		| "knowledgeGraphBuild"
+		| "knowledgeGraphPause"
+		| "knowledgeGraphResume"
+		| "knowledgeGraphClear"
 		// zgsm
 		| "profileThresholds"
 		| "shareTaskSuccess"
@@ -385,6 +407,10 @@ export type InstallMarketplaceItemWithParametersPayload = z.infer<
 	typeof installMarketplaceItemWithParametersPayloadSchema
 >
 
+export interface KnowledgeGraphStatusPayload {
+	status: KnowledgeGraphStatusInfo
+}
+
 export type WebViewMessagePayload =
 	| CheckpointDiffPayload
 	| CheckpointRestorePayload
@@ -395,3 +421,4 @@ export type WebViewMessagePayload =
 	| InstallMarketplaceItemWithParametersPayload
 	| UpdateTodoListPayload
 	| EditQueuedMessagePayload
+	| KnowledgeGraphStatusPayload

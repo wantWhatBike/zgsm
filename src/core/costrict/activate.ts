@@ -47,6 +47,7 @@ import { getPanel } from "../../activate/registerCommands"
 import { t } from "../../i18n"
 import prettyBytes from "pretty-bytes"
 import { ensureProjectWikiSubtasksExists } from "./wiki/projectWikiHelpers"
+import { activateKnowledgeGraph } from "../knowledge-graph"
 
 const HISTORY_WARN_SIZE = 1000 * 1000 * 1000 * 3
 
@@ -157,6 +158,16 @@ export async function activate(
 	initCodeReview(context, provider, outputChannel)
 	CompletionStatusBar.create(context)
 	initTelemetry(provider)
+	
+	// 初始化知识图谱功能
+	try {
+		logger.info("[KnowledgeGraph] 初始化知识图谱功能")
+		await activateKnowledgeGraph(context, provider)
+		logger.info("[KnowledgeGraph] 知识图谱功能初始化完成")
+	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : "知识图谱初始化失败"
+		logger.error(`[KnowledgeGraph] 知识图谱功能初始化失败: ${errorMessage}`)
+	}
 
 	context.subscriptions.push(
 		// Register codelens related commands

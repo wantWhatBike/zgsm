@@ -9,6 +9,7 @@ import {
 } from "./provider-settings.js"
 import { historyItemSchema } from "./history.js"
 import { codebaseIndexModelsSchema, codebaseIndexConfigSchema } from "./codebase-index.js"
+import { knowledgeGraphConfigSchema } from "./knowledge-graph.js"
 import { experimentsSchema } from "./experiment.js"
 import { telemetrySettingsSchema } from "./telemetry.js"
 import { modeConfigSchema } from "./mode.js"
@@ -71,6 +72,7 @@ export const globalSettingsSchema = z.object({
 	useZgsmCustomConfig: z.boolean().optional(),
 	zgsmCodebaseIndexEnabled: z.boolean().optional(),
 	zgsmCodeMode: z.union([z.literal("vibe"), z.literal("strict")]).optional(),
+	knowledgeGraphEnabled: z.boolean().optional(),
 
 	autoApprovalEnabled: z.boolean().optional(),
 	alwaysAllowReadOnly: z.boolean().optional(),
@@ -171,6 +173,7 @@ export const globalSettingsSchema = z.object({
 
 	codebaseIndexModels: codebaseIndexModelsSchema.optional(),
 	codebaseIndexConfig: codebaseIndexConfigSchema.optional(),
+	knowledgeGraphConfig: knowledgeGraphConfigSchema.optional(),
 
 	language: languagesSchema.optional(),
 

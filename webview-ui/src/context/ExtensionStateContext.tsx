@@ -218,6 +218,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		enableCheckpoints: true,
 		useZgsmCustomConfig: false,
 		zgsmCodebaseIndexEnabled: true,
+		knowledgeGraphEnabled: false,
 		zgsmCodeMode: "vibe",
 		checkpointTimeout: DEFAULT_CHECKPOINT_TIMEOUT_SECONDS, // Default to 15 seconds
 		fuzzyMatchThreshold: 1.0,
@@ -294,6 +295,8 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		openRouterImageGenerationSelectedModel: "",
 		includeCurrentTime: true,
 		includeCurrentCost: true,
+		knowledgeGraphConfig: {},
+		knowledgeGraphStatus: undefined,
 	})
 
 	const [didHydrateState, setDidHydrateState] = useState(false)
@@ -387,6 +390,38 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 					}
 					if (newState.marketplaceInstalledMetadata !== undefined) {
 						setMarketplaceInstalledMetadata(newState.marketplaceInstalledMetadata)
+					}
+					break
+				}
+				case "knowledgeGraphStatusResponse": {
+					if (message.payload?.status) {
+						setState((prevState) => ({
+							...prevState,
+							knowledgeGraphStatus: message.payload.status,
+						}))
+					}
+					break
+				}
+				case "knowledgeGraphBuildProgress": {
+					if (message.payload?.progress) {
+						// 更新知识图谱构建进度
+						setState((prevState) => ({
+							...prevState,
+							knowledgeGraphStatus: {
+								...prevState.knowledgeGraphStatus,
+								progress: message.payload.progress.percentage,
+								status: message.payload.progress.phase === 'completed' ? 'success' : 'running',
+							},
+						}))
+					}
+					break
+				}
+				case "knowledgeGraphEnabled": {
+					if (message.payload !== undefined) {
+						setState((prevState) => ({
+							...prevState,
+							knowledgeGraphEnabled: message.payload,
+						}))
 					}
 					break
 				}

@@ -132,6 +132,18 @@ export interface ExtensionMessage {
 		| "codeIndexSettingsSaved"
 		| "codeIndexSecretStatus"
 		| "codebaseIndexStatusResponse"
+		| "knowledgeGraphStatus"
+		| "knowledgeGraphConfig"
+		| "knowledgeGraphBuildProgress"
+		| "knowledgeGraphSearchResults"
+		| "knowledgeGraphStatusResponse"
+		| "knowledgeGraphConfigResponse"
+		| "knowledgeGraphEnabled"
+		| "knowledgeGraphGetStatus"
+		| "knowledgeGraphBuild"
+		| "knowledgeGraphPause"
+		| "knowledgeGraphResume"
+		| "knowledgeGraphClear"
 		| "showDeleteMessageDialog"
 		| "showEditMessageDialog"
 		| "showZgsmCodebaseDisableConfirmDialog"
@@ -359,6 +371,11 @@ export type ExtensionState = Pick<
 	zgsmCodeMode?: "vibe" | "strict"
 	customModes: ModeConfig[]
 	toolRequirements?: Record<string, boolean> // Map of tool names to their requirements (e.g. {"apply_diff": true} if diffEnabled)
+
+	// Knowledge Graph settings
+	knowledgeGraphEnabled: boolean
+	knowledgeGraphConfig?: any // Knowledge graph configuration
+	knowledgeGraphStatus?: any // Current knowledge graph status
 
 	cwd?: string // Current working directory
 	telemetrySetting: TelemetrySetting

@@ -543,6 +543,7 @@ describe("ClineProvider", () => {
 				codebaseIndexEmbedderBaseUrl: "",
 				codebaseIndexEmbedderModelId: "",
 			},
+			knowledgeGraphEnabled: false,
 			alwaysAllowWriteOutsideWorkspace: false,
 			alwaysAllowExecute: false,
 			alwaysAllowBrowser: false,

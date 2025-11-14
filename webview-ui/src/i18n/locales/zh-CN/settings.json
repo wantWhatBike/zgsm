@@ -925,6 +925,48 @@
 		"apiRequestBlockHide": {
 			"label": "默认隐藏“API 请求”详情",
 			"description": "启用后，“API 请求”详情不会渲染，有利于性能提升"
+		},
+		"knowledgeGraph": {
+			"title": "知识图谱",
+			"description": "使用LLM分析生成结构化项目摘要和依赖关系图",
+			"buildStatus": "构建状态",
+			"fileCount": "文件数",
+			"lastUpdated": "最后更新时间",
+			"buildProgress": "构建进度",
+			"status": {
+				"pending": "等待中",
+				"running": "运行中",
+				"success": "成功",
+				"failed": "失败",
+				"paused": "已暂停",
+				"unknown": "未知"
+			},
+			"start": "开始",
+			"pause": "暂停",
+			"resume": "继续",
+			"clear": "清空",
+			"export": "导出",
+			"configuration": "配置",
+			"configurationDescription": "配置知识图谱生成参数",
+			"model": "模型",
+			"selectModel": "选择模型",
+			"maxConcurrency": "最大并发数",
+			"concurrentRequests": "并发请求",
+			"batchSize": "批次大小",
+			"filesPerBatch": "文件/批次",
+			"enableIncremental": "启用增量更新",
+			"enableIncrementalDescription": "仅更新变更的文件以提高效率",
+			"enableBreakpoint": "启用断点执行",
+			"enableBreakpointDescription": "支持任务中断后恢复执行",
+			"viewFailedFiles": "查看失败文件",
+			"failedFilesTitle": "失败文件",
+			"failedFileList": "失败文件列表",
+			"copy": "复制",
+			"buildFailed": "构建失败",
+			"disabled": "知识图谱已禁用",
+			"onlyCostrictProviderSupport": "仅支持CoStrict提供商",
+			"enableToShowDetails": "启用知识图谱以显示详情",
+			"viewDetails": "查看详情"
 		}
 	}
 }

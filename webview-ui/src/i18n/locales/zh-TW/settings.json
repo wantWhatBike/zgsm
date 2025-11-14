@@ -925,6 +925,48 @@
 		"apiRequestBlockHide": {
 			"label": "預設隱藏「API 請求」詳情",
 			"description": "啟用後，「API 請求」詳情不會渲染，有利於效能提升"
+		},
+		"knowledgeGraph": {
+			"title": "知識圖譜",
+			"description": "使用LLM分析生成結構化項目摘要和依賴關係圖",
+			"buildStatus": "構建狀態",
+			"fileCount": "檔案數",
+			"lastUpdated": "最後更新時間",
+			"buildProgress": "構建進度",
+			"status": {
+				"pending": "等待中",
+				"running": "運行中",
+				"success": "成功",
+				"failed": "失敗",
+				"paused": "已暫停",
+				"unknown": "未知"
+			},
+			"start": "開始",
+			"pause": "暫停",
+			"resume": "繼續",
+			"clear": "清空",
+			"export": "導出",
+			"configuration": "配置",
+			"configurationDescription": "配置知識圖譜生成參數",
+			"model": "模型",
+			"selectModel": "選擇模型",
+			"maxConcurrency": "最大並發數",
+			"concurrentRequests": "並發請求",
+			"batchSize": "批次大小",
+			"filesPerBatch": "檔案/批次",
+			"enableIncremental": "啟用增量更新",
+			"enableIncrementalDescription": "僅更新變更的檔案以提高效率",
+			"enableBreakpoint": "啟用斷點執行",
+			"enableBreakpointDescription": "支持任務中斷後恢復執行",
+			"viewFailedFiles": "查看失敗檔案",
+			"failedFilesTitle": "失敗檔案",
+			"failedFileList": "失敗檔案列表",
+			"copy": "複製",
+			"buildFailed": "構建失敗",
+			"disabled": "知識圖譜已禁用",
+			"onlyCostrictProviderSupport": "僅支持CoStrict提供商",
+			"enableToShowDetails": "啟用知識圖譜以顯示詳情",
+			"viewDetails": "查看詳情"
 		}
 	}
 }

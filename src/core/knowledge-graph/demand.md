@@ -32,15 +32,15 @@
   knowledge-graph:
     - file_summaries.jsonl
     - dir_summaries.jsonl
-    - relations.json
+    - relations.md
     - directory_tree.md
     - inde.md(对前面文件的index和介绍)
 
 ## 技术方案
 
 ## 存储
-本功能的持久化目录：${用户目录}/.costrict/cache/knowledge-graph/{项目名-sha256值}/
-存储可选方式：文件、sqlite、leveldb，按需选择
+${HOME}/.cospec/knowledge-graph/
+存储方式：md文件、jsonl文件
 
 ### 根目录分析功能
 将根目录下的关键文件，readme.md、pom.xml、package.json等等，以及根目录结构等等，统一发送给LLM，让LLM进行分析，输出项目总体概览。包括功能、技术栈、模块划分等等。
@@ -181,7 +181,7 @@
 4. 记录状态
 记录任务进度、状态。
 
-**输出**： files.json、sqlite 或者leveldb
+**输出**： files.json
 
 ### 目录摘要
 文件摘要完成后，按目录批量读取文件摘要，进行目录摘要生成。目录要到最内一层（文件上一层），然后层层往外。
@@ -234,7 +234,7 @@
 - 项目文件列表:
 {文件列表}
 ```
-**输出**: sqlite或者leveldb
+**输出**: jsonl
 
 ### 全局依赖关系图功能
 基于文件摘要、目录摘要，生成项目核心功能依赖关系图。优先使用工程化方式串联图关系，然后发送给LLM按功能拆解。
@@ -244,11 +244,11 @@
 ```
 
 
-**输出**： sqlite或者leveldb
+**输出**： jsonl
 
 ### 增量更新功能
 保存文件摘要时候的时间戳，未变更的文件，跳过。根据变更文件的范围，增量更新目录、依赖关系、主索引。
-
+后台定时任务扫描。
 ### 断点执行
 记录文件/目录摘要进度、状态、以及整体的任务状态，可从上一次恢复执行。
 
@@ -310,7 +310,7 @@ credit不足：指数退避法重试
 ## 开发注意事项
 - 要输出高质量的代码，职责单一、简洁、模块化、便于维护；
 - 要尽量复用项目已有机制，不重复造轮子；
-- 代码统一放在 src/costrict/knowledge-graph/ 目录下；
+- 代码尽量放在 src/costrict/knowledge-graph/ 目录下；
 - 要确保可调试性，日志充分；
 - 要具备可测试性，能手动触发测试；
 
