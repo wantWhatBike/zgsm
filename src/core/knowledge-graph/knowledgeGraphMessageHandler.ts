@@ -2,14 +2,11 @@
  * 知识图谱消息处理器
  * 处理所有知识图谱相关的消息，从主消息处理器中抽离出来
  */
-import * as vscode from "vscode"
 import type { ClineProvider } from "../webview/ClineProvider"
 import { knowledgeGraphManager } from "./KnowledgeGraphManager"
-import { KnowledgeGraphConfig, ExportFormat } from "./types"
 import { ILogger } from "../../utils/logger"
 import { createLogger } from "../../utils/logger"
 import { Package } from "../../shared/package"
-import { getWorkspacePath } from "../../utils/path"
 
 /**
  * 知识图谱消息处理器
@@ -194,22 +191,23 @@ export class KnowledgeGraphMessageHandler {
         }
         
         // 获取当前阶段信息
-        const buildProgress = knowledgeGraphManager.getBuildProgress()
-        const currentStage = buildProgress ? this.mapPhaseToStage(buildProgress.phase) : this.getCurrentStage(status.status)
+        const currentStage = this.mapStatusToStage(status.status, status.phase)
         
-        // 构建符合前端期望的 KnowledgeGraphStatusInfo 格式
+        // 构建符合前端期望的 KnowledgeGraphStatusInfo 格式 - 修复进度显示问题
         const buildingStatusInfo = {
           status: this.mapStatusToFrontendFormat(status.status),
           process: Math.max(0, Math.min(100, status.progress)), // 确保进度在0-100范围内
-          totalFiles: status.totalFiles,
-          totalSucceed: status.processedFiles,
-          totalFailed: failedFiles.length,
+          totalFiles: Math.max(status.totalFiles, 0), // 确保不为负数
+          totalSucceed: Math.max(status.processedFiles, 0), // 确保不为负数
+          totalFailed: Math.max(status.failedFiles || 0, 0),
           failedReason: status.error || "",
-          failedFiles: failedFiles,
+          failedFiles: [],
           processTs: Math.floor(Date.now() / 1000),
           currentStage: currentStage,
-          stageProgress: buildProgress ? buildProgress.percentage : status.progress
+          stageProgress: Math.max(0, Math.min(100, status.progress))
         }
+        
+        this.logger.info(`[KnowledgeGraphMessageHandler] 构建状态详细信息: 状态=${buildingStatusInfo.status}, 进度=${buildingStatusInfo.process}%, 总文件=${buildingStatusInfo.totalFiles}, 成功=${buildingStatusInfo.totalSucceed}, 失败=${buildingStatusInfo.totalFailed}, 阶段=${buildingStatusInfo.currentStage}`)
         
         this.logger.info(`[KnowledgeGraphMessageHandler] 构建状态: ${buildingStatusInfo.status}, 进度: ${buildingStatusInfo.process}%, 阶段: ${buildingStatusInfo.currentStage}`)
         
@@ -227,42 +225,62 @@ export class KnowledgeGraphMessageHandler {
       let processedFiles = 0
       let lastUpdated = "-"
       let hasValidData = false
-      
+      let buildState = storageStatus.buildState
+ 
       if (storageStatus.exists && storageStatus.info) {
-        // 修复：正确获取文件摘要数量而不是存储文件总数
-        totalFiles = storageStatus.info.fileCount || 0
-        processedFiles = totalFiles
-        
-        // 检查是否有有效的构建数据：需要有文件数量且有根信息
-        hasValidData = totalFiles > 0 && storageStatus.rootInfo !== null
-        
-        if (storageStatus.info.lastUpdated) {
-          const date = new Date(storageStatus.info.lastUpdated)
-          lastUpdated = date.toLocaleString('zh-CN', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })
+        // 优先使用构建状态中的数据
+        if (buildState) {
+          totalFiles = buildState.totalFiles || 0
+          processedFiles = buildState.processedFiles || 0
+          hasValidData = totalFiles > 0 && storageStatus.rootInfo !== null
+          
+          if (buildState.lastUpdateTime) {
+            const date = new Date(buildState.lastUpdateTime)
+            lastUpdated = date.toLocaleString('zh-CN', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })
+          }
+        } else {
+          // 后备：使用存储信息中的数据
+          totalFiles = storageStatus.info.fileCount || 0
+          processedFiles = totalFiles
+          hasValidData = totalFiles > 0 && storageStatus.rootInfo !== null
+          
+          if (storageStatus.info.lastUpdated) {
+            const date = new Date(storageStatus.info.lastUpdated)
+            lastUpdated = date.toLocaleString('zh-CN', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })
+          }
         }
       }
       
-      // 构建符合前端期望的 KnowledgeGraphStatusInfo 格式
+      // 构建符合前端期望的 KnowledgeGraphStatusInfo 格式 - 修复状态显示问题
       // 只有当存储存在且有有效数据时才认为是成功状态
       const storageStatusInfo = {
         status: (storageStatus.exists && hasValidData) ? "success" : "pending",
         process: (storageStatus.exists && hasValidData) ? 100 : 0,
-        totalFiles: totalFiles,
-        totalSucceed: processedFiles,
-        totalFailed: 0,
-        failedReason: "",
+        totalFiles: Math.max(totalFiles, 0), // 确保不显示负数或NaN
+        totalSucceed: Math.max(processedFiles, 0), // 确保不显示负数或NaN
+        totalFailed: Math.max(buildState?.failedFiles || 0, 0),
+        failedReason: buildState?.error || "",
         failedFiles: [],
         processTs: Math.floor(Date.now() / 1000),
         currentStage: (storageStatus.exists && hasValidData) ? "completed" : "root_analysis",
         stageProgress: (storageStatus.exists && hasValidData) ? 100 : 0
       }
+      
+      this.logger.info(`[KnowledgeGraphMessageHandler] 存储状态详细信息: 状态=${storageStatusInfo.status}, 进度=${storageStatusInfo.process}%, 总文件=${storageStatusInfo.totalFiles}, 成功=${storageStatusInfo.totalSucceed}, 失败=${storageStatusInfo.totalFailed}, 存在=${storageStatus.exists}, 有效数据=${hasValidData}`)
       
       this.logger.info(`[KnowledgeGraphMessageHandler] 存储状态: ${storageStatusInfo.status}, 进度: ${storageStatusInfo.process}%, 文件数: ${storageStatusInfo.totalFiles}`)
       
@@ -428,12 +446,19 @@ export class KnowledgeGraphMessageHandler {
   /**
    * 获取当前阶段
    */
-  private getCurrentStage(status: string): "root_analysis" | "file_summary" | "directory_summary" | "dependency_graph" | "completed" {
+  private mapStatusToStage(status: string, phase?: string): "root_analysis" | "file_summary" | "directory_summary" | "dependency_graph" | "completed" {
+    if (status === "completed") {
+      return "completed"
+    }
+    
+    if (phase) {
+      return this.mapPhaseToStage(phase)
+    }
+    
+    // 根据状态推断阶段
     switch (status) {
       case "running":
         return "file_summary"
-      case "completed":
-        return "completed"
       case "paused":
         return "file_summary"
       default:
@@ -452,8 +477,6 @@ export class KnowledgeGraphMessageHandler {
         return "file_summary"
       case "directory_analysis":
         return "directory_summary"
-      case "dependency_analysis":
-        return "dependency_graph"
       case "completed":
         return "completed"
       default:

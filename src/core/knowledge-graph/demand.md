@@ -22,7 +22,7 @@
   要支持断点执行，避免任务异常中断。
 
 - 可视化及配置功能
-  在CoStrict UI的'设置'中的左边栏的'上下文'标签页的最后面，增加一个'知识图谱'块。包括开关、描述、进度条、状态、模型选择、并发数、批次大小等配置功能，以及暂停、继续、清空、导出等功能。
+  在CoStrict UI的'设置'中的左边栏的'上下文'标签页的最后面，增加一个'知识图谱'块。包括开关、描述、进度条、状态，以及暂停、继续、清空功能。
   
 - 高效检索功能
   LLM能高效地使用'知识图谱'，检索到需要的信息，提高代码生成效果。
@@ -32,7 +32,7 @@
   knowledge-graph:
     - file_summaries.jsonl
     - dir_summaries.jsonl
-    - relations.md
+    - relations.txt
     - directory_tree.md
     - inde.md(对前面文件的index和介绍)
 
@@ -128,7 +128,7 @@ ${HOME}/.cospec/knowledge-graph/
 - 项目文件列表:
 {文件列表}
 ```
-**输出**: root_info.md。
+**输出**: root_info.json。
 
 ### 文件摘要功能
 1. 收集待分析文件列表
@@ -225,7 +225,7 @@ ${HOME}/.cospec/knowledge-graph/
 ```
 ## Input
 - 项目背景信息:
-{背景信息，root_info.md}
+{背景信息，root_info.json}
 
 - 待分析目录
 {目录}

@@ -54,12 +54,12 @@ export const ROOT_ANALYSIS_PROMPT = `
 \`\`\`
 
 ## Input
-请分析以下项目文件：
+请分析以下项目文件内容：
 
-{fileContents}
+{{fileContents}}
 
 项目文件列表：
-{fileList}
+{{fileList}}
 `
 
 /**
@@ -67,7 +67,7 @@ export const ROOT_ANALYSIS_PROMPT = `
  */
 export const FILE_ANALYSIS_PROMPT = `
 ## Role
-你是一个专业的技术文档分析师，专注于代码库分析与结构化文档生成。你擅长从复杂代码中提取关键信息，生成标准化摘要，但完全不会编写或运行代码，只能通过读取和分析文件内容完成任务。
+你是一个专业的技术文档分析师，专注于代码库分析与结构化文档生成。你擅长从复杂代码中提取关键信息，生成标准化摘要。
 
 ## Background
 文件摘要是知识图谱构建的基础数据，通过结构化方式记录每个文件的功能、依赖和价值，为后续目录摘要和全局关联分析提供支持。每个摘要需要准确反映文件在业务流程中的具体作用、数据处理方式和架构定位。
@@ -121,13 +121,13 @@ export const FILE_ANALYSIS_PROMPT = `
 
 ## Input
 项目背景信息：
-{rootInfo}
+{{rootInfo}}
 
 待分析文件组：
-{fileContents}
+{{fileContents}}
 
 项目文件列表：
-{fileList}
+{{fileList}}
 `
 
 /**
@@ -141,30 +141,25 @@ export const DIRECTORY_ANALYSIS_PROMPT = `
 目录摘要是构建知识图谱层级关系的关键环节。通过分析目录内文件的共性功能、依赖关系和业务关联，形成目录的整体定位和协作关系，为全局关联分析提供基础。准确的目录摘要能够帮助开发者快速理解代码库结构，提高代码导航和维护效率。
 
 ## Instructions
-目录摘要生成，基于文件摘要生成目录自身的摘要，强化层级关联与业务上下文。（要处理到最深一层的目录）
+目录摘要生成，基于文件摘要生成目录自身的摘要。（要处理到最深一层的目录）
 
 **执行步骤**：
 1. 背景信息获取
 2. 文件摘要分析
-3. 目录关系推导：基于文件摘要的dependencies字段，推导目录间的上下游关系
-4. 摘要生成：为每个目录生成结构化摘要信息
+3. 摘要生成：为每个目录生成结构化摘要信息
 
 **摘要生成规则**：
 - 分析目录内文件的共性功能和协作关系
 - 识别目录在整体项目架构中的定位
-- 推导与其他目录的依赖关系
-- 提取核心业务流程关联
 
 ## Rules
 1. 必须基于文件摘要生成目录摘要，不得自行推测
-2. 必须正确推导上下游关系，基于文件dependencies分析
-3. 必须确保description与项目模块定位一致
-4. 必须按处理单元顺序处理，确保完整性
-5. 必须处理到最深一层目录，不跳过任何子目录
-6. 关键词必须准确反映目录核心功能
-7. 核心文件必须基于功能重要性选择，而非文件大小
-8. 涉及路径，统一使用相对项目根目录的相对路径
-9. 务必一个json占一行，不要换行
+2. 必须确保description与项目模块定位一致
+3. 必须处理到最深一层目录，不跳过任何子目录
+4. 关键词必须准确反映目录核心功能
+5. 核心文件必须基于功能重要性选择，而非文件大小
+6. 涉及路径，统一使用相对项目根目录的相对路径
+7. 务必一个json占一行，不要换行
 
 ## Output
 请严格按照以下JSON格式返回，不要包含任何其他内容：
@@ -174,25 +169,16 @@ export const DIRECTORY_ANALYSIS_PROMPT = `
   "type": "功能模块/工具集/配置",
   "description": "整体定位（150字左右），详细描述目录在项目中的核心功能、架构角色、业务价值和技术特点",
   "keywords": ["2-5个核心关键词"],
-  "key_files": ["1-5个核心文件路径（基于功能重要性）"],
-  "upstream": ["提供输入的上游目录路径（基于文件dependencies推导）"],
-  "downstream": ["接收输出的下游目录路径（同上）"],
-  "collaboration": "与其他目录的协作逻辑（100字左右，无则不填），详细说明目录间的数据流向、接口调用、依赖关系和协作模式"
+  "key_files": ["1-5个核心文件路径（基于功能重要性）"]
 }
 \`\`\`
 
 ## Input
 项目背景信息：
-{rootInfo}
-
-待分析目录：
-{directory}
-
-目录下文件摘要、及子目录摘要：
-{summaries}
+{{rootInfo}}
 
 项目文件列表：
-{fileList}
+{{fileSimpleSummaryList}}
 `
 
 /**
@@ -293,7 +279,7 @@ export function buildPrompt(template: string, variables: Record<string, string>)
   let result = template
   
   for (const [key, value] of Object.entries(variables)) {
-    const placeholder = new RegExp(`{${key}}`, 'g')
+    const placeholder = new RegExp(`{{${key}}}`, 'g')
     result = result.replace(placeholder, value)
   }
   

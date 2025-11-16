@@ -18,42 +18,161 @@ export class ProgressTracker extends EventEmitter {
     this.logger = createLogger()
   }
 
+  // 进度锁，防止并发更新导致异常
+  private progressLock: boolean = false
+  private lastReportedProgress: number = -1
+
   /**
-   * 更新进度
+   * 安全的进度更新 - 防止进度异常跳跃
    */
-  update(progress: BuildProgress): void {
-    const now = Date.now()
-    
-    // 记录阶段开始时间
-    if (!this.phaseStartTimes.has(progress.phase)) {
-      this.phaseStartTimes.set(progress.phase, now)
-      this.logger.info(`[ProgressTracker] 阶段开始: ${progress.phase}`)
+  async update(progress: BuildProgress): Promise<void> {
+    // 使用锁防止并发更新导致的进度异常
+    if (this.progressLock) {
+      this.logger.warn('[ProgressTracker] 进度更新被锁定，跳过此次更新')
+      return
+    }
+
+    this.progressLock = true
+
+    try {
+      const now = Date.now()
+      
+      // 记录阶段开始时间
+      if (!this.phaseStartTimes.has(progress.phase)) {
+        this.phaseStartTimes.set(progress.phase, now)
+        this.logger.info(`[ProgressTracker] 阶段开始: ${progress.phase}`)
+      }
+      
+      // 计算总体进度百分比
+      const overallPercentage = this.calculateOverallPercentage(progress)
+      
+      // 验证进度合理性 - 防止进度倒退
+      if (this.currentProgress && overallPercentage < this.getOverallProgress()) {
+        // 允许小幅回退（可能是阶段切换），但不允许大幅回退
+        const regression = this.getOverallProgress() - overallPercentage
+        if (regression > 5) {
+          this.logger.warn(`[ProgressTracker] 检测到异常进度回退: ${this.getOverallProgress()}% -> ${overallPercentage}%, 跳过更新`)
+          return
+        }
+      }
+
+      // 更新当前进度
+      this.currentProgress = { ...progress }
+      
+      // 添加到历史记录
+      this.progressHistory.push({ ...progress })
+      
+      // 限制历史记录长度
+      if (this.progressHistory.length > 1000) {
+        this.progressHistory = this.progressHistory.slice(-500)
+      }
+      
+      // 只有在进度发生显著变化时才发送事件（避免频繁更新）
+      if (Math.abs(overallPercentage - this.lastReportedProgress) >= 1) {
+        this.emit('progress', {
+          ...progress,
+          percentage: overallPercentage
+        })
+        this.lastReportedProgress = overallPercentage
+        
+        this.logger.info(`[ProgressTracker] 进度更新: ${progress.phase} ${overallPercentage}% - ${progress.message}`)
+      }
+
+      // 完成检测
+      if (progress.phase === 'completed' && overallPercentage >= 100) {
+        this.emit('completed', {
+          ...progress,
+          percentage: 100
+        })
+        this.logger.info('[ProgressTracker] 构建完成')
+      }
+
+    } finally {
+      this.progressLock = false
+    }
+  }
+
+  /**
+   * 计算总体进度百分比 - 使用精确的阶段权重
+   */
+  private calculateOverallPercentage(progress: BuildProgress): number {
+    const phaseWeights = {
+      root_analysis: { start: 0, end: 10 },
+      file_analysis: { start: 10, end: 70 },
+      directory_analysis: { start: 70, end: 85 },
+      dependency_analysis: { start: 85, end: 95 },
+      completed: { start: 95, end: 100 }
     }
     
-    // 更新当前进度
-    this.currentProgress = { ...progress }
-    
-    // 添加到历史记录
-    this.progressHistory.push({ ...progress })
-    
-    // 限制历史记录长度
-    if (this.progressHistory.length > 1000) {
-      this.progressHistory = this.progressHistory.slice(-500)
+    const phaseConfig = phaseWeights[progress.phase as keyof typeof phaseWeights]
+    if (!phaseConfig) {
+      this.logger.warn(`[ProgressTracker] 未知阶段: ${progress.phase}`)
+      return 0
     }
+
+    // 计算阶段内进度
+    const phaseProgress = Math.min(Math.max(progress.percentage / 100, 0), 1)
     
-    // 触发进度更新事件
-    this.emit('progress', progress)
+    // 计算在总体进度中的位置
+    const overallProgress = phaseConfig.start + (phaseConfig.end - phaseConfig.start) * phaseProgress
     
-    // 如果进度完成，触发完成事件
-    if (progress.phase === 'completed' && progress.percentage === 100) {
-      this.logger.info(`[ProgressTracker] 构建完成`)
-      this.emit('completed', progress)
+    return Math.min(Math.max(Math.round(overallProgress), 0), 100)
+  }
+
+  /**
+   * 阶段切换 - 确保进度平滑过渡
+   */
+  async switchPhase(newPhase: BuildProgress['phase'], message: string = ''): Promise<void> {
+    if (!this.currentProgress) {
+      // 如果没有当前进度，直接设置新阶段
+      await this.update({
+        phase: newPhase,
+        current: 0,
+        total: 1,
+        message: message || `开始${newPhase}阶段`,
+        percentage: 0
+      })
+      return
     }
-    
-    // 记录重要进度更新
-    if (progress.percentage % 10 === 0) {
-      this.logger.info(`[ProgressTracker] 进度更新: ${progress.phase} ${progress.percentage}% - ${progress.message}`)
+
+    // 确保当前阶段完成到100%
+    if (this.currentProgress.phase !== newPhase) {
+      await this.update({
+        phase: this.currentProgress.phase,
+        current: this.currentProgress.total,
+        total: this.currentProgress.total,
+        message: `完成${this.currentProgress.phase}阶段`,
+        percentage: 100
+      })
+
+      // 然后开始新阶段
+      await this.update({
+        phase: newPhase,
+        current: 0,
+        total: 1,
+        message: message || `开始${newPhase}阶段`,
+        percentage: 0
+      })
     }
+  }
+
+  /**
+   * 强制设置进度（用于错误恢复）
+   */
+  async forceSetProgress(percentage: number, phase: BuildProgress['phase'], message: string): Promise<void> {
+    this.logger.warn(`[ProgressTracker] 强制设置进度: ${percentage}% (${phase})`)
+    
+    const progress: BuildProgress = {
+      phase,
+      current: percentage,
+      total: 100,
+      message,
+      percentage
+    }
+
+    // 跳过验证，直接更新
+    this.progressLock = false
+    await this.update(progress)
   }
 
   /**
@@ -71,31 +190,31 @@ export class ProgressTracker extends EventEmitter {
   }
 
   /**
-   * 获取总体进度 - 使用新的加权值分配
+   * 获取总体进度 - 增强版本，防止进度异常
    */
   getOverallProgress(): number {
     if (!this.currentProgress) return 0
     
-    // 重新定义各阶段的权重，更符合实际工作量
+    // 精确的阶段权重配置，修复进度异常问题
     const phaseWeights = {
-      root_analysis: 0.10,      // 10%: 根目录分析
-      file_analysis: 0.59,      // 11%~70%: 文件摘要 (59%)
-      directory_analysis: 0.10, // 71%~80%: 目录摘要 (10%)
-      dependency_analysis: 0.10,// 81%~90%: 关系分析 (10%)
-      completed: 0.11           // 91%~100%: 主索引生成 (11%)
+      root_analysis: { start: 0, end: 10, weight: 0.10 },      // 0-10%
+      file_analysis: { start: 10, end: 70, weight: 0.60 },     // 10-70%
+      directory_analysis: { start: 70, end: 85, weight: 0.15 }, // 70-85%
+      dependency_analysis: { start: 85, end: 95, weight: 0.10 }, // 85-95%
+      completed: { start: 95, end: 100, weight: 0.05 }         // 95-100%
     }
     
     const currentPhase = this.currentProgress.phase
-    const currentWeight = phaseWeights[currentPhase] || 0
-    const previousWeight = this.getPreviousPhasesWeight(currentPhase)
+    const phaseConfig = phaseWeights[currentPhase]
+    if (!phaseConfig) return 0
     
-    const phaseProgress = this.currentProgress.percentage / 100
-    let overallProgress = previousWeight + (currentWeight * phaseProgress)
+    // 计算阶段内进度
+    const phaseProgress = Math.min(Math.max(this.currentProgress.percentage / 100, 0), 1)
     
-    // 确保进度在合理范围内
-    overallProgress = Math.min(Math.max(overallProgress, 0), 1.0)
+    // 计算在总体进度中的位置
+    const overallProgress = phaseConfig.start + (phaseConfig.end - phaseConfig.start) * phaseProgress
     
-    return overallProgress
+    return Math.min(Math.max(Math.round(overallProgress), 0), 100)
   }
 
   /**
@@ -201,7 +320,17 @@ export class ProgressTracker extends EventEmitter {
     this.progressHistory = []
     this.startTime = 0
     this.phaseStartTimes.clear()
+    this.lastReportedProgress = -1
+    this.progressLock = false
     this.emit('reset')
+  }
+
+  /**
+   * 清理资源
+   */
+  dispose(): void {
+    this.removeAllListeners()
+    this.reset()
   }
 
   /**

@@ -2,7 +2,7 @@
  * 存储工具类
  */
 
-import { FileSummary, DirectorySummary, DependencyRelation, RootInfo, BuildState } from "../types"
+import { FileSummary, DirectorySummary, DependencyRelation, RootInfo } from "../types"
 
 export class StorageUtils {
   /**
@@ -47,19 +47,41 @@ export class StorageUtils {
   /**
    * 验证文件摘要
    */
-  static validateFileSummary(summary: any): summary is FileSummary {
-    return (
-      summary &&
-      typeof summary.path === 'string' &&
-      typeof summary.type === 'string' &&
-      typeof summary.description === 'string' &&
-      Array.isArray(summary.keywords) &&
-      typeof summary.core_functions === 'object' &&
-      Array.isArray(summary.dependencies) &&
-      typeof summary.timestamp === 'string' &&
-      typeof summary.size === 'number' &&
-      typeof summary.lastModified === 'number'
-    )
+// 2. 完善类型守卫函数：验证数组中所有元素是否为FileSummary类型
+  static validateFileSummaries(summaries: unknown): summaries is FileSummary[] {
+    // 先检查是否为数组
+    if (!Array.isArray(summaries)) {
+      return false;
+    }
+
+    // 3. 遍历数组，验证每个元素
+    for (const summary of summaries) {
+      // 基础检查：必须是对象且不为null
+      if (summary === null || typeof summary !== 'object') {
+        return false;
+      }
+
+      // 类型断言为对象，方便访问属性
+      const s = summary as Record<string, unknown>;
+
+      // 4. 逐一验证每个属性的类型（严格类型检查）
+      if (
+        typeof s.path !== 'string' || // path必须是字符串
+        typeof s.type !== 'string' || // type必须是字符串
+        typeof s.description !== 'string' || // description必须是字符串
+        !Array.isArray(s.keywords) || // keywords必须是数组
+        s.core_functions === null || typeof s.core_functions !== 'object' || // core_functions必须是非null对象
+        !Array.isArray(s.dependencies) || // dependencies必须是数组
+        typeof s.timestamp !== 'string' || // timestamp必须是字符串
+        typeof s.size !== 'number' || // size必须是数字
+        typeof s.lastModified !== 'number' // lastModified必须是数字
+      ) {
+        return false; // 任何一个属性不满足则整体无效
+      }
+    }
+
+    // 所有元素都通过验证
+    return true;
   }
 
   /**
@@ -110,19 +132,6 @@ export class StorageUtils {
       Array.isArray(info.environment_requirements) &&
       Array.isArray(info.build_steps) &&
       typeof info.deployment_info === 'object'
-    )
-  }
-
-  /**
-   * 验证构建状态
-   */
-  static validateBuildState(state: any): state is BuildState {
-    return (
-      state &&
-      typeof state.phase === 'string' &&
-      Array.isArray(state.completedFiles) &&
-      Array.isArray(state.completedDirectories) &&
-      typeof state.lastUpdateTime === 'string'
     )
   }
 

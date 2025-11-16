@@ -2,537 +2,263 @@
  * 文件分析器 - 分析项目文件
  */
 
-import * as fs from "fs/promises"
 import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
 import { FILE_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
-import { FileSummary, FileAnalysisResult, RootInfo, KnowledgeGraphError, BuildProgress } from "../types"
-import { FILE_TYPE_MAPPING, ANALYSIS_CONFIG, ERROR_CODES } from "../constants"
-import { getFileType, safeReadFile, isFileReadable } from "../tools/FileFilter"
-import { FileListService } from "../tools/FileListService"
+import { FileSummary, RootInfo, KnowledgeGraphError, BuildProgress, KnowledgeGraphConfig, FileInfo } from "../types"
+import { ERROR_CODES } from "../constants"
+import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
 import { createLogger, ILogger } from "../../../utils/logger"
+import { countTokens } from "../../../utils/countTokens"
+import { FileStorage } from "../storage/FileStorage"
 
 export class FileAnalyzer {
-  private llmClient: LLMClient
-  private workspacePath: string
-  private config: any
-  private logger: ILogger
-  private storage: any = null // 存储实例，用于增量构建
+	private llmClient: LLMClient
+	private storage: FileStorage
+	private workspacePath: string
+	private config: KnowledgeGraphConfig
+	private logger: ILogger
 
-  constructor(llmClient: LLMClient, workspacePath: string, config: any = {}) {
-    this.llmClient = llmClient
-    this.workspacePath = workspacePath
-    this.config = { ...ANALYSIS_CONFIG, ...config }
-    this.logger = createLogger()
-  }
+	constructor(llmClient: LLMClient, storage: FileStorage, workspacePath: string, config: KnowledgeGraphConfig) {
+		this.llmClient = llmClient
+		this.storage = storage
+		this.workspacePath = workspacePath
+		this.config = config
+		this.logger = createLogger()
+	}
 
-  /**
-   * 设置存储实例
-   */
-  setStorage(storage: any): void {
-    this.storage = storage
-  }
+	/**
+	 * 分析项目文件
+	 */
+	async analyzeFiles(
+		rootInfo: RootInfo,
+		filesToAnalyze: FileInfo[],
+		workspacePath: string,
+		onProgress?: (progress: BuildProgress) => void,
+		onFileSummary?: (summary: FileSummary[]) => Promise<void>,
+	): Promise<void> {
+		try {
+			const fileList = await this.storage.getFilesList()
+			const allFilePaths: string[] = Object.keys(fileList)
 
-  /**
-   * 分析项目文件
-   */
-  async analyzeFiles(
-    workspacePath: string,
-    onProgress?: (progress: BuildProgress) => void,
-    onFileSummary?: (summary: FileSummary) => Promise<void>
-  ): Promise<FileSummary[]> {
-    try {
-      // 1. 获取文件列表
-      onProgress?.({
-        phase: 'file_analysis',
-        current: 0,
-        total: 1,
-        message: '获取文件列表...',
-        percentage: 0
-      })
+			// TODO 文件列表token数控制
+			let basePrompt = buildPrompt(FILE_ANALYSIS_PROMPT, {
+				rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
+				fileList: formatFileList(allFilePaths),
+			})
+			const basePromptToken = await countTokens(stringToContentBlocks(basePrompt))
+			// 2. 分批分析文件
+			const summaries: FileSummary[] = []
 
-      const fileList = await this.getFileList(workspacePath)
-      
-      onProgress?.({
-        phase: 'file_analysis',
-        current: 1,
-        total: fileList.length + 1,
-        message: `找到 ${fileList.length} 个文件`,
-        percentage: Math.round((1 / (fileList.length + 1)) * 100)
-      })
+			let batchFiles: Array<{ path: string; content: string }> = []
+			let batchToken = 0
+			// 去除非文件内容提示词后的剩余窗口的95%
+			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.95
 
-      // 2. 分批分析文件
-      const batchSize = this.config.batchSize || 10
-      const summaries: FileSummary[] = []
-      
-      for (let i = 0; i < fileList.length; i += batchSize) {
-        const batch = fileList.slice(i, i + batchSize)
-        const batchSummaries = await this.analyzeFileBatch(batch, workspacePath)
-        
-        // 如果提供了增量保存回调，立即保存每个文件摘要
-        if (onFileSummary) {
-          for (const summary of batchSummaries) {
-            await onFileSummary(summary)
-          }
-        }
-        
-        summaries.push(...batchSummaries)
-        
-        const progress = {
-          phase: 'file_analysis' as const,
-          current: i + batch.length,
-          total: fileList.length,
-          message: `已分析 ${i + batch.length}/${fileList.length} 个文件`,
-          percentage: Math.round(((i + batch.length) / fileList.length) * 100)
-        }
-        
-        onProgress?.(progress)
-      }
+			for (let i = 0; i < filesToAnalyze.length; i++) {
+				// 检查是否应该暂停（在处理每个批次前检查）
+				if (this.shouldAbortAnalysis()) {
+					this.logger.info("[FileAnalyzer] 分析被暂停，停止文件批次处理")
+					break
+				}
+				// 收集批次文件内容
 
-      return summaries
+				// 根据上下文窗口大小，动态拼接文件内容
+				const filePath = filesToAnalyze[i].path
+				const fullPath = path.join(workspacePath, filePath)
+				const content = await safeReadFile(fullPath, this.config.fileSizeLimit)
+				if (content == null) {
+					this.logger.warn(`[FileAnalyzer] read file content is null`)
+					continue
+				}
 
-    } catch (error) {
-      if (error instanceof KnowledgeGraphError) {
-        throw error
-      }
-      
-      throw new KnowledgeGraphError(
-        `文件分析失败: ${error instanceof Error ? error.message : String(error)}`,
-        ERROR_CODES.NETWORK_ERROR,
-        true,
-        true
-      )
-    }
-  }
+				const currentToken = await countTokens(stringToContentBlocks(content))
 
-  /**
-   * 分析特定文件
-   */
-  async analyzeSpecificFiles(
-    filePaths: string[],
-    onProgress?: (progress: BuildProgress) => void,
-    onFileSummary?: (summary: FileSummary) => Promise<void>
-  ): Promise<FileSummary[]> {
-    try {
-      const summaries: FileSummary[] = []
-      
-      for (let i = 0; i < filePaths.length; i++) {
-        const filePath = filePaths[i]
-        const summary = await this.analyzeSingleFile(filePath)
-        
-        if (summary) {
-          // 如果提供了增量保存回调，立即保存文件摘要
-          if (onFileSummary) {
-            await onFileSummary(summary)
-          }
-          summaries.push(summary)
-        }
-        
-        onProgress?.({
-          phase: 'file_analysis',
-          current: i + 1,
-          total: filePaths.length,
-          message: `分析文件: ${filePath}`,
-          percentage: Math.round(((i + 1) / filePaths.length) * 100)
-        })
-      }
-      
-      return summaries
-      
-    } catch (error) {
-      if (error instanceof KnowledgeGraphError) {
-        throw error
-      }
-      
-      throw new KnowledgeGraphError(
-        `分析特定文件失败: ${error instanceof Error ? error.message : String(error)}`,
-        ERROR_CODES.NETWORK_ERROR,
-        true,
-        true
-      )
-    }
-  }
+				if (batchToken + currentToken <= fileContentsWindow) {
+					batchFiles.push({
+						path: filePath,
+						content,
+					})
+					// 继续累加
+					continue
+				}
 
-  /**
-   * 获取变化的文件 - 基于时间戳的增量构建
-   */
-  async getChangedFiles(
-    workspacePath: string,
-    previousFiles: Set<string>
-  ): Promise<string[]> {
-    try {
-      const currentFiles = await this.getFileList(workspacePath)
-      const changedFiles: string[] = []
-      
-      // 检查新增和修改的文件
-      for (const file of currentFiles) {
-        const fullPath = path.join(workspacePath, file)
-        
-        try {
-          const stats = await fs.stat(fullPath)
-          const currentTimestamp = stats.mtimeMs
-          
-          // 使用存储的shouldReanalyzeFile方法检查是否需要重新分析
-          const shouldReanalyze = await this.shouldReanalyzeFileWithStorage(file, currentTimestamp)
-          if (shouldReanalyze) {
-            changedFiles.push(file)
-          }
-        } catch (error) {
-          // 文件读取失败，跳过
-          this.logger.warn(`[FileAnalyzer] 无法读取文件状态: ${file}`, error)
-        }
-      }
-      
-      // 检查删除的文件
-      const deletedFiles = Array.from(previousFiles).filter(file => !currentFiles.includes(file))
-      if (deletedFiles.length > 0) {
-        this.logger.warn(`[FileAnalyzer] 检测到 ${deletedFiles.length} 个文件被删除`)
-      }
-      
-      return changedFiles
-      
-    } catch (error) {
-      throw new KnowledgeGraphError(
-        `获取变化文件失败: ${error instanceof Error ? error.message : String(error)}`,
-        ERROR_CODES.NETWORK_ERROR,
-        true,
-        true
-      )
-    }
-  }
+				if (batchFiles.length === 0) {
+					continue
+				}
 
-  /**
-   * 获取文件列表
-   */
-  private async getFileList(workspacePath: string): Promise<string[]> {
-    try {
-      // 获取所有文件
-      const fileListService = new FileListService()
-      const allFiles = await fileListService.getProjectFiles(workspacePath)
-      
-      // 过滤文件 - allFiles 已经是经过 FileFilter 过滤的绝对路径
-      const filteredFiles = []
-      
-      for (const fullPath of allFiles) {
-        // 转换为相对路径
-        const relativePath = path.relative(workspacePath, fullPath)
-        
-        // 检查文件是否可读
-        if (!await isFileReadable(fullPath)) {
-          continue
-        }
-        
-        // 检查文件大小
-        const stats = await fs.stat(fullPath)
-        if (stats.size > this.config.maxFileSize) {
-          continue
-        }
-        
-        // 检查文件类型
-        const fileType = getFileType(relativePath)
-        if (fileType === 'other') {
-          continue
-        }
-        
-        filteredFiles.push(relativePath)
-      }
-      
-      return filteredFiles
-      
-    } catch (error) {
-      throw new KnowledgeGraphError(
-        `获取文件列表失败: ${error instanceof Error ? error.message : String(error)}`,
-        ERROR_CODES.NETWORK_ERROR,
-        true,
-        true
-      )
-    }
-  }
+				// 构建提示词
+				const prompt = buildPrompt(basePrompt, {
+					rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "无项目背景信息",
+					fileContents: formatFileContents(batchFiles),
+				})
 
-  /**
-   * 分析文件批次
-   */
-  private async analyzeFileBatch(filePaths: string[], workspacePath: string): Promise<FileSummary[]> {
-    try {
-      const fileContents: Array<{path: string, content: string}> = []
-      
-      // 读取文件内容
-      for (const filePath of filePaths) {
-        const fullPath = path.join(workspacePath, filePath)
-        const content = await safeReadFile(fullPath)
-        
-        if (content) {
-          fileContents.push({
-            path: filePath,
-            content
-          })
-        }
-      }
-      
-      if (fileContents.length === 0) {
-        return []
-      }
-      
-      // 获取项目根信息
-      const rootInfo = await this.getRootInfo(workspacePath)
-      
-      // 构建提示词
-      const prompt = buildPrompt(FILE_ANALYSIS_PROMPT, {
-        rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : '无项目背景信息',
-        fileContents: formatFileContents(fileContents),
-        fileList: formatFileList(filePaths)
-      })
-      
-      // 检查是否应该继续（暂停检查）
-      if (this.shouldAbortAnalysis()) {
-        this.logger.info('[FileAnalyzer] 分析被暂停，跳过LLM请求')
-        return []
-      }
-      
-      // 发送LLM请求
-      const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(
-        prompt,
-        this.getFileSummarySchema()
-      )
-      
-      if (!response.success || !response.data) {
-        throw new KnowledgeGraphError(
-          `文件批次分析失败: ${response.error || '未知错误'}`,
-          ERROR_CODES.INVALID_RESPONSE,
-          false,
-          false
-        )
-      }
-      
-      // 验证和清理数据
-      return response.data.map(summary => this.validateAndCleanFileSummary(summary))
-      
-    } catch (error) {
-      if (error instanceof KnowledgeGraphError) {
-        throw error
-      }
-      
-      throw new KnowledgeGraphError(
-        `分析文件批次失败: ${error instanceof Error ? error.message : String(error)}`,
-        ERROR_CODES.NETWORK_ERROR,
-        true,
-        true
-      )
-    }
-  }
+				// 发送LLM请求
+				const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(
+					prompt,
+					this.getFileSummarySchema(),
+				)
 
-  /**
-   * 分析单个文件
-   */
-  private async analyzeSingleFile(filePath: string): Promise<FileSummary | null> {
-    try {
-      const fullPath = path.join(this.workspacePath, filePath)
-      
-      // 检查文件是否可读
-      if (!await isFileReadable(fullPath)) {
-        return null
-      }
-      
-      // 读取文件内容
-      const content = await safeReadFile(fullPath)
-      if (!content) {
-        return null
-      }
-      
-      // 检查是否应该继续（暂停检查）
-      if (this.shouldAbortAnalysis()) {
-        this.logger.info(`[FileAnalyzer] 分析被暂停，跳过文件: ${filePath}`)
-        return null
-      }
-      
-      // 获取项目根信息
-      const rootInfo = await this.getRootInfo(this.workspacePath)
-      
-      // 构建提示词
-      const prompt = buildPrompt(FILE_ANALYSIS_PROMPT, {
-        rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : '无项目背景信息',
-        fileContents: formatFileContents([{path: filePath, content}]),
-        fileList: filePath
-      })
-      
-      // 发送LLM请求
-      const response = await this.llmClient.sendStructuredRequest<FileSummary>(
-        prompt,
-        this.getSingleFileSummarySchema()
-      )
-      
-      if (!response.success || !response.data) {
-        this.logger.warn(`[FileAnalyzer] 分析文件失败: ${filePath}`, response.error)
-        return null
-      }
-      
-      return this.validateAndCleanFileSummary(response.data)
-      
-    } catch (error) {
-      this.logger.warn(`[FileAnalyzer] 分析单个文件失败: ${filePath}`, error)
-      return null
-    }
-  }
+				if (!response.success || !response.data) {
+					// 跳过当前文件
+					this.logger.error(`[FileAnalyzer] batch analyze files err: ${response}`)
+					continue
+				}
 
-  /**
-   * 获取项目根信息
-   */
-  private async getRootInfo(workspacePath: string): Promise<RootInfo | null> {
-    try {
-      // 这里应该从存储中获取，暂时返回null
-      return null
-    } catch (error) {
-      this.logger.warn('[FileAnalyzer] 获取项目根信息失败:', error)
-      return null
-    }
-  }
+				// 验证和清理数据
+				let batchSummaries = response.data.map((summary: FileSummary) =>
+					this.validateAndCleanFileSummary(summary),
+				)
+				// 如果提供了增量保存回调，立即保存每个文件摘要
+				if (onFileSummary) {
+					await onFileSummary(batchSummaries)
+				}
 
-  /**
-   * 检查是否应该重新分析文件 - 使用存储的时间戳比较
-   */
-  private async shouldReanalyzeFileWithStorage(filePath: string, currentTimestamp: number): Promise<boolean> {
-    try {
-      // 如果没有存储实例，默认需要分析
-      if (!this.storage) {
-        return true
-      }
-      
-      return await this.storage.shouldReanalyzeFile(filePath, currentTimestamp)
-    } catch (error) {
-      this.logger.warn(`[FileAnalyzer] 检查文件重新分析状态失败: ${filePath}`, error)
-      return true
-    }
-  }
+				const progress = {
+					phase: "file_analysis" as const,
+					current: i,
+					total: allFilePaths.length,
+					message: `已分析 ${i}/${allFilePaths.length} 个文件`,
+					percentage: Math.round((i / allFilePaths.length) * 100),
+				}
 
-  /**
-   * 检查是否应该重新分析文件 - 兼容旧接口
-   */
-  private async shouldReanalyzeFile(filePath: string): Promise<boolean> {
-    try {
-      const fullPath = path.join(this.workspacePath, filePath)
-      const stats = await fs.stat(fullPath)
-      return await this.shouldReanalyzeFileWithStorage(filePath, stats.mtimeMs)
-    } catch (error) {
-      return true
-    }
-  }
+				onProgress?.(progress)
 
-  /**
-   * 验证和清理文件摘要
-   */
-  private validateAndCleanFileSummary(summary: FileSummary): FileSummary {
-    const now = new Date().toISOString()
-    
-    return {
-      path: summary.path || '',
-      type: this.validateFileType(summary.type),
-      description: summary.description || '未提供描述',
-      keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
-      core_functions: typeof summary.core_functions === 'object' ? summary.core_functions : {},
-      dependencies: Array.isArray(summary.dependencies) ? summary.dependencies : [],
-      timestamp: summary.timestamp || now,
-      size: summary.size || 0,
-      lastModified: summary.lastModified || Date.now()
-    }
-  }
+				// 重置批次
 
-  /**
-   * 验证文件类型
-   */
-  private validateFileType(type: string): 'source' | 'config' | 'document' | 'test' {
-    if (['source', 'config', 'document', 'test'].includes(type)) {
-      return type as any
-    }
-    return 'source'
-  }
+				// 当前文件超过窗口，则跳过当前文件
+				if (currentToken > fileContentsWindow) {
+					batchFiles = []
+					batchSummaries = []
+					batchToken = currentToken
+					this.logger.warn(
+						`[FileAnalyzer] file ${filePath} token ${currentToken} exceeds context remaining window ${fileContentsWindow}, skip it.`,
+					)
+					continue
+				}
+				batchFiles = [
+					{
+						path: filePath,
+						content,
+					},
+				]
+				batchSummaries = []
+				batchToken = currentToken
+			}
+		} catch (error) {
+			if (error instanceof KnowledgeGraphError) {
+				throw error
+			}
 
-  /**
-   * 获取文件摘要模式
-   */
-  private getFileSummarySchema(): any {
-    return {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          type: { 
-            type: "string",
-            enum: ["source", "config", "document", "test"]
-          },
-          description: { type: "string" },
-          keywords: { 
-            type: "array", 
-            items: { type: "string" },
-            maxItems: 10
-          },
-          core_functions: { 
-            type: "object",
-            additionalProperties: { type: "string" }
-          },
-          dependencies: { 
-            type: "array", 
-            items: { type: "string" }
-          },
-          timestamp: { type: "string" },
-          size: { type: "number" },
-          lastModified: { type: "number" }
-        },
-        required: ["path", "type", "description", "keywords", "core_functions", "dependencies"]
-      }
-    }
-  }
+			throw new KnowledgeGraphError(
+				`文件分析失败: ${error instanceof Error ? error.message : String(error)}`,
+				ERROR_CODES.NETWORK_ERROR,
+				true,
+				true,
+			)
+		}
+	}
 
-  /**
-   * 获取单个文件摘要模式
-   */
-  private getSingleFileSummarySchema(): any {
-    return {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-        type: { 
-          type: "string",
-          enum: ["source", "config", "document", "test"]
-        },
-        description: { type: "string" },
-        keywords: { 
-          type: "array", 
-          items: { type: "string" },
-          maxItems: 10
-        },
-        core_functions: { 
-          type: "object",
-          additionalProperties: { type: "string" }
-        },
-        dependencies: { 
-          type: "array", 
-          items: { type: "string" }
-        },
-        timestamp: { type: "string" },
-        size: { type: "number" },
-        lastModified: { type: "number" }
-      },
-      required: ["path", "type", "description", "keywords", "core_functions", "dependencies"]
-    }
-  }
+	// 2. 修改函数签名：支持动态字段选择
+	public async getFileSummaries<K extends keyof FileSummary = keyof FileSummary>(
+		fields: K[], // 参数：指定需要返回的字段（动态个数）
+	): Promise<Array<Pick<FileSummary, K>>> {
+		// 返回类型：Pick从基础接口中“拾取”指定字段K，生成只包含这些字段的对象数组
 
-  /**
-   * 设置暂停检查回调
-   */
-  private pauseChecker?: () => boolean
+		// 3. 内部实现思路（示例）：
+		// - 先获取完整的文件摘要数据（包含所有字段）
+		const fullSummaries: FileSummary[] = await this.storage.getAllFileSummaries()
+		// - 根据fields过滤，只保留指定字段
+		return fullSummaries.map((summary) => {
+			const picked: Partial<FileSummary> = {}
+			fields.forEach((field) => {
+				picked[field] = summary[field]
+			})
+			return picked as Pick<FileSummary, K>
+		})
+	}
 
-  /**
-   * 设置暂停检查器
-   */
-  setPauseChecker(checker: () => boolean): void {
-    this.pauseChecker = checker
-  }
 
-  /**
-   * 检查是否应该中止分析（用于暂停功能）
-   */
-  private shouldAbortAnalysis(): boolean {
-    return this.pauseChecker?.() || false
-  }
+
+	/**
+	 * 验证和清理文件摘要
+	 */
+	private validateAndCleanFileSummary(summary: FileSummary): FileSummary {
+		const now = new Date().toISOString()
+
+		return {
+			path: summary.path || "",
+			type: this.validateFileType(summary.type),
+			description: summary.description || "未提供描述",
+			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
+			core_functions: typeof summary.core_functions === "object" ? summary.core_functions : {},
+			dependencies: Array.isArray(summary.dependencies) ? summary.dependencies : [],
+			timestamp: summary.timestamp || now,
+			size: summary.size || 0,
+			lastModified: summary.lastModified || Date.now(),
+		}
+	}
+
+	/**
+	 * 验证文件类型
+	 */
+	private validateFileType(type: string): "source" | "config" | "document" | "test" {
+		if (["source", "config", "document", "test"].includes(type)) {
+			return type as any
+		}
+		return "source"
+	}
+
+	/**
+	 * 获取文件摘要模式
+	 */
+	private getFileSummarySchema(): any {
+		return {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					path: { type: "string" },
+					type: {
+						type: "string",
+						enum: ["source", "config", "document", "test"],
+					},
+					description: { type: "string" },
+					keywords: {
+						type: "array",
+						items: { type: "string" },
+						maxItems: 10,
+					},
+					core_functions: {
+						type: "object",
+						additionalProperties: { type: "string" },
+					},
+					dependencies: {
+						type: "array",
+						items: { type: "string" },
+					},
+				},
+				required: ["path", "type", "description", "keywords", "core_functions", "dependencies"],
+			},
+		}
+	}
+
+	/**
+	 * 设置暂停检查回调
+	 */
+	private pauseChecker?: () => boolean
+
+	/**
+	 * 设置暂停检查器
+	 */
+	setPauseChecker(checker: () => boolean): void {
+		this.pauseChecker = checker
+	}
+
+	/**
+	 * 检查是否应该中止分析（用于暂停功能）
+	 */
+	private shouldAbortAnalysis(): boolean {
+		return this.pauseChecker?.() || false
+	}
 }

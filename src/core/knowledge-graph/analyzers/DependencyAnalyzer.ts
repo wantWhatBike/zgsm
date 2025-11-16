@@ -4,17 +4,21 @@
 
 import { LLMClient } from "../llm/LLMClient"
 import { DEPENDENCY_ANALYSIS_PROMPT, buildPrompt } from "../llm/PromptTemplates"
-import { DependencyRelation, FileSummary, DirectorySummary, KnowledgeGraphError } from "../types"
+import { DependencyRelation, FileSummary, DirectorySummary, KnowledgeGraphError, KnowledgeGraphConfig } from "../types"
 import { ERROR_CODES } from "../constants"
 import { createLogger, ILogger } from "../../../utils/logger"
 
 export class DependencyAnalyzer {
   private llmClient: LLMClient
   private logger: ILogger
+  private config: KnowledgeGraphConfig
+  private workspacePath: string
 
-  constructor(llmClient: LLMClient) {
+  constructor(llmClient: LLMClient, workspacePath: string, config: KnowledgeGraphConfig) {
     this.llmClient = llmClient
     this.logger = createLogger()
+    this.config = config
+    this.workspacePath = workspacePath
   }
 
   /**

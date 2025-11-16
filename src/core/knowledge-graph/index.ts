@@ -2,26 +2,9 @@
  * 知识图谱主入口文件
  * 提供统一的知识图谱功能接口和生命周期管理
  */
-import * as vscode from "vscode"
 
 // 核心服务和管理器
-export { KnowledgeGraphManager, knowledgeGraphManager } from "./KnowledgeGraphManager"
-
-
-// 生命周期管理
-export {
-	initializeKnowledgeGraph,
-	disposeKnowledgeGraph
-} from "./lifecycle"
-
-// 扩展集成
-export {
-	activateKnowledgeGraph,
-	deactivateKnowledgeGraph,
-	getKnowledgeGraphStatus,
-	isKnowledgeGraphAvailable
-} from "./extension-integration"
-
+export { activateKnowledgeGraph, deactivateKnowledgeGraph, KnowledgeGraphManager, knowledgeGraphManager } from "./KnowledgeGraphManager"
 // 类型定义
 export * from "./types"
 
@@ -42,7 +25,7 @@ export { Exporter } from "./export/Exporter"
 
 // 工具类
 export { ProgressTracker } from "./tools/ProgressTracker"
-export { FileFilter } from "./tools/FileFilter"
+export { FileFilter } from "./tools/FileUtils"
 
 // LLM客户端
 export { LLMClient } from "./llm/LLMClient"
@@ -55,24 +38,3 @@ export { KnowledgeGraphError } from "./types"
 
 // 项目探索器模式
 export { ProjectExplorerMode } from "./modes/ProjectExplorerMode"
-
-/**
- * 初始化知识图谱功能（兼容现有架构）
- * @param context VSCode扩展上下文
- * @param clineProvider ClineProvider实例
- */
-export async function initialize(
-	context: vscode.ExtensionContext,
-	clineProvider: any
-): Promise<void> {
-	const { activateKnowledgeGraph } = await import("./extension-integration")
-	return await activateKnowledgeGraph(context, clineProvider)
-}
-
-/**
- * 销毁知识图谱功能
- */
-export async function dispose(): Promise<void> {
-	const { deactivateKnowledgeGraph } = await import("./extension-integration")
-	return await deactivateKnowledgeGraph()
-}

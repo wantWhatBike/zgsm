@@ -3,11 +3,6 @@
  */
 
 import {
-  FileSummary,
-  DirectorySummary,
-  DependencyRelation,
-  RootInfo,
-  BuildState,
   StorageConfig
 } from "../types"
 

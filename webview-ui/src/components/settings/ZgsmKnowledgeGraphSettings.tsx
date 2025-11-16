@@ -157,25 +157,22 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			type: "knowledgeGraphGetStatus",
 		})
 
-		// Only start interval polling if status is running
-		if (knowledgeGraphStatus.status === 'running') {
-			// Use longer interval (6 seconds) to reduce server load
-			pollingIntervalId.current = setInterval(() => {
-				// Double check if we should continue polling
-				if (knowledgeGraphStatus.status === 'success' ||
-					knowledgeGraphStatus.status === 'failed' ||
-					knowledgeGraphStatus.status === 'pending' ||
-					knowledgeGraphStatus.status === 'paused') {
-					// Stop polling for terminal states and paused state
-					stopPolling()
-					return
-				}
-				
-				vscode.postMessage({
-					type: "knowledgeGraphGetStatus",
-				})
-			}, 6000) // 增加到6秒，减少轮询频率
-		}
+		// 修复：无条件启动轮询，让后续的状态检查来决定是否继续
+		// Use longer interval (4 seconds) to reduce server load but maintain responsiveness
+		pollingIntervalId.current = setInterval(() => {
+			// Double check if we should continue polling based on current status
+			if (knowledgeGraphStatus.status === 'success' ||
+				knowledgeGraphStatus.status === 'failed' ||
+				knowledgeGraphStatus.status === 'pending') {
+				// Stop polling for terminal states (but not paused state)
+				stopPolling()
+				return
+			}
+			
+			vscode.postMessage({
+				type: "knowledgeGraphGetStatus",
+			})
+		}, 4000) // 减少到4秒，提高响应性
 	}, [knowledgeGraphStatus.status, stopPolling])
 
 	// Get status once without polling
@@ -338,8 +335,9 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 				const statusInfo = message.payload.status as KnowledgeGraphStatusInfo
 				const newStatus = mapKnowledgeGraphStatusInfoToStatus(statusInfo, t)
 				
-				// 特殊处理：如果是pending状态且进度为0，确保前端显示正确
-				if (statusInfo.status === "pending" && statusInfo.process === 0) {
+				// 修复：确保状态更新正确，避免显示错误的0值
+				if (statusInfo.status === "pending" && statusInfo.process === 0 && statusInfo.totalFiles === 0) {
+					// 真正的pending状态：没有开始构建
 					setKnowledgeGraphStatus({
 						...newStatus,
 						progress: 0,
@@ -347,17 +345,23 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 						lastUpdated: "-"
 					})
 				} else {
-					setKnowledgeGraphStatus(newStatus)
+					// 正常状态更新：保持原有数据
+					setKnowledgeGraphStatus(prevStatus => ({
+						...newStatus,
+						// 如果新状态的文件数为0但之前有数据，保持之前的文件数（避免闪烁）
+						fileCount: statusInfo.totalFiles > 0 ? statusInfo.totalFiles : (prevStatus.fileCount === "-" ? 0 : prevStatus.fileCount)
+					}))
 				}
 
-				// 智能轮询控制：只在运行状态时轮询，其他状态停止轮询
+				// 智能轮询控制：只在运行状态时轮询，其他状态停止轮询 - 修复轮询逻辑
 				const currentlyPolling = isPollingActive.current
 				const shouldPoll = statusInfo.status === "running"
 				
 				if (shouldPoll && !currentlyPolling) {
 					// 需要轮询但当前没有轮询，延迟启动轮询避免过于频繁
 					setTimeout(() => {
-						if (knowledgeGraphStatus.status === "running") {
+						// 检查最新状态而不是旧状态
+						if (statusInfo.status === "running") {
 							startPolling()
 						}
 					}, 1000)

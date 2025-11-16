@@ -11,11 +11,11 @@ export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   maxConcurrency: 5,
   batchSize: 10,
   maxFiles: 50000,
-  fileSizeLimit: 1024 * 1024, // 1MB
+  fileSizeLimit: 5 * 1024 * 1024, // 5MB
+  fileLinesLimit: 5000,
   storageType: 'file',
   cacheDir: '.costrict/cache/knowledge-graph',
-  breakpointResume: true,
-  exportFormats: ['json', 'jsonl', 'markdown', 'zip']
+  exportFormat: 'markdown'
 }
 
 // 固定的运行时配置常量（不在UI中暴露）
@@ -30,153 +30,81 @@ export const RUNTIME_CONFIG = {
   BREAKPOINT_RESUME: true,
 } as const
 
-// 文件类型映射
-export const FILE_TYPE_MAPPING: Record<string, 'source' | 'config' | 'document' | 'test'> = {
-  // 源代码文件
-  '.ts': 'source',
-  '.tsx': 'source',
-  '.js': 'source',
-  '.jsx': 'source',
-  '.py': 'source',
-  '.java': 'source',
-  '.cpp': 'source',
-  '.c': 'source',
-  '.cs': 'source',
-  '.go': 'source',
-  '.rs': 'source',
-  '.php': 'source',
-  '.rb': 'source',
-  '.swift': 'source',
-  '.kt': 'source',
-  '.scala': 'source',
-  '.r': 'source',
-  '.m': 'source',
-  '.mm': 'source',
-  '.vue': 'source',
-  '.svelte': 'source',
-  
-  // 配置文件
-  '.json': 'config',
-  '.yaml': 'config',
-  '.yml': 'config',
-  '.xml': 'config',
-  '.toml': 'config',
-  '.ini': 'config',
-  '.conf': 'config',
-  '.config': 'config',
-  '.env': 'config',
-  '.properties': 'config',
-  
-  // 文档文件
-  '.md': 'document',
-  '.markdown': 'document',
-  '.rst': 'document',
-  '.txt': 'document',
-  '.doc': 'document',
-  '.docx': 'document',
-  
-  // 测试文件
-  '.test.ts': 'test',
-  '.spec.ts': 'test',
-  '.test.js': 'test',
-  '.spec.js': 'test',
-  '.test.py': 'test',
-  '.spec.py': 'test',
-  '.test.java': 'test',
-  '.spec.java': 'test',
-  '_test.go': 'test',
-  '_test.rb': 'test',
-  'test_': 'test'
-}
 
-// 关键配置文件
-export const KEY_CONFIG_FILES = [
-  'package.json',
-  'pom.xml',
-  'build.gradle',
-  'Cargo.toml',
-  'go.mod',
-  'requirements.txt',
-  'setup.py',
-  'composer.json',
-  'Gemfile',
-  'Podfile',
-  'build.sbt',
-  'project.clj',
-  'mix.exs',
-  'CMakeLists.txt',
-  'Makefile',
-  'Dockerfile',
-  'docker-compose.yml',
-  'docker-compose.yaml',
-  '.env',
-  '.env.example',
-  'tsconfig.json',
-  'jsconfig.json',
-  'webpack.config.js',
-  'vite.config.js',
-  'rollup.config.js',
-  'babel.config.js',
-  '.eslintrc',
-  '.eslintrc.js',
-  '.eslintrc.json',
-  '.prettierrc',
-  '.prettierrc.js',
-  '.prettierrc.json',
-  'jest.config.js',
-  'vitest.config.ts',
-  'cypress.config.js',
-  'playwright.config.js'
-]
+// 项目关键文件模式
+export const KEY_FILE_PATTERNS = [
+  // 第一优先级：文档（项目核心说明）
+  [
+    'readme*',         // README及多语言变体（如README_zh.md、ReadMe.txt）
+  ],
+  // 第二优先级：依赖配置（各语言依赖管理文件）
+  [
+    // Node.js/前端
+    'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    
+    // Python
+    'requirements.txt', 'requirements-dev.txt',
+    'pyproject.toml', 'setup.py', 'setup.cfg',
+    'Pipfile', 'Pipfile.lock',
+    
+    // Java/JVM
+    'pom.xml',                  // Maven
+    'build.gradle', 'build.gradle.kts',  // Gradle（Groovy/Kotlin）
+    'settings.gradle', 'settings.gradle.kts',
+    
+    // Go
+    'go.mod', 'go.sum',
+    
+    // Rust
+    'Cargo.toml', 'Cargo.lock',
+    
+    // PHP
+    'composer.json', 'composer.lock',
+    
+    // Ruby
+    'Gemfile', 'Gemfile.lock',
+    
+    // Swift（iOS/macOS）
+    'Package.swift', 'Podfile', 'Podfile.lock',
+    
+    // Dart/Flutter
+    'pubspec.yaml', 'pubspec.lock',
+    
+    // Elixir
+    'mix.exs', 'mix.lock',
+    
+    // .NET（C#/VB/F#）
+    '*.csproj', '*.vbproj', '*.fsproj',
+    'Directory.Build.props', 'Directory.Build.targets',
+    
+    // Scala
+    'build.sbt',
+    
+    // Julia
+    'Project.toml', 'Manifest.toml',
+    
+    // R
+    'DESCRIPTION'
+  ],
+  // 第三优先级：项目配置（环境、工具、规范配置）
+  [
+    '.env*',                  // 环境变量（.env、.env.local、.env.example）
+    '.gitignore', '.gitattributes',  // Git配置
+    '.editorconfig',          // 编辑器统一配置
+    '.eslint*', '.prettier*', // 代码规范（.eslintrc.js、prettier.config.json）
+    'tsconfig.*', 'jsconfig.*', // 类型配置（tsconfig.json、tsconfig.app.json）
+    'jest.config.*', 'pytest.ini', 'pylintrc' // 测试工具配置
+  ],
+  // 第四优先级：构建部署（构建脚本、部署配置）
+  [
+    'dockerfile*', 'docker-compose*.yml', 'docker-compose*.yaml', // 容器化
+    'makefile*', 'cmakeLists.txt', 'CMakeCache.txt', // 构建工具
+    'gulpfile.*', 'gruntfile.*', // 前端构建
+    'webpack.config.*', 'vite.config.*', 'rollup.config.*', // 打包工具
+    'build.*', 'deploy.*', 'publish.*' // 自定义构建/部署脚本
+  ]
+];
 
-// 关键文档文件
-export const KEY_DOCUMENT_FILES = [
-  'README.md',
-  'README.rst',
-  'README.txt',
-  'CHANGELOG.md',
-  'CHANGELOG.rst',
-  'CONTRIBUTING.md',
-  'CONTRIBUTING.rst',
-  'LICENSE',
-  'LICENSE.md',
-  'CODE_OF_CONDUCT.md',
-  'SECURITY.md',
-  'docs/',
-  'documentation/',
-  'wiki/'
-]
-
-// 构建文件
-export const BUILD_FILES = [
-  'Makefile',
-  'makefile',
-  'CMakeLists.txt',
-  'build.gradle',
-  'pom.xml',
-  'package.json',
-  'Cargo.toml',
-  'go.mod',
-  'setup.py',
-  'build.sbt',
-  'project.clj',
-  'mix.exs'
-]
-
-// 部署文件
-export const DEPLOYMENT_FILES = [
-  'Dockerfile',
-  'docker-compose.yml',
-  'docker-compose.yaml',
-  'kubernetes.yaml',
-  'k8s.yaml',
-  '.github/workflows/',
-  '.gitlab-ci.yml',
-  'Jenkinsfile',
-  'azure-pipelines.yml',
-  '.travis.yml',
-  'circle.yml'
-]
 
 // 忽略的文件模式
 export const IGNORE_PATTERNS = [
@@ -258,6 +186,65 @@ export const IGNORE_PATTERNS = [
   '.jest/',
   '.c8/',
   '*.lcov'
+]
+
+export const INCLUDE_EXTS = [
+  // 已有的主流语言
+  '.java', '.go', '.py', '.rs', '.c', '.cpp', '.h', '.cs', '.kt', 
+  '.js', '.jsx', '.ts', '.tsx', '.vue', '.html', '.css', '.sh', '.bash', '.lua',
+
+  // 新增：后端/服务器端语言
+  '.php', '.php3', '.php5', '.phtml', // PHP
+  '.rb', '.rbw', // Ruby
+  '.pl', '.pm', '.pod', // Perl
+  '.scala', '.sc', // Scala
+  '.groovy', '.gvy', '.gy', // Groovy
+  '.dart', // Dart（Flutter）
+  '.ex', '.exs', // Elixir
+  '.erl', '.hrl', // Erlang
+  '.fs', '.fsx', '.fsi', // F#
+
+  // 新增：前端/样式语言
+  '.less', // Less（CSS预处理器）
+  '.sass', '.scss', // Sass/SCSS（CSS预处理器）
+  '.styl', // Stylus（CSS预处理器）
+  '.d.ts', // TypeScript 声明文件
+  '.coffee', // CoffeeScript（JS超集）
+
+  // 新增：移动端/桌面端
+  '.swift', // Swift（iOS/macOS）
+  '.m', // Objective-C（iOS/macOS，.h已包含）
+  '.kts', // Kotlin Script（Kotlin脚本）
+
+  // 新增：数据科学/统计
+  '.R', '.r', '.Rmd', // R语言及R Markdown
+  '.jl', // Julia
+  '.m', // MATLAB（与Objective-C共用，实际场景可区分）
+
+  // 新增：系统/脚本
+  '.ps1', '.psm1', '.psd1', // PowerShell
+  '.bat', '.cmd', // Batch脚本
+  '.tcl', // Tcl脚本
+
+  // 新增：底层/硬件相关
+  '.asm', '.s', // 汇编语言
+  '.vhd', '.vhdl', // VHDL（硬件描述语言）
+  '.v', '.sv', // Verilog/SystemVerilog（硬件描述语言）
+  '.hpp', '.hh', // C++ 头文件（补充.h）
+
+  // 新增：函数式/小众主流
+  '.hs', '.lhs', // Haskell（.lhs为Literate Haskell）
+  '.clj', '.cljs', '.cljc', // Clojure（及ClojureScript）
+  '.lisp', '.lsp', // Lisp
+  '.prolog', '.pl', // Prolog（.pl与Perl共用，实际场景可区分）
+
+  // 新增：传统/企业级
+  '.cob', '.cbl', // COBOL
+  '.f', '.for', '.f90', '.f95', // Fortran
+  '.vb', '.vbs', // Visual Basic/VBScript
+  '.cfm', '.cfc', // ColdFusion
+  '.cls', '.trigger', // Apex（Salesforce）
+  '.pks', '.pkb' // PL/SQL（Oracle存储过程）
 ]
 
 // LLM配置
