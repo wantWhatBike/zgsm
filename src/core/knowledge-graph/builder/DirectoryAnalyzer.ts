@@ -18,20 +18,22 @@ import { ERROR_CODES } from "../constants"
 import { createLogger, ILogger } from "../../../utils/logger"
 import { FileAnalyzer } from "./FileAnalyzer"
 import { string } from "zod"
+import { I } from "vitest/dist/chunks/reporters.d.BFLkQcL6.js"
+import { IStorage } from "../storage/StorageInterface"
 
 export class DirectoryAnalyzer {
 	private llmClient: LLMClient
 	private fileAnalyzer: FileAnalyzer
-	private workspacePath: string
 	private logger: ILogger
+	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private pauseChecker?: () => boolean
 
-	constructor(llmClient: LLMClient, fileAnalyzer: FileAnalyzer, workspacePath: string, config: KnowledgeGraphConfig) {
+	constructor(llmClient: LLMClient, fileAnalyzer: FileAnalyzer,storage:IStorage, config: KnowledgeGraphConfig, logger:ILogger) {
 		this.llmClient = llmClient
+		this.storage = storage
 		this.fileAnalyzer = fileAnalyzer
-		this.workspacePath = workspacePath
-		this.logger = createLogger()
+		this.logger = logger
 		this.config = config
 	}
 

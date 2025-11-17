@@ -38,6 +38,416 @@
 
 ## 技术方案
 
+## 领域分析模型（名词动词法）
+
+名词：用户、项目、文件、技术架构、业务背景、文件摘要、目录摘要、数据存储、大模型、状态、进度、依赖关系<br/>
+动词：构建、开始、暂停、继续、清空、导出、检索<br/>
+
+```mermaid
+erDiagram
+    项目 ||--o{ 目录 : contains
+    目录 ||--|{ 文件 : contains
+    文件 ||--o{ 文件摘要 : contains
+    目录 ||--o{ 目录摘要 : contains
+    目录摘要 ||--o{ 目录描述 : contains
+    项目 ||--o{ 技术架构和业务背景 : contains
+    文件摘要 ||--o{ 依赖关系 : contains
+    文件摘要 ||--|| 文件描述 : contains
+    文件摘要 ||--|| 定义信息 : contains
+    目录摘要 }|--|{ 文件摘要 : uses
+```
+
+## 知识图谱用例
+```mermaid
+flowchart LR
+用户 --> 知识图谱
+知识图谱 --> 状态查看
+知识图谱 --> 开始构建
+知识图谱 --> 暂停构建
+知识图谱 --> 继续构建
+知识图谱 --> 清空数据
+知识图谱 --> 导出数据
+知识图谱 --> 可视化
+```
+
+## 知识图谱构建状态
+```mermaid
+stateDiagram-v2
+[*] --> 等待中(Pending)
+等待中(Pending) --> 运行中(Running):点击开始
+运行中(Running) --> 暂停(Paused):点击暂停
+暂停(Paused) --> 运行中(Running):点击继续
+运行中(Running) --> 完成(Completed)
+完成(Completed) --> 等待中(Pending):点击清空
+运行中(Running) --> 失败(Failed)
+失败(Failed) --> 运行中(Running):点击继续
+完成(Completed) --> [*]
+失败(Failed) --> [*]
+暂停(Paused) --> [*]
+```
+
+## 类图
+
+```mermaid
+classDiagram
+class KnowlegraphManager {
+  + activate()
+  + deactivate()
+  + build()
+  + pause()
+  + resume()
+  + stop()
+  + clear()
+  + export()
+  + getStatus()
+  + search()
+  + visualize()
+}
+
+class FileSummary {
+  + path: string
+  + title: string
+  + hash: string
+  + description: string
+  + keywords: array
+  + dependencies: array
+  + functions: array
+  + timestamp: number
+}
+
+class DirectorySummary {
+  + path: string
+  + title: string
+  + description: string
+}
+
+class FileInfo {
+  path: string
+  hash: string
+  lastModified: number
+  hash: string
+}
+
+class FileAnalyzer {
+  + analyze()
+}
+
+class DirectoryAnalyzer {
+  + analyze()
+}
+
+class RootAnalyzer {
+  + analyze()
+}
+
+class WorkspaceAccessor {
+  + listFiles()
+}
+
+class GraphBuilder {
+  + start()
+  + stop()
+  + resume()
+}
+
+class GraphQuerier {
+  + search()
+  + export()
+}
+
+class GraphVisualizer {
+  + visulize()
+}
+
+class Store {
+  + save()
+  + delete()
+  + select()
+}
+
+class FileStore {
+  + save()
+  + delete()
+  + select()
+}
+
+class SqliteStore {
+  + save()
+  + delete()
+  + select()
+}
+
+
+class BuildState {
+  + totalFiles: number
+  + status: string
+  + lastUpdatedAt: string
+  + duration: number
+  + usage: object
+  + processedFiles: number
+  + filesToProcess: number
+  + GetState()
+  + UpateState()
+  + Clear()
+}
+
+KnowlegraphManager --o GraphBuilder : composition
+KnowlegraphManager --o GraphQuerier : composition
+KnowlegraphManager --o GraphVisualizer : composition
+GraphBuilder --o FileAnalyzer : composition
+GraphBuilder --o DirectoryAnalyzer : composition
+GraphBuilder --o WorkspaceAccessor : composition
+GraphBuilder --o RootAnalyzer : composition
+GraphBuilder --o BuildState: composition
+GraphQuerier --o Store : composition
+GraphVisualizer --o Store : dependency
+FileAnalyzer --o Store : dependency
+DirectoryAnalyzer --o Store : dependency
+WorkspaceAccessor --> FileInfo : dependency
+FileAnalyzer --> FileSummary : dependency
+DirectoryAnalyzer --> DirectorySummary : dependency
+FileAnalyzer --> FileInfo : dependency
+DirectoryAnalyzer --> FileAnalyzer : dependency
+Store --|> FileStore : implements
+Store --|> SqliteStore : implements
+BuildState --o Store : dependency
+
+```
+
+## 时序图
+### 1. 构建
+```mermaid
+sequenceDiagram
+participant 用户
+participant UI
+participant KnowledgeGraphMessageHandler
+participant KnowledgeGraphManager
+participant GraphBuilder
+participant WorkspaceAccessor
+participant BuildState
+participant RootAnalyzer
+participant FileAnalyzer
+participant DirectoryAnalyzer
+participant Store
+activate UI
+用户 ->> UI : 点击构建
+activate KnowledgeGraphMessageHandler
+UI ->> KnowledgeGraphMessageHandler : 发送[构建]消息
+KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 构建请求
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 确认可构建
+KnowledgeGraphMessageHandler -->> UI : 返回状态
+deactivate UI
+activate KnowledgeGraphManager
+KnowledgeGraphManager ->> GraphBuilder : 开始构建
+activate GraphBuilder
+GraphBuilder ->> BuildState : 更新为进行中状态
+activate BuildState
+BuildState -->> KnowledgeGraphManager : 状态更新确认
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回状态
+KnowledgeGraphMessageHandler -->> UI : 返回状态
+deactivate KnowledgeGraphMessageHandler
+activate WorkspaceAccessor
+GraphBuilder ->> WorkspaceAccessor : 获取项目文件列表
+WorkspaceAccessor -->> GraphBuilder : 返回过滤后的文件列表
+deactivate WorkspaceAccessor
+activate RootAnalyzer
+GraphBuilder ->> RootAnalyzer : 分析根目录
+RootAnalyzer ->> Store : 存储根目录分析结果
+Store -->> RootAnalyzer : 存储确认
+deactivate RootAnalyzer
+loop 批量处理文件
+    activate FileAnalyzer
+    GraphBuilder ->> FileAnalyzer : 构建文件摘要
+    FileAnalyzer ->> Store : 存储文件摘要
+    Store -->> FileAnalyzer : 存储确认
+    FileAnalyzer -->> GraphBuilder : 文件摘要完成
+    deactivate FileAnalyzer
+    GraphBuilder ->> BuildState : 更新进度
+    BuildState -->> GraphBuilder : 进度更新确认
+end
+activate DirectoryAnalyzer
+GraphBuilder ->> DirectoryAnalyzer : 构建目录摘要
+DirectoryAnalyzer ->> Store : 存储目录摘要
+Store -->> DirectoryAnalyzer : 存储确认
+DirectoryAnalyzer -->> GraphBuilder : 目录摘要完成
+deactivate DirectoryAnalyzer
+GraphBuilder ->> BuildState : 更新为完成状态
+BuildState -->> GraphBuilder : 状态更新确认
+GraphBuilder -->> KnowledgeGraphManager : 构建完成
+KnowledgeGraphManager ->> BuildState : 获取最终状态
+BuildState -->> KnowledgeGraphManager : 返回最终状态
+deactivate GraphBuilder
+deactivate BuildState
+deactivate KnowledgeGraphManager
+activate KnowledgeGraphMessageHandler
+activate UI
+activate KnowledgeGraphMessageHandler
+loop Every 5 Second
+    UI ->> KnowledgeGraphMessageHandler : 发送[获取状态]消息
+    activate KnowledgeGraphManager
+    KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 获取状态
+    KnowledgeGraphManager ->> BuildState : 查询状态
+    activate BuildState
+    BuildState -->> KnowledgeGraphManager : 返回状态
+    deactivate BuildState
+    KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回状态
+    deactivate KnowledgeGraphManager
+    KnowledgeGraphMessageHandler -->> UI : 返回状态
+    UI -->> 用户 : 展示状态
+end
+deactivate KnowledgeGraphMessageHandler
+deactivate UI
+deactivate KnowledgeGraphMessageHandler
+```
+
+### 2. 暂停
+```mermaid
+sequenceDiagram
+participant 用户
+participant UI
+participant KnowledgeGraphMessageHandler
+participant KnowledgeGraphManager
+participant GraphBuilder
+participant BuildState
+activate UI
+用户 ->> UI : 点击暂停
+activate KnowledgeGraphMessageHandler
+UI ->> KnowledgeGraphMessageHandler : 发送[暂停]消息
+KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 暂停请求
+KnowledgeGraphManager ->> GraphBuilder : 暂停构建
+GraphBuilder ->> BuildState : 更新为暂停状态
+BuildState -->> GraphBuilder : 状态更新确认
+GraphBuilder -->> KnowledgeGraphManager : 暂停确认
+KnowledgeGraphManager ->> BuildState : 获取当前状态
+BuildState -->> KnowledgeGraphManager : 返回当前状态
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回状态
+KnowledgeGraphMessageHandler -->> UI : 返回状态
+UI -->> 用户 : 展示暂停状态
+deactivate KnowledgeGraphMessageHandler
+deactivate UI
+```
+
+### 3. 继续
+```mermaid
+sequenceDiagram
+participant 用户
+participant UI
+participant KnowledgeGraphMessageHandler
+participant KnowledgeGraphManager
+participant GraphBuilder
+participant BuildState
+activate UI
+用户 ->> UI : 点击继续
+activate KnowledgeGraphMessageHandler
+UI ->> KnowledgeGraphMessageHandler : 发送[继续]消息
+KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 继续请求
+KnowledgeGraphManager ->> BuildState : 检查当前状态
+BuildState -->> KnowledgeGraphManager : 返回暂停状态
+KnowledgeGraphManager ->> GraphBuilder : 继续构建
+GraphBuilder ->> BuildState : 更新为进行中状态
+BuildState -->> GraphBuilder : 状态更新确认
+GraphBuilder -->> KnowledgeGraphManager : 继续确认
+KnowledgeGraphManager ->> BuildState : 获取当前状态
+BuildState -->> KnowledgeGraphManager : 返回当前状态
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回状态
+KnowledgeGraphMessageHandler -->> UI : 返回状态
+UI -->> 用户 : 展示继续状态
+deactivate KnowledgeGraphMessageHandler
+deactivate UI
+Note over GraphBuilder: 从上次暂停处继续执行
+```
+
+### 4. 清空
+```mermaid
+sequenceDiagram
+participant 用户
+participant UI
+participant KnowledgeGraphMessageHandler
+participant KnowledgeGraphManager
+participant GraphBuilder
+participant Store
+participant BuildState
+activate UI
+用户 ->> UI : 点击清空
+activate KnowledgeGraphMessageHandler
+UI ->> KnowledgeGraphMessageHandler : 发送[清空]消息
+KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 清空请求
+KnowledgeGraphManager ->> GraphBuilder : 停止当前构建(如果有)
+GraphBuilder -->> KnowledgeGraphManager : 停止确认
+KnowledgeGraphManager ->> Store : 清空所有数据
+Store -->> KnowledgeGraphManager : 清空确认
+KnowledgeGraphManager ->> BuildState : 重置状态
+BuildState -->> KnowledgeGraphManager : 状态重置确认
+KnowledgeGraphManager ->> BuildState : 获取当前状态
+BuildState -->> KnowledgeGraphManager : 返回初始状态
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回状态
+KnowledgeGraphMessageHandler -->> UI : 返回状态
+UI -->> 用户 : 展示清空后状态
+deactivate KnowledgeGraphMessageHandler
+deactivate UI
+```
+
+### 5. 导出
+```mermaid
+sequenceDiagram
+participant 用户
+participant UI
+participant KnowledgeGraphMessageHandler
+participant KnowledgeGraphManager
+participant GraphQuerier
+participant Store
+activate UI
+用户 ->> UI : 点击导出
+activate KnowledgeGraphMessageHandler
+UI ->> KnowledgeGraphMessageHandler : 发送[导出]消息
+KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 导出请求
+KnowledgeGraphManager ->> GraphQuerier : 开始导出
+GraphQuerier ->> Store : 获取文件摘要
+Store -->> GraphQuerier : 返回文件摘要数据
+GraphQuerier ->> Store : 获取目录摘要
+Store -->> GraphQuerier : 返回目录摘要数据
+GraphQuerier ->> Store : 获取依赖关系
+Store -->> GraphQuerier : 返回依赖关系数据
+GraphQuerier ->> GraphQuerier : 生成导出文件
+GraphQuerier -->> KnowledgeGraphManager : 导出完成
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回导出结果
+KnowledgeGraphMessageHandler -->> UI : 返回导出结果
+UI -->> 用户 : 展示导出结果
+deactivate KnowledgeGraphMessageHandler
+deactivate UI
+```
+
+### 6. 可视化
+```mermaid
+sequenceDiagram
+participant 用户
+participant UI
+participant KnowledgeGraphMessageHandler
+participant KnowledgeGraphManager
+participant GraphVisualizer
+participant Store
+activate UI
+用户 ->> UI : 点击可视化
+activate KnowledgeGraphMessageHandler
+UI ->> KnowledgeGraphMessageHandler : 发送[可视化]消息
+KnowledgeGraphMessageHandler ->> KnowledgeGraphManager : 可视化请求
+KnowledgeGraphManager ->> GraphVisualizer : 开始可视化
+GraphVisualizer ->> Store : 获取文件摘要
+Store -->> GraphVisualizer : 返回文件摘要数据
+GraphVisualizer ->> Store : 获取目录摘要
+Store -->> GraphVisualizer : 返回目录摘要数据
+GraphVisualizer ->> Store : 获取依赖关系
+Store -->> GraphVisualizer : 返回依赖关系数据
+GraphVisualizer ->> GraphVisualizer : 生成可视化数据
+GraphVisualizer -->> KnowledgeGraphManager : 可视化数据生成完成
+KnowledgeGraphManager -->> KnowledgeGraphMessageHandler : 返回可视化数据
+KnowledgeGraphMessageHandler -->> UI : 返回可视化数据
+UI -->> 用户 : 展示可视化界面
+deactivate KnowledgeGraphMessageHandler
+deactivate UI
+```
+
+
 ## 存储
 ${HOME}/.cospec/knowledge-graph/
 存储方式：md文件、jsonl文件
@@ -317,3 +727,4 @@ credit不足：指数退避法重试
 ## 验收标准
 - 高质量的代码
 - UI 页面
+

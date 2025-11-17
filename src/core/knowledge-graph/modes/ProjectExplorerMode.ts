@@ -44,13 +44,8 @@ export class ProjectExplorerMode {
     }
 
     try {
-      const status = await knowledgeGraphManager.getKnowledgeGraphStatus()
-      
-      if (!status.exists) {
-        return '知识图谱尚未构建，请先构建知识图谱。'
-      }
-
-      const { rootInfo, buildState } = status
+      const buildState = knowledgeGraphManager.getBuildStatus()
+      const rootInfo = knowledgeGraphManager.getRootInfo()
       
       let overview = '# 项目概览\n\n'
       
@@ -95,7 +90,7 @@ export class ProjectExplorerMode {
     }
 
     try {
-      const results = await knowledgeGraphManager.searchKnowledgeGraph(query)
+      const results = await knowledgeGraphManager.search(query)
       
       if (results.length === 0) {
         return `未找到与 "${query}" 相关的结果。`
@@ -147,15 +142,10 @@ export class ProjectExplorerMode {
     }
 
     try {
-      const status = await knowledgeGraphManager.getKnowledgeGraphStatus()
-      
-      if (!status.exists) {
-        return '知识图谱尚未构建，请先构建知识图谱。'
-      }
 
       // 这里需要从存储中获取文件详情
       // 使用知识图谱管理器的搜索功能
-      const searchResults = await knowledgeGraphManager.searchKnowledgeGraph(filePath)
+      const searchResults = await knowledgeGraphManager.search(filePath)
       const fileResult = searchResults.find(r => r.type === 'file' && r.path === filePath)
       
       if (!fileResult) {
@@ -201,15 +191,10 @@ export class ProjectExplorerMode {
     }
 
     try {
-      const status = await knowledgeGraphManager.getKnowledgeGraphStatus()
-      
-      if (!status.exists) {
-        return '知识图谱尚未构建，请先构建知识图谱。'
-      }
 
       // 搜索目录
       const searchQuery = dirPath || '目录'
-      const results = await knowledgeGraphManager.searchKnowledgeGraph(searchQuery)
+      const results = await knowledgeGraphManager.search(searchQuery)
       const directoryResults = results.filter((r: any) => r.type === 'directory')
       
       // 过滤出指定目录下的子目录和文件
@@ -285,13 +270,10 @@ export class ProjectExplorerMode {
     }
 
     try {
-      const status = await knowledgeGraphManager.getKnowledgeGraphStatus()
-      
-      if (!status.exists || !status.rootInfo) {
-        return '知识图谱尚未构建或没有根信息，请先构建知识图谱。'
+      const rootInfo = await knowledgeGraphManager.getRootInfo()
+      if(!rootInfo) {
+        return ''
       }
-
-      const { rootInfo } = status
       
       let techStack = '# 技术栈分析\n\n'
       
@@ -336,15 +318,15 @@ export class ProjectExplorerMode {
     }
 
     try {
-      const status = await knowledgeGraphManager.getKnowledgeGraphStatus()
-      
-      if (!status.exists) {
-        return '知识图谱尚未构建，请先构建知识图谱。'
+         const rootInfo = await knowledgeGraphManager.getRootInfo()
+      if(!rootInfo) {
+        return ''
       }
+      
 
       // 这里需要获取依赖关系
       // 使用知识图谱管理器的搜索功能来获取一些依赖信息
-      const searchResults = await knowledgeGraphManager.searchKnowledgeGraph('依赖')
+      const searchResults = await knowledgeGraphManager.search('依赖')
       
       let dependencyGraph = '# 项目依赖图\n\n'
       

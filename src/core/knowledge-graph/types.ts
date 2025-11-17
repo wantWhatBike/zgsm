@@ -72,7 +72,7 @@ export interface KnowledgeGraphConfig {
   maxFiles: number
   fileSizeLimit: number
   fileLinesLimit: number
-  storageType: 'file'
+  storageType: 'file' | 'database'
   cacheDir: string
   exportFormat: string
   enableDetailedLogging?: boolean
@@ -80,7 +80,7 @@ export interface KnowledgeGraphConfig {
 }
 
 // 知识图谱状态
-export interface KnowledgeGraphBuildStatus {
+export interface KnowledgeGraphBuildState {
   enabled: boolean
   isRunning: boolean
   isPaused: boolean
@@ -222,8 +222,6 @@ export interface StorageConfig {
   type: 'file' | 'database'
   path: string
   maxSize?: number
-  compression?: boolean
-  encryption?: boolean
 }
 
 // 搜索查询

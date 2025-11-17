@@ -11,20 +11,19 @@ import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
 import { createLogger, ILogger } from "../../../utils/logger"
 import { countTokens } from "../../../utils/countTokens"
 import { FileStorage } from "../storage/FileStorage"
+import { IStorage } from "../storage/StorageInterface"
 
 export class FileAnalyzer {
 	private llmClient: LLMClient
-	private storage: FileStorage
-	private workspacePath: string
+	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private logger: ILogger
 
-	constructor(llmClient: LLMClient, storage: FileStorage, workspacePath: string, config: KnowledgeGraphConfig) {
+	constructor(llmClient: LLMClient, storage: IStorage, config: KnowledgeGraphConfig, logger: ILogger) {
 		this.llmClient = llmClient
 		this.storage = storage
-		this.workspacePath = workspacePath
 		this.config = config
-		this.logger = createLogger()
+		this.logger = logger
 	}
 
 	/**

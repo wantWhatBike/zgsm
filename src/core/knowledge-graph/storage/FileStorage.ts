@@ -1,32 +1,19 @@
-/**
- * 文件存储实现
- * 按照新的存储格式要求重构：
- * - files.json (文件列表)
- * - build_state.json (构建状态)
- * - root_info.json (root目录分析结果)
- * - file_summaries.jsonl (JSON LINES格式文件摘要)
- * - dir_summaries.jsonl (JSON LINES格式目录摘要)
- * - relations.txt (依赖关系)
- * - directory_tree.md (目录结构树)
- * - index.md (主索引文件)
- */
-
 import * as fs from "fs/promises"
 import * as nodePath from "path"
 import { safeWriteJson } from "../../../utils/safeWriteJson"
-import { StorageConfig, StorageInfo, StorageError } from "./StorageInterface"
+import { StorageConfig, StorageInfo, StorageError, IStorage } from "./StorageInterface"
 import {
 	FileSummary,
 	DirectorySummary,
 	DependencyRelation,
 	RootInfo,
-	KnowledgeGraphBuildStatus,
+	KnowledgeGraphBuildState,
 	FileInfo,
 } from "../types"
 import { StorageUtils } from "./StorageUtils"
 import { createLogger, ILogger } from "../../../utils/logger"
 
-export class FileStorage {
+export class FileStorage implements IStorage {
 	
 	private config: StorageConfig
 	private basePath: string
@@ -216,32 +203,6 @@ export class FileStorage {
 				"SAVE_ERROR",
 				true,
 			)
-		}
-	}
-
-	/**
-	 * 检查文件是否需要重新分析（增量构建）
-	 */
-	async shouldReanalyzeFile(filePath: string, currentTimestamp: number): Promise<boolean> {
-		try {
-			const filesList = await this.getFilesList()
-			const fileInfo = filesList[filePath]
-
-			if (!fileInfo) {
-				// 文件不存在于列表中，需要分析
-				return true
-			}
-
-			if (fileInfo.status === "pending") {
-				// 文件状态为待处理，需要分析
-				return true
-			}
-
-			// 比较时间戳，如果文件被修改则需要重新分析
-			return currentTimestamp > fileInfo.timestamp
-		} catch (error) {
-			// 出错时默认需要重新分析
-			return true
 		}
 	}
 
@@ -825,12 +786,12 @@ export class FileStorage {
 	/**
 	 * 保存构建状态
 	 */
-	async saveKnowledgeGraphBuildStatus(state: KnowledgeGraphBuildStatus): Promise<void> {
+	async saveKnowledgeGraphBuildStatus(state: KnowledgeGraphBuildState): Promise<void> {
 		try {
 			await this.ensureStoragePath()
 
 			// 确保状态包含所有必需字段
-			const currentStatus: KnowledgeGraphBuildStatus = {
+			const currentStatus: KnowledgeGraphBuildState = {
 				taskId: state.taskId,
 				phase: state.phase,
 				progress: Math.max(0, Math.min(100, state.progress)), // 确保在0-100范围内
@@ -871,7 +832,7 @@ export class FileStorage {
 	/**
 	 * 获取构建状态
 	 */
-	async getBuildStatus(): Promise<KnowledgeGraphBuildStatus | null> {
+	async getBuildStatus(): Promise<KnowledgeGraphBuildState | null> {
 		try {
 			const storagePath = nodePath.join(this.basePath, "build_state.json")
 
@@ -882,7 +843,7 @@ export class FileStorage {
 			}
 
 			const content = await fs.readFile(storagePath, "utf-8")
-			return StorageUtils.deserialize<KnowledgeGraphBuildStatus>(content)
+			return StorageUtils.deserialize<KnowledgeGraphBuildState>(content)
 		} catch (error) {
 			this.logger.warn("[FileStorage] 获取构建状态失败:", error)
 			return null
@@ -892,14 +853,14 @@ export class FileStorage {
 	/**
 	 * 更新构建状态 - 支持部分更新
 	 */
-	async updateBuildStatus(updates: Partial<KnowledgeGraphBuildStatus>): Promise<void> {
+	async updateBuildStatus(updates: Partial<KnowledgeGraphBuildState>): Promise<void> {
 		try {
 			const currentState = await this.getBuildStatus()
 			if (!currentState) {
 				throw new StorageError("构建状态不存在，无法更新", "STATE_NOT_FOUND", false)
 			}
 
-			const updatedState: KnowledgeGraphBuildStatus = {
+			const updatedState: KnowledgeGraphBuildState = {
 				...currentState,
 				...updates,
 				lastUpdateTime: new Date().toISOString(), // 总是更新时间戳
@@ -1197,7 +1158,7 @@ async updateRequestStats(
 			success: number
 			failed: number
 		}
-		KnowledgeGraphBuildStatus: KnowledgeGraphBuildStatus | null
+		KnowledgeGraphBuildStatus: KnowledgeGraphBuildState | null
 	}> {
 		try {
 			const filesList = await this.getFilesList()

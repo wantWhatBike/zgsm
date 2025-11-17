@@ -18,15 +18,15 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { createWriteStream } from "fs"
 import { createLogger, ILogger } from "../../../utils/logger"
-// import archiver from "archiver" // 暂时移除，需要时添加
+import { IStorage } from "../storage/StorageInterface"
 
 export class Exporter {
-  private storage: FileStorage
+  private storage: IStorage
   private logger: ILogger
 
-  constructor(storage: FileStorage) {
+  constructor(storage: IStorage, logger:ILogger) {
     this.storage = storage
-    this.logger = createLogger()
+    this.logger = logger
   }
 
   /**
@@ -67,16 +67,6 @@ export class Exporter {
           
         case 'markdown':
           result = await this.exportToMarkdown(
-            fileSummaries, 
-            directorySummaries, 
-            dependencyRelations, 
-            outputPath, 
-            includeMetadata
-          )
-          break
-          
-        case 'zip':
-          result = await this.exportToZip(
             fileSummaries, 
             directorySummaries, 
             dependencyRelations, 
@@ -247,38 +237,6 @@ export class Exporter {
     
     return {
       format: 'markdown',
-      outputPath,
-      size: (await fs.stat(outputPath)).size,
-      recordCount: fileSummaries.length + directorySummaries.length + dependencyRelations.length,
-      exportTime: new Date().toISOString()
-    }
-  }
-
-  /**
-   * 导出为ZIP格式
-   */
-  private async exportToZip(
-    fileSummaries: FileSummary[],
-    directorySummaries: DirectorySummary[],
-    dependencyRelations: DependencyRelation[],
-    outputPath: string,
-    includeMetadata: boolean
-  ): Promise<ExportResult> {
-    // 简化的ZIP导出实现，暂时使用JSON格式
-    // TODO: 添加真正的ZIP支持
-    const zipData = {
-      metadata: includeMetadata ? this.createMetadata() : undefined,
-      fileSummaries,
-      directorySummaries,
-      dependencyRelations,
-      directoryTree: this.generateDirectoryTree(fileSummaries, directorySummaries),
-      index: this.generateIndexContent(fileSummaries, directorySummaries, dependencyRelations)
-    }
-    
-    await safeWriteJson(outputPath, zipData)
-    
-    return {
-      format: 'zip',
       outputPath,
       size: (await fs.stat(outputPath)).size,
       recordCount: fileSummaries.length + directorySummaries.length + dependencyRelations.length,
