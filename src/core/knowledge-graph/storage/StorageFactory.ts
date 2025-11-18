@@ -3,51 +3,73 @@
  * 根据配置创建相应的存储实例
  */
 
-import { StorageConfig, IStorage, StorageError } from "./StorageInterface"
+import { StorageConfig, IStorage, StorageError } from "./IStorage"
 import { FileStorage } from "./FileStorage"
 import path from "path"
 import * as os from "os"
 import { createHash } from "crypto"
 
+// 存储创建器接口
+interface StorageCreator {
+  create(config: StorageConfig): IStorage
+  supports(type: string): boolean
+}
+
+// 文件存储创建器
+class FileStorageCreator implements StorageCreator {
+  create(config: StorageConfig): IStorage {
+    return new FileStorage(config)
+  }
+  
+  supports(type: string): boolean {
+    return type === "file"
+  }
+}
+
+// 数据库存储创建器（占位符）
+class DatabaseStorageCreator implements StorageCreator {
+  create(config: StorageConfig): IStorage {
+    throw new StorageError("数据库存储暂未实现", "UNSUPPORTED_STORAGE_TYPE", false)
+  }
+  
+  supports(type: string): boolean {
+    return type === "database"
+  }
+}
+
 /**
  * 存储工厂类
  * 使用工厂模式创建存储实例，支持扩展不同类型的存储
+ * 重构后符合开闭原则，添加新存储类型无需修改现有代码
  */
 export class StorageFactory {
-	/**
-	 * 创建存储实例
-	 * @param config 存储配置
-	 * @returns 存储实例
-	 */
-	static createStorage(config: StorageConfig): IStorage {
+  private static creators: StorageCreator[] = [
+    new FileStorageCreator(),
+    new DatabaseStorageCreator()
+  ]
 
-        StorageFactory.validateConfig(config)
-		switch (config.type) {
-			case "file":
-				return new FileStorage(config)
+  /**
+   * 注册新的存储创建器
+   */
+  static registerCreator(creator: StorageCreator): void {
+    this.creators.push(creator)
+  }
 
-			case "database":
-				// 未来可以扩展数据库存储
-				throw new StorageError("数据库存储暂未实现", "UNSUPPORTED_STORAGE_TYPE", false)
-
-			default:
-				throw new StorageError(`不支持的存储类型: ${config.type}`, "UNSUPPORTED_STORAGE_TYPE", false)
-		}
-	}
-
-
+  /**
+   * 创建存储实例
+   * @param config 存储配置
+   * @returns 存储实例
+   */
+  static createStorage(config: StorageConfig): IStorage {
+    this.validateConfig(config)
     
-	/**
-	 * 创建存储实例
-	 */
-	private createFileStorage(workspacePath: string, config: StorageConfig): FileStorage {
-		const storageConfig: StorageConfig = {
-			type: config!.type,
-			path: StorageFactory.getWorkspaceStoragePath(workspacePath),
-		}
-		
-	}
-
+    const creator = this.creators.find(c => c.supports(config.type))
+    if (!creator) {
+      throw new StorageError(`不支持的存储类型: ${config.type}`, "UNSUPPORTED_STORAGE_TYPE", false)
+    }
+    
+    return creator.create(config)
+  }
     
 
 	/**

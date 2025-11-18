@@ -35,21 +35,21 @@ export class FileFilter {
    * 过滤文件列表
    */
   async filterFiles(files: FileInfo[], basePath?: string): Promise<FileInfo[]> {
-    this.logger.info(`[FileFilter] 开始过滤文件，初始文件数: ${files.length}`)
+    this.logger.info(`[FileFilter] 开始过滤文件: ${files.length}个`)
 
     // 1. 应用忽略模式
     files = this.applyIgnorePatterns(files)
     this.logger.info(`[FileFilter] 应用忽略模式后，剩余文件数: ${files.length}`)
-
+    
     // 2. 检查文件大小
     files = await this.filterBySize(files)
     this.logger.info(`[FileFilter] 检查文件大小后，剩余文件数: ${files.length}`)
-
+    
     // 3. 仅处理代码，根据后缀过滤
     files = await this.filterByExt(files)
     this.logger.info(`[FileFilter] 根据后缀过滤后，剩余文件数: ${files.length}`)
 
-    this.logger.info(`[FileFilter] 文件过滤完成，最终文件数: ${files.length}`)
+    this.logger.info(`[FileFilter] 过滤完成，剩余：${files.length}个文件`)
     return files
   }
 
@@ -209,7 +209,7 @@ export class FileFilter {
 /**
  * 安全读取文件
  */
-export async function safeReadFile(filePath: string, maxSize: number): Promise<string | null> {
+export async function safeReadFile(filePath: string, maxSize: number = 5000): Promise<string | null> {
   try {
     const stats = await fs.stat(filePath)
     
@@ -291,3 +291,13 @@ export  async function getFileHash(filePath: string): Promise<string> {
 export function stringToContentBlocks(text: string): Anthropic.Messages.ContentBlockParam[] {
   return [{ type: 'text', text }]; // 包装为文本块数组
 }
+
+// 异步检查（推荐，非阻塞）
+export const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await fs.access(path); // 检查路径是否可访问（存在且有权限）
+    return true;
+  } catch {
+    return false;
+  }
+};

@@ -4,72 +4,62 @@
 
 import * as fs from "fs/promises"
 import * as path from "path"
-import { createHash } from "crypto"
 import { LLMClient } from "../llm/LLMClient"
 import { ROOT_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
-import { RootInfo, KnowledgeGraphError, KnowledgeGraphConfig, FileInfo } from "../types"
-import { ERROR_CODES, KEY_FILE_PATTERNS } from "../constants"
-import { FileFilter } from "../tools/FileUtils"
-import { FileService } from "../tools/FileService"
-import { createLogger, ILogger } from "../../../utils/logger"
-import { IStorage } from "../storage/StorageInterface"
+import { RootInfo, KnowledgeGraphConfig, FileInfo } from "../types"
+import { KEY_FILE_PATTERNS } from "../constants"
+import { ErrorHandler } from "../errors/KnowledgeGraphError"
+import { IStorage } from "../storage/IStorage"
+import { ILogger } from "../../../utils/logger"
+import { StorageUtils } from "../storage/StorageUtils"
+
+const ROOT_INFO_FILE = "root_info.json"
 
 export class RootAnalyzer {
 	private llmClient: LLMClient
 	private maxKeyFiles: number
 	private logger: ILogger
-  private storage: IStorage
+	private storage: IStorage
 	private config: KnowledgeGraphConfig
 
 	constructor(
 		llmClient: LLMClient,
 		storage: IStorage,
 		config: KnowledgeGraphConfig,
-    logger: ILogger,
+		logger: ILogger,
 		maxKeyFiles: number = 10,
 	) {
 		this.llmClient = llmClient
 		this.logger = logger
 		this.config = config
-    this.storage = storage
+		this.storage = storage
 		this.maxKeyFiles = maxKeyFiles
 	}
 
 	/**
 	 * 分析项目根目录
 	 */
-	async analyzeRoot(files: FileInfo[]): Promise<RootInfo> {
+	async analyzeRoot(workspacePath: string, files: FileInfo[]): Promise<RootInfo> {
 		try {
 			this.logger.info("[RootAnalyzer] 开始根目录分析")
 
 			// 1. 收集关键文件
-			const keyFiles = await this.collectKeyFiles()
-			this.logger.info(`[RootAnalyzer] 收集到关键文件数量: ${keyFiles.length}`)
-			this.logger.info(`[RootAnalyzer] 关键文件列表: ${keyFiles.join(", ")}`)
+			const keyFiles = await this.collectKeyFiles(workspacePath)
+			this.logger.info(`[RootAnalyzer] 收集关键文件: ${keyFiles.length}个`)
 
 			// 2. 读取文件内容
 			const fileContents = await this.readKeyFiles(keyFiles)
-			this.logger.info(`[RootAnalyzer] 成功读取文件数量: ${fileContents.length}`)
 
-			// 3. 获取项目we列表
+			// 3. 获取项目文件列表
 			const fileList = files.map((f) => f.path)
-			this.logger.info(`[RootAnalyzer] 项目文件列表数量: ${fileList.length}`)
 
 			// 4. 验证输入内容
 			const formattedFileContents = formatFileContents(fileContents)
 			const formattedFileList = formatFileList(fileList)
 
-			this.logger.info(`[RootAnalyzer] 格式化文件内容长度: ${formattedFileContents.length}`)
-			this.logger.info(`[RootAnalyzer] 格式化文件列表长度: ${formattedFileList.length}`)
-
 			// 确保有足够的内容进行分析
 			if (formattedFileContents.trim().length === 0 && formattedFileList.trim().length === 0) {
-				throw new KnowledgeGraphError(
-					"没有找到可分析的项目文件，请检查工作空间是否包含有效的项目文件",
-					ERROR_CODES.FILE_READ_ERROR,
-					false,
-					false,
-				)
+				throw ErrorHandler.createFileReadError("项目根目录", new Error("没有找到可分析的项目文件"))
 			}
 
 			// 4. 构建提示词
@@ -78,47 +68,30 @@ export class RootAnalyzer {
 				fileList: formattedFileList,
 			})
 
-			this.logger.info(`[RootAnalyzer] 提示词长度: ${prompt.length}`)
-
 			// 验证提示词不为空
 			if (prompt.trim().length === 0) {
-				throw new KnowledgeGraphError(
-					"构建的提示词为空，无法进行根目录分析",
-					ERROR_CODES.INVALID_RESPONSE,
-					false,
-					false,
-				)
+				throw ErrorHandler.createInvalidResponseError("构建的提示词为空，无法进行根目录分析")
 			}
 
 			// 5. 发送LLM请求
-			this.logger.info("[RootAnalyzer] 即将发送LLM请求，准备调用sendStructuredRequest")
 			const response = await this.llmClient.sendStructuredRequest<RootInfo>(prompt, this.getRootInfoSchema(), {
 				systemPrompt: "你是代码分析专家，专门分析项目结构和技术栈。请严格按照JSON格式返回分析结果。",
 			})
-			this.logger.info("[RootAnalyzer] LLM请求已发送，等待响应")
 
 			if (!response.success || !response.data) {
-				throw new KnowledgeGraphError(
-					`根目录分析失败: ${response.data || "未知错误"}`,
-					ERROR_CODES.INVALID_RESPONSE,
-					false,
-					false,
+				throw ErrorHandler.createInvalidResponseError(
+					`根目录分析失败: ${response.error || "未知错误"}`,
+					response,
 				)
 			}
 
 			// 6. 验证和清理数据
-			return this.validateAndCleanRootInfo(response.data)
+			const rootInfo = this.validateAndCleanRootInfo(response.data)
+			await this.storage.overwrite(ROOT_INFO_FILE, rootInfo)
+			this.logger.info("[RootAnalyzer] 根目录分析完成")
+			return rootInfo
 		} catch (error) {
-			if (error instanceof KnowledgeGraphError) {
-				throw error
-			}
-
-			throw new KnowledgeGraphError(
-				`根目录分析错误: ${error instanceof Error ? error.message : String(error)}`,
-				ERROR_CODES.NETWORK_ERROR,
-				true,
-				true,
-			)
+			throw ErrorHandler.wrapError(error, "根目录分析")
 		}
 	}
 
@@ -138,13 +111,7 @@ export class RootAnalyzer {
 	 * 按优先级收集关键文件（文档 > 依赖配置 > 项目配置 > 构建部署）
 	 * @returns 关键文件绝对路径数组（数量 ≤ maxKeyFiles）
 	 */
-	private async collectKeyFiles(): Promise<string[]> {
-		const workspace = this.workspacePath
-		if (!workspace) {
-			this.logger.warn("工作目录路径为空，无法收集文件")
-			return []
-		}
-
+	private async collectKeyFiles(workspace: string): Promise<string[]> {
 		// 2. 大小写不敏感的模式匹配函数
 		const isMatch = (filename: string, patterns: string[]): boolean => {
 			const lowerFilename = filename.toLowerCase()
@@ -346,10 +313,40 @@ export class RootAnalyzer {
 	}
 
 	/**
-	 * 获取缓存键
+	 * 保存项目根信息 - 保存为root_info.json
 	 */
-	getCacheKey(): string {
-		const content = `root_analysis:${this.workspacePath}:${Date.now()}`
-		return createHash("sha256").update(content).digest("hex")
+	async saveRootInfo(rootInfo: RootInfo): Promise<void> {
+		try {
+			await this.storage.overwrite(ROOT_INFO_FILE, rootInfo)
+		} catch (error) {
+			throw new Error(`保存项目根信息失败: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
+
+	/**
+	 * 获取项目根信息 - 从root_info.json读取
+	 */
+	async getRootInfo(): Promise<RootInfo | undefined> {
+		try {
+			const content = await this.storage.load(ROOT_INFO_FILE)
+			if (!content) {
+				return undefined
+			}
+			return StorageUtils.deserialize<RootInfo>(content)
+		} catch (error) {
+			this.logger.warn("[FileStorage] 获取项目根信息失败:", error)
+			throw new Error(`get root info failed： ${error}`)
+		}
+	}
+
+	/**
+	 * 删除项目根信息
+	 */
+	async clear(): Promise<void> {
+		try {
+			return this.storage.clear(ROOT_INFO_FILE)
+		} catch (error) {
+			throw new Error(`删除root_info.json失败: ${error instanceof Error ? error.message : String(error)}`)
+		}
 	}
 }

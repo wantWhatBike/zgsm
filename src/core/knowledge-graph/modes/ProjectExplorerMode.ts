@@ -4,7 +4,7 @@
  */
 
 import { knowledgeGraphManager } from "../KnowledgeGraphManager"
-import { SearchResult, FileSummary, DirectorySummary, DependencyRelation } from "../types"
+import { SearchResult, FileSummary, DirectorySummary, DependencyRelation, SearchQuery } from "../types"
 import { KnowledgeGraphError } from "../errors/KnowledgeGraphError"
 
 export class ProjectExplorerMode {
@@ -38,15 +38,16 @@ export class ProjectExplorerMode {
   /**
    * 获取项目概览
    */
-  async getProjectOverview(): Promise<string> {
+  async getProjectOverview(): Promise<string|null> {
     if (!this.isEnabled) {
       throw new KnowledgeGraphError('项目浏览器模式未启用', 'MODE_NOT_ENABLED')
     }
 
     try {
-      const buildState = knowledgeGraphManager.getBuildStatus()
-      const rootInfo = knowledgeGraphManager.getRootInfo()
-      
+      const rootInfo = await knowledgeGraphManager.getRootInfo()
+      if (!rootInfo){
+        return null
+      }
       let overview = '# 项目概览\n\n'
       
       if (rootInfo) {
@@ -63,14 +64,6 @@ export class ProjectExplorerMode {
         overview += rootInfo.core_dependencies.map((dep: string) => `- ${dep}`).join('\n') + '\n\n'
       }
       
-      if (buildState) {
-        overview += '## 构建状态\n'
-        overview += `- 当前阶段: ${this.translatePhase(buildState.phase)}\n`
-        overview += `- 已完成文件: ${buildState.completedFiles.length} 个\n`
-        overview += `- 已完成目录: ${buildState.completedDirectories.length} 个\n`
-        overview += `- 最后更新: ${buildState.lastUpdateTime}\n\n`
-      }
-      
       return overview
       
     } catch (error) {
@@ -84,7 +77,7 @@ export class ProjectExplorerMode {
   /**
    * 搜索项目结构
    */
-  async searchProjectStructure(query: string): Promise<string> {
+  async searchProjectStructure(query: SearchQuery): Promise<string> {
     if (!this.isEnabled) {
       throw new KnowledgeGraphError('项目浏览器模式未启用', 'MODE_NOT_ENABLED')
     }
@@ -145,7 +138,7 @@ export class ProjectExplorerMode {
 
       // 这里需要从存储中获取文件详情
       // 使用知识图谱管理器的搜索功能
-      const searchResults = await knowledgeGraphManager.search(filePath)
+      const searchResults = await knowledgeGraphManager.search({type: 'exact', filePath: filePath})
       const fileResult = searchResults.find(r => r.type === 'file' && r.path === filePath)
       
       if (!fileResult) {
@@ -183,88 +176,9 @@ export class ProjectExplorerMode {
   }
 
   /**
-   * 获取目录结构
-   */
-  async getDirectoryStructure(dirPath: string = ''): Promise<string> {
-    if (!this.isEnabled) {
-      throw new KnowledgeGraphError('项目浏览器模式未启用', 'MODE_NOT_ENABLED')
-    }
-
-    try {
-
-      // 搜索目录
-      const searchQuery = dirPath || '目录'
-      const results = await knowledgeGraphManager.search(searchQuery)
-      const directoryResults = results.filter((r: any) => r.type === 'directory')
-      
-      // 过滤出指定目录下的子目录和文件
-      const targetDir = dirPath || '' // 根目录
-      const subItems = directoryResults.filter(r => {
-        if (targetDir === '') {
-          // 根目录：路径不包含 '/' 或者只包含一个 '/'
-          const parts = r.path.split('/').filter((p: string | any[]) => p.length > 0)
-          return parts.length <= 1
-        } else {
-          // 子目录：路径以目标目录开头，且只多一级
-          return r.path.startsWith(targetDir + '/') && 
-                 r.path.substring(targetDir.length + 1).split('/').length === 1
-        }
-      })
-      
-      let structure = `# 目录结构: ${dirPath || '项目根目录'}\n\n`
-      
-      if (subItems.length === 0) {
-        structure += '该目录下没有找到子目录。\n\n'
-      } else {
-        structure += `找到 ${subItems.length} 个子目录：\n\n`
-        
-        for (const item of subItems) {
-          structure += `## ${item.name}\n`
-          structure += `- **路径**: ${item.path}\n`
-          structure += `- **描述**: ${item.description}\n`
-          structure += `- **相关度**: ${(item.relevance * 100).toFixed(1)}%\n\n`
-        }
-      }
-      
-      // 也显示文件
-      const fileResults = results.filter((r: any) => r.type === 'file')
-      const subFiles = fileResults.filter((r: any) => {
-        if (targetDir === '') {
-          // 根目录文件
-          return !r.path.includes('/')
-        } else {
-          // 子目录文件
-          return r.path.startsWith(targetDir + '/') && 
-                 !r.path.substring(targetDir.length + 1).includes('/')
-        }
-      })
-      
-      if (subFiles.length > 0) {
-        structure += `## 文件 (${subFiles.length})\n\n`
-        
-        for (const file of subFiles.slice(0, 20)) {
-          structure += `- **${file.name}**: ${file.description}\n`
-        }
-        
-        if (subFiles.length > 20) {
-          structure += `\n> 还有 ${subFiles.length - 20} 个文件未显示\n`
-        }
-      }
-      
-      return structure
-      
-    } catch (error) {
-      throw new KnowledgeGraphError(
-        `获取目录结构失败: ${error instanceof Error ? error.message : String(error)}`,
-        'QUERY_FAILED'
-      )
-    }
-  }
-
-  /**
    * 获取技术栈信息
    */
-  async getTechStack(): Promise<string> {
+  async getTechStack(): Promise<string|null> {
     if (!this.isEnabled) {
       throw new KnowledgeGraphError('项目浏览器模式未启用', 'MODE_NOT_ENABLED')
     }
@@ -272,7 +186,7 @@ export class ProjectExplorerMode {
     try {
       const rootInfo = await knowledgeGraphManager.getRootInfo()
       if(!rootInfo) {
-        return ''
+        return null
       }
       
       let techStack = '# 技术栈分析\n\n'
@@ -308,115 +222,7 @@ export class ProjectExplorerMode {
       )
     }
   }
-
-  /**
-   * 获取项目依赖图
-   */
-  async getDependencyGraph(): Promise<string> {
-    if (!this.isEnabled) {
-      throw new KnowledgeGraphError('项目浏览器模式未启用', 'MODE_NOT_ENABLED')
-    }
-
-    try {
-         const rootInfo = await knowledgeGraphManager.getRootInfo()
-      if(!rootInfo) {
-        return ''
-      }
-      
-
-      // 这里需要获取依赖关系
-      // 使用知识图谱管理器的搜索功能来获取一些依赖信息
-      const searchResults = await knowledgeGraphManager.search('依赖')
-      
-      let dependencyGraph = '# 项目依赖图\n\n'
-      
-      if (searchResults.length === 0) {
-        dependencyGraph += '未找到依赖关系信息。\n\n'
-      } else {
-        dependencyGraph += `找到 ${searchResults.length} 个相关结果：\n\n`
-        
-        // 按类型分组显示
-        const dependencyFiles = searchResults.filter(r => r.type === 'file')
-        const dependencyDirs = searchResults.filter(r => r.type === 'directory')
-        
-        if (dependencyFiles.length > 0) {
-          dependencyGraph += '## 相关文件\n'
-          dependencyFiles.slice(0, 10).forEach((file: any) => {
-            dependencyGraph += `- **${file.name}**: ${file.description}\n`
-          })
-          
-          if (dependencyFiles.length > 10) {
-            dependencyGraph += `\n> 还有 ${dependencyFiles.length - 10} 个文件未显示\n\n`
-          }
-        }
-        
-        if (dependencyDirs.length > 0) {
-          dependencyGraph += '## 相关目录\n'
-          dependencyDirs.slice(0, 10).forEach((dir: any) => {
-            dependencyGraph += `- **${dir.name}**: ${dir.description}\n`
-          })
-          
-          if (dependencyDirs.length > 10) {
-            dependencyGraph += `\n> 还有 ${dependencyDirs.length - 10} 个目录未显示\n\n`
-          }
-        }
-      }
-      
-      return dependencyGraph
-      
-    } catch (error) {
-      throw new KnowledgeGraphError(
-        `获取项目依赖图失败: ${error instanceof Error ? error.message : String(error)}`,
-        'QUERY_FAILED'
-      )
-    }
-  }
-
-  /**
-   * 生成项目探索报告
-   */
-  async generateExplorationReport(): Promise<string> {
-    if (!this.isEnabled) {
-      throw new KnowledgeGraphError('项目浏览器模式未启用', 'MODE_NOT_ENABLED')
-    }
-
-    try {
-      const [
-        projectOverview,
-        techStack,
-        dependencyGraph
-      ] = await Promise.all([
-        this.getProjectOverview(),
-        this.getTechStack(),
-        this.getDependencyGraph()
-      ])
-      
-      let report = '# 项目探索报告\n\n'
-      report += '> 由知识图谱自动生成\n\n'
-      report += '## 执行时间\n'
-      report += `${new Date().toISOString()}\n\n`
-      
-      report += projectOverview + '\n\n'
-      report += techStack + '\n\n'
-      report += dependencyGraph + '\n\n'
-      
-      report += '## 探索建议\n\n'
-      report += '基于知识图谱分析，建议：\n'
-      report += '1. 查看核心模块的详细实现\n'
-      report += '2. 分析关键依赖关系\n'
-      report += '3. 了解项目架构设计\n'
-      report += '4. 检查配置文件和构建脚本\n\n'
-      
-      return report
-      
-    } catch (error) {
-      throw new KnowledgeGraphError(
-        `生成探索报告失败: ${error instanceof Error ? error.message : String(error)}`,
-        'REPORT_GENERATION_FAILED'
-      )
-    }
-  }
-
+  
   /**
    * 辅助方法：按类型分组搜索结果
    */

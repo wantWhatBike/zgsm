@@ -8,6 +8,19 @@ import { ILogger } from "../../utils/logger"
 import { createLogger } from "../../utils/logger"
 import { Package } from "../../shared/package"
 
+// 默认状态信息常量
+const DEFAULT_STATUS_INFO = {
+  status: "pending" as const,
+  process: 0,
+  totalFiles: 0,
+  totalSucceed: 0,
+  totalFailed: 0,
+  failedReason: "",
+  failedFiles: [],
+  currentStage: "root_analysis" as const,
+  stageProgress: 0
+}
+
 /**
  * 知识图谱消息处理器
  * 负责处理所有知识图谱相关的消息
@@ -19,7 +32,6 @@ export class KnowledgeGraphMessageHandler {
   constructor(clineProvider: ClineProvider) {
     this.clineProvider = clineProvider
     this.logger = createLogger(Package.outputChannel)
-    this.logger.info("[KnowledgeGraphMessageHandler] 初始化知识图谱消息处理器")
   }
 
   /**
@@ -27,8 +39,6 @@ export class KnowledgeGraphMessageHandler {
    */
   async handleMessage(message: any): Promise<void> {
     try {
-      this.logger.info(`[KnowledgeGraphMessageHandler] 处理消息: ${message.type}`)
-
       // 检查 API 提供者是否为 zgsm
       const { apiConfiguration } = await this.clineProvider.getState()
       if (apiConfiguration?.apiProvider !== "zgsm") {
@@ -68,7 +78,7 @@ export class KnowledgeGraphMessageHandler {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "处理消息时发生未知错误"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 处理消息失败: ${error.type || 'unknown'}: ${errorMessage}`)
+      this.logger.error(`[KnowledgeGraphMessageHandler] 处理消息失败: ${message.type || 'unknown'}: ${errorMessage}`)
       this.sendErrorResponse(message.type || 'unknown', errorMessage)
     }
   }
@@ -80,76 +90,57 @@ export class KnowledgeGraphMessageHandler {
     const isEnabled = message.bool ?? false
     const oldEnabled = this.clineProvider.contextProxy.getValue("knowledgeGraphEnabled") ?? false
     
-    this.logger.info(`[KnowledgeGraphMessageHandler] 启用状态变化: ${oldEnabled} -> ${isEnabled}, message.bool: ${message.bool}`)
-    
     // 检查管理器是否已经正确初始化
     const isManagerInitialized = knowledgeGraphManager && knowledgeGraphManager.isManagerInitialized()
-    this.logger.info(`[KnowledgeGraphMessageHandler] 管理器初始化状态: ${isManagerInitialized}`)
-    
-    // 如果状态相同但管理器未初始化，仍需要执行初始化
     const needsInitialization = isEnabled && !isManagerInitialized
     
     if (oldEnabled === isEnabled && !needsInitialization) {
-      this.logger.info(`[KnowledgeGraphMessageHandler] 状态未变化且管理器已初始化，跳过处理`)
-      // 即使跳过处理，也要发送响应确保前端状态同步
+      // 状态未变化且管理器已初始化，跳过处理
       this.clineProvider.postMessageToWebview({
         type: "knowledgeGraphEnabled",
         payload: isEnabled,
       })
       return
     }
-    
-    if (needsInitialization) {
-      this.logger.info(`[KnowledgeGraphMessageHandler] 状态相同但管理器未初始化，执行初始化`)
-    }
 
     try {
-      this.logger.info(`[KnowledgeGraphMessageHandler] 开始处理状态变化，isEnabled: ${isEnabled}`)
-      
       // 更新全局状态
       await this.clineProvider.contextProxy.setValue("knowledgeGraphEnabled", isEnabled)
-      this.logger.info(`[KnowledgeGraphMessageHandler] 全局状态已更新`)
       
       // 如果启用知识图谱，需要初始化管理器
       if (isEnabled) {
-        this.logger.info(`[KnowledgeGraphMessageHandler] 开始初始化知识图谱管理器`)
+         this.logger?.info("启用知识图谱服务")
         try {
           // 设置提供者和日志
           knowledgeGraphManager.setProvider(this.clineProvider)
           knowledgeGraphManager.setLogger(this.logger)
-          this.logger.info(`[KnowledgeGraphMessageHandler] 提供者和日志已设置`)
-          
           // 初始化知识图谱管理器
           await knowledgeGraphManager.initialize()
-          this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱管理器初始化成功")
         } catch (initError) {
-          this.logger.error(`[KnowledgeGraphMessageHandler] 知识图谱管理器初始化失败: ${initError instanceof Error ? initError.message : String(initError)}`)
+          this.logger.error(`[KnowledgeGraph] 初始化失败: ${initError instanceof Error ? initError.message : String(initError)}`)
           // 初始化失败时，回滚状态
           await this.clineProvider.contextProxy.setValue("knowledgeGraphEnabled", false)
           throw initError
         }
       } else {
         // 如果禁用知识图谱，停止服务
-        this.logger.info(`[KnowledgeGraphMessageHandler] 开始停止知识图谱服务`)
+        this.logger?.info("停止知识图谱服务")
         try {
           await knowledgeGraphManager.dispose()
-          this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱服务已停止")
         } catch (stopError) {
-          this.logger.warn(`[KnowledgeGraphMessageHandler] 停止知识图谱服务时出现警告: ${stopError instanceof Error ? stopError.message : String(stopError)}`)
+          this.logger.warn(`[KnowledgeGraph] 停止服务警告: ${stopError instanceof Error ? stopError.message : String(stopError)}`)
         }
       }
       
-      // 发送响应到 webview - 确保发送正确的消息类型
+      // 发送响应到 webview
       this.clineProvider.postMessageToWebview({
         type: "knowledgeGraphEnabled",
         payload: isEnabled,
       })
-      this.logger.info(`[KnowledgeGraphMessageHandler] 响应已发送到webview`)
       
-      this.logger.info(`[KnowledgeGraphMessageHandler] 知识图谱已${isEnabled ? "启用" : "禁用"}, 状态: ${isEnabled}`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "切换知识图谱状态失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 切换知识图谱状态失败: ${errorMessage}`)
+      this.logger.error(`[KnowledgeGraph] 状态切换失败: ${errorMessage}`)
       
       // 发送错误响应
       this.clineProvider.postMessageToWebview({
@@ -165,19 +156,10 @@ export class KnowledgeGraphMessageHandler {
    * 处理轮询状态消息 - 修复进度状态异常问题
    */
   private async handleGetStatusMessage(): Promise<void> {
-
       // 发送默认状态
       const defaultStatusInfo = {
-        status: "pending" as const,
-        process: 0,
-        totalFiles: 0,
-        totalSucceed: 0,
-        totalFailed: 0,
-        failedReason: "",
-        failedFiles: [],
-        processTs: Math.floor(Date.now() / 1000),
-        currentStage: "root_analysis" as const,
-        stageProgress: 0
+        ...DEFAULT_STATUS_INFO,
+        processTs: Math.floor(Date.now() / 1000)
       }
 
 
@@ -204,9 +186,6 @@ export class KnowledgeGraphMessageHandler {
           stageProgress: Math.max(0, Math.min(100, buildState.progress))
         }
         
-        this.logger.info(`[KnowledgeGraphMessageHandler] 构建状态详细信息: 状态=${buildStatusInfo.status}, 进度=${buildStatusInfo.process}%, 总文件=${buildStatusInfo.totalFiles}, 成功=${buildStatusInfo.totalSucceed}, 失败=${buildStatusInfo.totalFailed}, 阶段=${buildStatusInfo.currentStage}`)
-        
-        this.logger.info(`[KnowledgeGraphMessageHandler] 构建状态: ${buildStatusInfo.status}, 进度: ${buildStatusInfo.process}%, 阶段: ${buildStatusInfo.currentStage}`)
         
         this.clineProvider.postMessageToWebview({
           type: "knowledgeGraphStatusResponse",
@@ -238,16 +217,10 @@ export class KnowledgeGraphMessageHandler {
    */
   private async handleStartBuildMessage(message: any): Promise<void> {
     try {
-      await knowledgeGraphManager.startBuild({
-        onProgress: (progress) => {
-          this.logger.info(`[KnowledgeGraphMessageHandler] 知识图谱构建进度: ${progress.percentage}% - ${progress.message}`)
-        }
-      })
-      
-      this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱构建已开始")
+      await knowledgeGraphManager.startBuild()
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "开始知识图谱构建失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 开始知识图谱构建失败: ${errorMessage}`)
+      const errorMessage = error instanceof Error ? error.message : "知识图谱构建失败"
+      this.logger.error(`[KnowledgeGraph] 构建失败: ${errorMessage}`)
       throw error
     }
   }
@@ -258,10 +231,9 @@ export class KnowledgeGraphMessageHandler {
   private async handlePauseBuildMessage(): Promise<void> {
     try {
       await knowledgeGraphManager.pauseBuild()
-      this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱构建已暂停")
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "暂停知识图谱构建失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 暂停知识图谱构建失败: ${errorMessage}`)
+      const errorMessage = error instanceof Error ? error.message : "暂停构建失败"
+      this.logger.error(`[KnowledgeGraph] 暂停失败: ${errorMessage}`)
       throw error
     }
   }
@@ -272,10 +244,9 @@ export class KnowledgeGraphMessageHandler {
   private async handleResumeBuildMessage(): Promise<void> {
     try {
       await knowledgeGraphManager.resumeBuild()
-      this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱构建已继续")
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "继续知识图谱构建失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 继续知识图谱构建失败: ${errorMessage}`)
+      const errorMessage = error instanceof Error ? error.message : "继续构建失败"
+      this.logger.error(`[KnowledgeGraph] 继续失败: ${errorMessage}`)
       throw error
     }
   }
@@ -289,16 +260,8 @@ export class KnowledgeGraphMessageHandler {
       
       // 构建清空后的状态信息
       const clearedStatusInfo = {
-        status: "pending" as const,
-        process: 0,
-        totalFiles: 0,
-        totalSucceed: 0,
-        totalFailed: 0,
-        failedReason: "",
-        failedFiles: [],
-        processTs: Math.floor(Date.now() / 1000),
-        currentStage: "root_analysis" as const,
-        stageProgress: 0
+        ...DEFAULT_STATUS_INFO,
+        processTs: Math.floor(Date.now() / 1000)
       }
       
       // 发送清空后的状态
@@ -307,23 +270,17 @@ export class KnowledgeGraphMessageHandler {
         payload: { status: clearedStatusInfo }
       })
       
-      this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱已清除")
+      this.logger.info("[KnowledgeGraph] 已清除")
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "清除知识图谱失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 清除知识图谱失败: ${errorMessage}`)
+      const errorMessage = error instanceof Error ? error.message : "清除失败"
+      this.logger.error(`[KnowledgeGraph] 清除失败: ${errorMessage}`)
       
       // 即使清除失败，也发送一个重置状态
       const errorStatusInfo = {
+        ...DEFAULT_STATUS_INFO,
         status: "failed" as const,
-        process: 0,
-        totalFiles: 0,
-        totalSucceed: 0,
-        totalFailed: 0,
         failedReason: errorMessage,
-        failedFiles: [],
-        processTs: Math.floor(Date.now() / 1000),
-        currentStage: "root_analysis" as const,
-        stageProgress: 0
+        processTs: Math.floor(Date.now() / 1000)
       }
       
       this.clineProvider.postMessageToWebview({
@@ -340,8 +297,7 @@ export class KnowledgeGraphMessageHandler {
    * 后备处理 - 直接处理消息
    */
   private async fallbackToWebviewHandler(message: any): Promise<void> {
-    this.logger.warn(`[KnowledgeGraphMessageHandler] 使用后备处理消息: ${message.type}`)
-    // 对于未知消息类型，直接记录警告但不抛出错误
+    this.logger.warn(`[KnowledgeGraph] 未知消息类型: ${message.type}`)
   }
 
   /**
@@ -419,31 +375,56 @@ export class KnowledgeGraphMessageHandler {
 }
 
 /**
- * 知识图谱消息处理器单例实例
+ * 知识图谱消息处理器单例管理
  */
-export let knowledgeGraphMessageHandler: KnowledgeGraphMessageHandler | null = null
+class KnowledgeGraphMessageHandlerSingleton {
+  private static instance: KnowledgeGraphMessageHandler | null = null
+
+  /**
+   * 初始化知识图谱消息处理器
+   */
+  public static initialize(clineProvider: ClineProvider): KnowledgeGraphMessageHandler {
+    if (!this.instance) {
+      this.instance = new KnowledgeGraphMessageHandler(clineProvider)
+    }
+    return this.instance
+  }
+
+  /**
+   * 获取知识图谱消息处理器
+   */
+  public static getInstance(): KnowledgeGraphMessageHandler | null {
+    return this.instance
+  }
+
+  /**
+   * 销毁知识图谱消息处理器
+   */
+  public static dispose(): void {
+    this.instance = null
+  }
+}
 
 /**
  * 初始化知识图谱消息处理器
  */
-export function initializeKnowledgeGraphMessageHandler(clineProvider: ClineProvider): void {
-  if (!knowledgeGraphMessageHandler) {
-    knowledgeGraphMessageHandler = new KnowledgeGraphMessageHandler(clineProvider)
-  }
+export function initializeKnowledgeGraphMessageHandler(clineProvider: ClineProvider): KnowledgeGraphMessageHandler {
+  return KnowledgeGraphMessageHandlerSingleton.initialize(clineProvider)
 }
 
 /**
  * 获取知识图谱消息处理器
  */
 export function getKnowledgeGraphMessageHandler(): KnowledgeGraphMessageHandler | null {
-  return knowledgeGraphMessageHandler
+  return KnowledgeGraphMessageHandlerSingleton.getInstance()
 }
 
 /**
  * 销毁知识图谱消息处理器
  */
 export function disposeKnowledgeGraphMessageHandler(): void {
-  if (knowledgeGraphMessageHandler) {
-    knowledgeGraphMessageHandler = null
-  }
+  KnowledgeGraphMessageHandlerSingleton.dispose()
 }
+
+// 保持向后兼容的导出
+export const knowledgeGraphMessageHandler = KnowledgeGraphMessageHandlerSingleton.getInstance()

@@ -5,15 +5,19 @@
 import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
 import { FILE_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
-import { FileSummary, RootInfo, KnowledgeGraphError, BuildProgress, KnowledgeGraphConfig, FileInfo } from "../types"
-import { ERROR_CODES } from "../constants"
+import { FileSummary, RootInfo, BuildProgress, KnowledgeGraphConfig, FileInfo } from "../types"
+import { ErrorHandler } from "../errors/KnowledgeGraphError"
 import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
-import { createLogger, ILogger } from "../../../utils/logger"
+import { ILogger } from "../../../utils/logger"
 import { countTokens } from "../../../utils/countTokens"
-import { FileStorage } from "../storage/FileStorage"
-import { IStorage } from "../storage/StorageInterface"
+import { IStorage } from "../storage/IStorage"
+import { StorageUtils } from "../storage/StorageUtils"
 
-export class FileAnalyzer {
+
+const FILE_SUMMARIES_FILE = "file_summaries.jsonl"
+
+export class FileSummarizer {
+
 	private llmClient: LLMClient
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
@@ -29,16 +33,15 @@ export class FileAnalyzer {
 	/**
 	 * 分析项目文件
 	 */
-	async analyzeFiles(
+	async summarizeFiles(
 		rootInfo: RootInfo,
+		allFileList: FileInfo[],
 		filesToAnalyze: FileInfo[],
 		workspacePath: string,
 		onProgress?: (progress: BuildProgress) => void,
-		onFileSummary?: (summary: FileSummary[]) => Promise<void>,
 	): Promise<void> {
 		try {
-			const fileList = await this.storage.getFilesList()
-			const allFilePaths: string[] = Object.keys(fileList)
+			const allFilePaths: string[] = allFileList.map((file) => file.path)
 
 			// TODO 文件列表token数控制
 			let basePrompt = buildPrompt(FILE_ANALYSIS_PROMPT, {
@@ -47,126 +50,139 @@ export class FileAnalyzer {
 			})
 			const basePromptToken = await countTokens(stringToContentBlocks(basePrompt))
 			// 2. 分批分析文件
-			const summaries: FileSummary[] = []
 
 			let batchFiles: Array<{ path: string; content: string }> = []
 			let batchToken = 0
+			let processedCount = 0
 			// 去除非文件内容提示词后的剩余窗口的95%
 			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.95
 
 			for (let i = 0; i < filesToAnalyze.length; i++) {
 				// 检查是否应该暂停（在处理每个批次前检查）
-				if (this.shouldAbortAnalysis()) {
-					this.logger.info("[FileAnalyzer] 分析被暂停，停止文件批次处理")
+				if (this.shouldPause()) {
+					this.logger.info("[FileSummarizer] 分析被暂停")
 					break
 				}
-				// 收集批次文件内容
 
 				// 根据上下文窗口大小，动态拼接文件内容
 				const filePath = filesToAnalyze[i].path
 				const fullPath = path.join(workspacePath, filePath)
 				const content = await safeReadFile(fullPath, this.config.fileSizeLimit)
 				if (content == null) {
-					this.logger.warn(`[FileAnalyzer] read file content is null`)
+					this.logger.warn(`[FileSummarizer] 文件内容为空: ${filePath}`)
 					continue
 				}
 
 				const currentToken = await countTokens(stringToContentBlocks(content))
 
-				if (batchToken + currentToken <= fileContentsWindow) {
-					batchFiles.push({
-						path: filePath,
-						content,
-					})
-					// 继续累加
-					continue
-				}
-
-				if (batchFiles.length === 0) {
-					continue
-				}
-
-				// 构建提示词
-				const prompt = buildPrompt(basePrompt, {
-					rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "无项目背景信息",
-					fileContents: formatFileContents(batchFiles),
-				})
-
-				// 发送LLM请求
-				const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(
-					prompt,
-					this.getFileSummarySchema(),
-				)
-
-				if (!response.success || !response.data) {
-					// 跳过当前文件
-					this.logger.error(`[FileAnalyzer] batch analyze files err: ${response}`)
-					continue
-				}
-
-				// 验证和清理数据
-				let batchSummaries = response.data.map((summary: FileSummary) =>
-					this.validateAndCleanFileSummary(summary),
-				)
-				// 如果提供了增量保存回调，立即保存每个文件摘要
-				if (onFileSummary) {
-					await onFileSummary(batchSummaries)
-				}
-
-				const progress = {
-					phase: "file_analysis" as const,
-					current: i,
-					total: allFilePaths.length,
-					message: `已分析 ${i}/${allFilePaths.length} 个文件`,
-					percentage: Math.round((i / allFilePaths.length) * 100),
-				}
-
-				onProgress?.(progress)
-
-				// 重置批次
-
-				// 当前文件超过窗口，则跳过当前文件
+				// 检查单个文件是否超过窗口限制
 				if (currentToken > fileContentsWindow) {
-					batchFiles = []
-					batchSummaries = []
-					batchToken = currentToken
-					this.logger.warn(
-						`[FileAnalyzer] file ${filePath} token ${currentToken} exceeds context remaining window ${fileContentsWindow}, skip it.`,
-					)
+					this.logger.warn(`[FileSummarizer] 文件过大跳过: ${filePath} (${currentToken} tokens)`)
 					continue
 				}
-				batchFiles = [
-					{
-						path: filePath,
-						content,
-					},
-				]
-				batchSummaries = []
-				batchToken = currentToken
+
+				// 如果当前批次加上新文件会超过限制，先处理当前批次
+				if (batchFiles.length > 0 && batchToken + currentToken > fileContentsWindow) {
+					await this.processBatch(batchFiles, basePrompt, rootInfo, onProgress, processedCount, filesToAnalyze.length)
+					processedCount += batchFiles.length
+					
+					// 清理批次数据，防止内存泄漏
+					batchFiles = []
+					batchToken = 0
+				}
+
+				// 添加当前文件到批次
+				batchFiles.push({
+					path: filePath,
+					content,
+				})
+				batchToken += currentToken
+			}
+
+			// 处理最后一个批次（如果有剩余文件）
+			if (batchFiles.length > 0) {
+				await this.processBatch(batchFiles, basePrompt, rootInfo, onProgress, processedCount, filesToAnalyze.length)
 			}
 		} catch (error) {
-			if (error instanceof KnowledgeGraphError) {
-				throw error
-			}
-
-			throw new KnowledgeGraphError(
-				`文件分析失败: ${error instanceof Error ? error.message : String(error)}`,
-				ERROR_CODES.NETWORK_ERROR,
-				true,
-				true,
-			)
+			throw ErrorHandler.wrapError(error, "文件摘要生成")
 		}
 	}
 
-	// 2. 修改函数签名：支持动态字段选择
-	public async getFileSummaries<K extends keyof FileSummary = keyof FileSummary>(
-		fields: K[], // 参数：指定需要返回的字段（动态个数）
-	): Promise<Array<Pick<FileSummary, K>>> {
-		// 返回类型：Pick从基础接口中“拾取”指定字段K，生成只包含这些字段的对象数组
+	/**
+	 * 处理文件批次
+	 */
+	private async processBatch(
+		batchFiles: Array<{ path: string; content: string }>,
+		basePrompt: string,
+		rootInfo: RootInfo,
+		onProgress?: (progress: BuildProgress) => void,
+		processedCount: number = 0,
+		totalFiles: number = 0
+	): Promise<void> {
+		const prompt = buildPrompt(basePrompt, {
+			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
+			fileContents: formatFileContents(batchFiles),
+		})
 
+		// 发送LLM请求
+		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(
+			prompt,
+			this.getFileSummarySchema(),
+		)
+
+		if (response.success && response.data) {
+			// 验证和清理数据
+			let batchSummaries = response.data.map((summary: FileSummary) =>
+				this.validateAndCleanFileSummary(summary),
+			)
+
+			await this.saveSummaries(batchSummaries)
+			
+			const progress = {
+				phase: "file_analysis" as const,
+				processedFilePaths: batchSummaries.map(s => s.path),
+				totalFiles: totalFiles,
+				message: `已分析 ${processedCount + batchFiles.length}/${totalFiles} 个文件`,
+				filesToProcess: totalFiles,
+				failedFiles: 0,
+			}
+
+			onProgress?.(progress)
+		} else {
+			this.logger.error(`[FileSummarizer] 批量分析失败: ${response.error}`)
+		}
+	}
+
+	async saveSummaries(summaries: FileSummary[]): Promise<void> {
+		// 批量保存回调
+		try {
+			// 逐个保存到JSONL文件，确保每个摘要占一行
+			for (const summary of summaries) {
+				await this.storage!.add(FILE_SUMMARIES_FILE, summary)
+			}
+			this.logger.info(`[FileSummarizer] 保存文件摘要: ${summaries.length}个`)
+		} catch (error) {
+			this.logger.error(`[FileSummarizer] 保存摘要失败: ${error}`)
+		}
+	}
+
+
+	// 支持动态字段选择
+	public async getFileSummaries<K extends keyof FileSummary = keyof FileSummary>(
+		fields: K[]|undefined = undefined, // 参数：指定需要返回的字段（动态个数）
+	): Promise<Array<Pick<FileSummary, K>> | undefined> {
+		// 返回类型：Pick从基础接口中“拾取”指定字段K，生成只包含这些字段的对象数组
 		// 3. 内部实现思路（示例）：
 		// - 先获取完整的文件摘要数据（包含所有字段）
-		const fullSummaries: FileSummary[] = await this.storage.getAllFileSummaries()
+		const content = await this.storage.load(FILE_SUMMARIES_FILE)
+		if (!content) {
+			return undefined
+		}
+		const fullSummaries = StorageUtils.deserialize<FileSummary[]>(content)
+		if (!fields) {
+			return fullSummaries
+		}
+		
 		// - 根据fields过滤，只保留指定字段
 		return fullSummaries.map((summary) => {
 			const picked: Partial<FileSummary> = {}
@@ -178,6 +194,15 @@ export class FileAnalyzer {
 	}
 
 
+	public async clear(): Promise<void> {
+		try {
+			await this.storage.clear(FILE_SUMMARIES_FILE)
+			this.logger.info(`[FileSummarizer] 已清除摘要数据`)
+		} catch (error) {
+			this.logger.error(`[FileSummarizer] 清除摘要失败: ${error}`)
+			throw new Error(`清除文件摘要数据失败: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
 
 	/**
 	 * 验证和清理文件摘要
@@ -257,7 +282,7 @@ export class FileAnalyzer {
 	/**
 	 * 检查是否应该中止分析（用于暂停功能）
 	 */
-	private shouldAbortAnalysis(): boolean {
+	private shouldPause(): boolean {
 		return this.pauseChecker?.() || false
 	}
 }

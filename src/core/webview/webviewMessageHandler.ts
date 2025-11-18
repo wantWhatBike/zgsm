@@ -3634,7 +3634,7 @@ export const webviewMessageHandler = async (
 				}
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : "处理知识图谱消息失败"
-				provider.log(errorMessage, "error", "KnowledgeGraphMessageHandler")
+				// provider.log(errorMessage, "error", "KnowledgeGraphMessageHandler")
 				
 				// 发送错误响应
 				await provider.postMessageToWebview({

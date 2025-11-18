@@ -7,21 +7,22 @@
 import * as vscode from "vscode"
 import type { ClineProvider } from "../webview/ClineProvider"
 import { LLMClient } from "./llm/LLMClient"
-import { RootAnalyzer } from "./builder/RootAnalyzer"
-import { FileAnalyzer } from "./builder/FileAnalyzer"
-import { DirectoryAnalyzer } from "./builder/DirectoryAnalyzer"
-import { Exporter } from "./export/Exporter"
-import { KnowledgeGraphConfig, KnowledgeGraphBuildState, ExportFormat, ExportResult, BuildOptions, RootInfo } from "./types"
+import { RootAnalyzer } from "./core/RootAnalyzer"
+import { FileSummarizer } from "./core/FileSummarizer"
+import { DirectorySummarizer } from "./core/DirectorySummarizer"
+import { Exporter } from "./core/Exporter"
+import { KnowledgeGraphConfig, KnowledgeGraphBuildState, ExportFormat, ExportResult, BuildOptions, RootInfo, SearchQuery } from "./types"
 import { DEFAULT_CONFIG } from "./constants"
 import { ILogger } from "../../utils/logger"
 import { FileService } from "./tools/FileService"
 import { createLogger } from "../../utils/logger"
 import { Package } from "../../shared/package"
 import { FileFilter } from "./tools/FileUtils"
-import { GraphBuilder } from "./builder/GraphBuilder"
-import { GraphRetriever } from "./builder/GraphRetriever"
-import { BuildStateKeeper } from "./builder/BuildStateKeeper"
+import { GraphBuilder } from "./core/GraphBuilder"
+import { GraphRetriever } from "./core/GraphRetriever"
+import { BuildStateTracer } from "./core/BuildStateTracer"
 import { StorageFactory } from "./storage/StorageFactory"
+import { ErrorHandler } from "./errors/KnowledgeGraphError"
 
 /**
  * 激活知识图谱功能
@@ -31,11 +32,8 @@ export async function activateKnowledgeGraph(
 	clineProvider: ClineProvider,
 ): Promise<void> {
 	const logger = createLogger(Package.outputChannel)
-	logger.info("[KnowledgeGraphExtension] 激活知识图谱功能")
 
 	try {
-		// 初始化知识图谱
-		const logger = createLogger(Package.outputChannel)
 		// 设置日志和提供者
 		knowledgeGraphManager.setLogger(logger)
 		knowledgeGraphManager.setProvider(clineProvider)
@@ -43,7 +41,6 @@ export async function activateKnowledgeGraph(
 		// 初始化知识图谱管理器
 		await knowledgeGraphManager.initialize()
 
-		logger.info("[KnowledgeGraphExtension] 知识图谱功能激活完成")
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : "激活知识图谱功能失败"
 		logger.error(`[KnowledgeGraphExtension] ${errorMessage}`)
@@ -58,13 +55,13 @@ export async function activateKnowledgeGraph(
  */
 export async function deactivateKnowledgeGraph(): Promise<void> {
 	const logger = createLogger(Package.outputChannel)
-	logger.info("[KnowledgeGraphExtension] 停用知识图谱功能")
+	logger.info("[KnowledgeGraph] 停用知识图谱功能")
 	try {
 		await knowledgeGraphManager.dispose()
-		logger.info("[KnowledgeGraphExtension] 知识图谱功能停用完成")
+		logger.info("[KnowledgeGraph] 知识图谱功能停用完成")
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : "停用知识图谱功能失败"
-		logger.error(`[KnowledgeGraphExtension] ${errorMessage}`)
+		logger.error(`[KnowledgeGraph] ${errorMessage}`)
 	}
 }
 
@@ -79,9 +76,10 @@ export class KnowledgeGraphManager {
 	private isInitialized: boolean = false
 	private graphBuilder: GraphBuilder | undefined;
 	private graphRetriever: GraphRetriever | undefined;
-
+	private exporter: Exporter | undefined;
+	
 	// 配置缓存
-	private config: KnowledgeGraphConfig | undefined = { ...DEFAULT_CONFIG }
+	private config: KnowledgeGraphConfig = { ...DEFAULT_CONFIG }
 
 	/**
 	 * 私有构造函数确保单例模式
@@ -127,53 +125,64 @@ export class KnowledgeGraphManager {
 
 		try {
 			
-			this.logger?.info("开始初始化知识图谱服务")
-
 			// 检查是否启用了知识图谱功能
 			if (!(await this.isKnowledgeGraphEnabled())) {
 				this.logger?.info("知识图谱功能未启用")
 				return
 			}
-			const fileService = new FileService(new FileFilter())
-			const storage = StorageFactory.createStorage({type: this.config!.storageType, 
-				path: StorageFactory.getWorkspaceStoragePath(workspacePath) })
 
-			const llmClient = new LLMClient(this.config!.model)
-				// 初始化分析器
-			const rootAnalyzer = new RootAnalyzer(llmClient, storage, this.config!, this.logger!)
-			const fileAnalyzer = new FileAnalyzer(llmClient, storage, this.config!, this.logger!)
-			const directoryAnalyzer = new DirectoryAnalyzer(
+			// 使用优化后的组件初始化服务
+			const fileService = new FileService(new FileFilter())
+			const storage = StorageFactory.createStorage({
+				type: this.config.storageType,
+				path: StorageFactory.getWorkspaceStoragePath(workspacePath)
+			})
+
+			const llmClient = new LLMClient(this.config.model)
+			
+			// 初始化分析器
+			const rootAnalyzer = new RootAnalyzer(llmClient, storage, this.config, this.logger!)
+			const fileAnalyzer = new FileSummarizer(llmClient, storage, this.config, this.logger!)
+			const directoryAnalyzer = new DirectorySummarizer(
 				llmClient,
 				fileAnalyzer,
 				storage,
-				this.config!,
+				this.config,
 				this.logger!
 			)
-			const stateKeeper = new BuildStateKeeper(storage, this.logger!)
+			const stateTracer = new BuildStateTracer(storage, this.logger!)
+			await stateTracer.init()
 
-			this.graphBuilder = new GraphBuilder(this.config!, {
-					rootAnalyzer: rootAnalyzer,
-					fileAnalyzer: fileAnalyzer,
-					directoryAnalyzer: directoryAnalyzer,
-					fileService: fileService,
-					buildStateKeeper: stateKeeper,
-					logger: this.logger!,
+			this.graphBuilder = new GraphBuilder(this.config, {
+				rootAnalyzer: rootAnalyzer,
+				fileAnalyzer: fileAnalyzer,
+				directoryAnalyzer: directoryAnalyzer,
+				fileService: fileService,
+				buildStateKeeper: stateTracer,
+				logger: this.logger!,
 			})
 
 			// 初始化搜索引擎和导出器
-			this.graphRetriever = new GraphRetriever(this.logger!, storage, new Exporter(storage, this.logger!))
+			this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer)
+			this.exporter = new Exporter(rootAnalyzer, fileAnalyzer, directoryAnalyzer, this.logger!)
 
-			rootAnalyzer.setPauseChecker(() => this.graphBuilder!.getState().isPaused)
-			fileAnalyzer.setPauseChecker(() => this.graphBuilder!.getState().isPaused)
-			directoryAnalyzer.setPauseChecker(() => this.graphBuilder!.getState().isPaused)
+			// 设置暂停检查器
+			const pauseChecker = () => this.graphBuilder?.getState()?.isPaused ?? false
+			rootAnalyzer.setPauseChecker(pauseChecker)
+			fileAnalyzer.setPauseChecker(pauseChecker)
+			directoryAnalyzer.setPauseChecker(pauseChecker)
+
+			// 定期清理文件服务缓存
+			setInterval(() => {
+				fileService.cleanupCache()
+			}, 60 * 60 * 1000) // 每小时清理一次
 
 			this.isInitialized = true
-			this.logger?.info("知识图谱服务初始化成功", "info", "initialize")
 
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : "初始化知识图谱服务时发生未知错误"
-			this.logger?.info(errorMessage, "error", "initialize")
-			throw new Error(errorMessage)
+			const wrappedError = ErrorHandler.wrapError(error, "初始化知识图谱服务")
+			this.logger?.error(`initialize knowledgegraph service failed: ${ErrorHandler.formatError(wrappedError)}`)
+			throw wrappedError
 		}
 	}
 
@@ -214,8 +223,6 @@ export class KnowledgeGraphManager {
 	 * 停止服务
 	 */
 	private async stopService(): Promise<void> {
-		this.logger?.info("停止知识图谱服务", "info", "stop")
-
 		// 清理所有组件
 		this.cleanupComponents()
 
@@ -228,8 +235,8 @@ export class KnowledgeGraphManager {
 	 */
 	public async dispose(): Promise<void> {
 		// 暂停构建
-		await this.graphBuilder?.pause()
-
+		await this.graphBuilder?.pause(this.getWorkspacePath()!)
+		
 		await this.stopService()
 	}
 
@@ -238,9 +245,11 @@ export class KnowledgeGraphManager {
 	 */
 	private cleanupComponents(): void {
 	    this.clineProvider = undefined
-	    this.graphBuilder= undefined
-	    this.graphRetriever= undefined
-	    this.config = undefined
+	    this.graphBuilder = undefined
+	    this.graphRetriever = undefined
+		this.exporter = undefined
+	    // 重置配置为默认值而不是 undefined
+	    this.config = { ...DEFAULT_CONFIG }
 	}
 
 	/**
@@ -253,7 +262,7 @@ export class KnowledgeGraphManager {
 		/**
 	 * 获取构建状态
 	 */
-	public getBuildStatus(): KnowledgeGraphBuildState {
+	public getBuildStatus(): KnowledgeGraphBuildState|undefined {
 		return this.graphBuilder!.getState()
 	}
 
@@ -262,48 +271,72 @@ export class KnowledgeGraphManager {
 	 * 构建知识图谱
 	 */
 	public async startBuild(options: Partial<BuildOptions> = {}): Promise<void> {
-		return await this.graphBuilder!.start(options)
+		if (!this.graphBuilder) {
+			throw new Error("GraphBuilder not initialized")
+		}
+		return await this.graphBuilder.start(this.getWorkspacePath()!, options)
 	}
 
 	/**
 	 * 暂停构建 - 修复暂停逻辑
 	 */
 	public async pauseBuild(): Promise<void> {
-		return await this.graphBuilder!.pause()
+		if (!this.graphBuilder) {
+			throw new Error("GraphBuilder not initialized")
+		}
+		return await this.graphBuilder.pause(this.getWorkspacePath()!)
 	}
 
 	/**
 	 * 继续构建 - 修复恢复逻辑
 	 */
 	public async resumeBuild(): Promise<void> {
-		return await this.graphBuilder!.resume()
+		if (!this.graphBuilder) {
+			throw new Error("GraphBuilder not initialized")
+		}
+		return await this.graphBuilder.resume(this.getWorkspacePath()!)
 	}
 
 	/**
 	 * 清除知识图谱 - 修复清除逻辑
 	 */
 	public async clearKnowledgeGraph(): Promise<void> {
-		return await this.graphBuilder!.clear()
+		if (!this.graphBuilder) {
+			throw new Error("GraphBuilder not initialized")
+		}
+		return await this.graphBuilder.clear(this.getWorkspacePath()!)
 	}
 
 		/**
 	 * 搜索知识图谱
 	 */
-	public async search(query: string): Promise<any[]> {
-		return await this.graphRetriever!.search(query)
+	public async search(query: SearchQuery): Promise<any[]> {
+		if (!this.graphRetriever) {
+			throw new Error("GraphRetriever not initialized")
+		}
+		return await this.graphRetriever.search(this.getWorkspacePath()!, query)
 	}
 
 	/**
 	 * 导出知识图谱
 	 */
 	public async export(format: ExportFormat, outputPath: string): Promise<ExportResult> {
-
-		return await this.graphRetriever!.export({ format, outputPath })
+		if (!this.exporter) {
+			throw new Error("Exporter not initialized")
+		}
+		const workspacePath = this.getWorkspacePath()
+		if (!workspacePath) {
+			throw new Error("Workspace path not available")
+		}
+		return await this.exporter.export(workspacePath, {format, outputPath })
 	}
 
-	public async  getRootInfo(): Promise<RootInfo|null> {
-    	return this.graphRetriever!.getRootInfo()
-  }
+	public async getRootInfo(): Promise<RootInfo|undefined> {
+		if (!this.graphRetriever) {
+			return undefined
+		}
+		return this.graphRetriever.getRootInfo()
+	}
 }
 
 /**

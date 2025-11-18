@@ -11,25 +11,5 @@ export * from "./types"
 // 常量配置
 export * from "./constants"
 
-// 分析器
-export { RootAnalyzer } from "./builder/RootAnalyzer"
-export { FileAnalyzer } from "./builder/FileAnalyzer"
-export { DirectoryAnalyzer } from "./builder/DirectoryAnalyzer"
-
-// 导出器
-export { Exporter } from "./export/Exporter"
-
-// 工具类
-export { FileFilter } from "./tools/FileUtils"
-
-// LLM客户端
-export { LLMClient } from "./llm/LLMClient"
-
-// 存储相关
-export { FileStorage } from "./storage/FileStorage"
-
-// 错误处理
-export { KnowledgeGraphError } from "./types"
-
 // 项目探索器模式
 export { ProjectExplorerMode } from "./modes/ProjectExplorerMode"

@@ -3,8 +3,9 @@
  */
 
 import { ZgsmAiHandler } from "../../../api/providers/zgsm"
-import { LLMResponse, KnowledgeGraphError } from "../types"
-import { ERROR_CODES, RETRY_CONFIG } from "../constants"
+import { LLMResponse } from "../types"
+import { ERROR_CODES, RETRY_CONFIG, LLM_CONFIG } from "../constants"
+import { KnowledgeGraphError, ErrorHandler } from "../errors/KnowledgeGraphError"
 import { createHash } from "crypto"
 import { createLogger, ILogger } from "../../../utils/logger"
 import { ProviderSettings } from "@roo-code/types"
@@ -15,8 +16,7 @@ export class LLMClient {
   private zgsmHandler: ZgsmAiHandler
   private modelId: string
   private retryCount: number = 0
-  // TODO 获取到模型窗口大小
-  private contextWindows: number = 64 * 1000
+  private contextWindows: number
   private logger: ILogger
   private apiConfiguration: ProviderSettings
 
@@ -28,6 +28,15 @@ export class LLMClient {
     this.zgsmHandler = new ZgsmAiHandler(apiHandlerOptions)
     this.modelId = modelId || this.apiConfiguration.zgsmModelId || 'auto'
     this.logger = createLogger()
+    // 根据模型设置上下文窗口大小
+    this.contextWindows = this.getModelContextWindow(this.modelId)
+  }
+
+  /**
+   * TODO: 根据模型ID获取上下文窗口大小
+   */
+  private getModelContextWindow(modelId: string): number {
+    return 128 * 1000
   }
 
   /**
@@ -119,12 +128,7 @@ export class LLMClient {
 
       // 验证响应内容
       if (!responseText.trim()) {
-        throw new KnowledgeGraphError(
-          "LLM返回空响应",
-          ERROR_CODES.INVALID_RESPONSE,
-          false,
-          false
-        )
+        throw ErrorHandler.createInvalidResponseError("LLM返回空响应")
       }
 
       this.logger.info(`[ResponseID]: ${requestId}`)
@@ -144,7 +148,7 @@ export class LLMClient {
       }
 
     } catch (error) {
-      this.logger.error(`[LLMClient] 发送消息失败:`, error)
+      this.logger.error(`[LLMClient] 发送消息失败: ${error}`)
       return this.handleError(error)
     }
   }
@@ -171,8 +175,6 @@ export class LLMClient {
       // 添加JSON格式要求到提示词
       const jsonPrompt = `${userPrompt}\n\n请严格按照以下JSON格式返回，不要包含任何其他内容：\n${JSON.stringify(responseSchema, null, 2)}`
       
-      this.logger.info(`[LLMClient] 发送结构化请求，原始提示词长度: ${userPrompt.length}`)
-      this.logger.info(`[LLMClient] 构建的JSON提示词长度: ${jsonPrompt.length}`)
       
       // 修复：确保systemPrompt不为空并记录有效的systemPrompt
       const effectiveSystemPrompt = (options.systemPrompt || '').trim() || '你是代码分析专家，专门分析项目结构和技术栈。请严格按照JSON格式返回分析结果。'
@@ -210,7 +212,7 @@ export class LLMClient {
       }
 
     } catch (error) {
-      this.logger.error(`[LLMClient] 发送结构化请求失败:`, error)
+      this.logger.error(`[LLMClient] 结构化请求失败: ${error}`)
       return this.handleError(error)
     }
   }
@@ -251,123 +253,123 @@ export class LLMClient {
   }
 
   /**
-   * 清理JSON响应
+   * 清理JSON响应 - 优化内存使用
    */
   private cleanJsonResponse(response: string): string {
-    // 移除可能的markdown代码块标记
-    let cleaned = response.replace(/```json\s*/g, '').replace(/```\s*/g, '')
+    // 一次性处理，减少字符串创建
+    const trimmed = response.trim()
     
-    // 移除前后空白
-    cleaned = cleaned.trim()
+    // 移除markdown代码块标记
+    const withoutCodeBlocks = trimmed.replace(/```(?:json)?\s*/g, '')
     
-    // 移除可能的解释性文本（在JSON前后的文本）
-    cleaned = cleaned.replace(/^[^{\[]*/, '').replace(/[^}\]]*$/, '')
+    // 找到JSON的开始和结束位置
+    const arrayStart = withoutCodeBlocks.indexOf('[')
+    const arrayEnd = withoutCodeBlocks.lastIndexOf(']')
+    const objStart = withoutCodeBlocks.indexOf('{')
+    const objEnd = withoutCodeBlocks.lastIndexOf('}')
     
-    // 尝试找到JSON数组的开始和结束
-    const arrayStart = cleaned.indexOf('[')
-    const arrayEnd = cleaned.lastIndexOf(']')
-    
+    // 优先处理数组格式
     if (arrayStart !== -1 && arrayEnd !== -1 && arrayStart < arrayEnd) {
-      // 优先处理数组格式
-      return cleaned.substring(arrayStart, arrayEnd + 1)
+      return withoutCodeBlocks.substring(arrayStart, arrayEnd + 1)
     }
     
-    // 如果没有数组，尝试找到JSON对象的开始和结束
-    const objStart = cleaned.indexOf('{')
-    const objEnd = cleaned.lastIndexOf('}')
-    
+    // 处理对象格式
     if (objStart !== -1 && objEnd !== -1 && objStart < objEnd) {
-      return cleaned.substring(objStart, objEnd + 1)
+      return withoutCodeBlocks.substring(objStart, objEnd + 1)
     }
     
-    // 如果都没找到，返回清理后的原始内容
-    return cleaned
+    // 如果都没找到，返回处理后的内容
+    return withoutCodeBlocks
   }
 
   /**
-   * 增强的JSON解析方法
+   * 增强的JSON解析方法 - 优化性能和内存使用
    */
   private parseJsonResponse<T>(response: string): T {
     // 首先尝试直接解析
     try {
       return JSON.parse(response)
     } catch (directError) {
-      // 如果直接解析失败，尝试清理后解析
+      // 尝试清理后解析
+      const cleaned = this.cleanJsonResponse(response)
       try {
-        const cleaned = this.cleanJsonResponse(response)
         return JSON.parse(cleaned)
       } catch (cleanedError) {
-        // 如果清理后仍然失败，尝试逐行解析（处理JSONL格式）
-        try {
-          const lines = response.split('\n').filter(line => line.trim())
-          const results: any[] = []
-          
-          for (const line of lines) {
-            try {
-              const parsed = JSON.parse(line.trim())
-              results.push(parsed)
-            } catch (lineError) {
-              // 跳过无法解析的行
-              continue
-            }
-          }
-          
-          if (results.length > 0) {
-            return (results.length === 1 ? results[0] : results) as T
-          }
-        } catch (jsonlError) {
-          // JSONL解析也失败
+        // 尝试JSONL格式解析
+        const jsonlResult = this.tryParseJsonLines<T>(response)
+        if (jsonlResult !== null) {
+          return jsonlResult
         }
         
-        // 最后尝试提取可能的JSON片段
-        try {
-          return this.extractJsonFromText<T>(response)
-        } catch (extractError) {
-          throw new KnowledgeGraphError(
-            `JSON解析失败: ${cleanedError instanceof Error ? cleanedError.message : String(cleanedError)}. 原始响应: ${response.substring(0, 500)}...`,
-            ERROR_CODES.INVALID_RESPONSE,
-            false,
-            false
-          )
+        // 最后尝试提取JSON片段
+        const extractedResult = this.tryExtractJson<T>(response)
+        if (extractedResult !== null) {
+          return extractedResult
         }
+        
+        throw ErrorHandler.createInvalidResponseError(
+          `JSON解析失败: ${cleanedError instanceof Error ? cleanedError.message : String(cleanedError)}`,
+          response.substring(0, 500)
+        )
       }
     }
   }
 
   /**
-   * 从文本中提取JSON片段
+   * 尝试解析JSONL格式
    */
-  private extractJsonFromText<T>(text: string): T {
-    // 使用正则表达式查找JSON对象或数组
-    const jsonObjectRegex = /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g
-    const jsonArrayRegex = /\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]/g
-    
-    // 先尝试数组
-    const arrayMatches = text.match(jsonArrayRegex)
-    if (arrayMatches) {
-      for (const match of arrayMatches) {
+  private tryParseJsonLines<T>(response: string): T | null {
+    try {
+      const lines = response.split('\n')
+      const results: any[] = []
+      
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        
         try {
-          return JSON.parse(match)
-        } catch (e) {
-          continue
+          results.push(JSON.parse(trimmed))
+        } catch {
+          // 跳过无法解析的行
         }
       }
-    }
-    
-    // 再尝试对象
-    const objectMatches = text.match(jsonObjectRegex)
-    if (objectMatches) {
-      for (const match of objectMatches) {
-        try {
-          return JSON.parse(match)
-        } catch (e) {
-          continue
-        }
+      
+      if (results.length > 0) {
+        return (results.length === 1 ? results[0] : results) as T
       }
+    } catch {
+      // JSONL解析失败
     }
     
-    throw new Error('无法从文本中提取有效的JSON')
+    return null
   }
+
+  /**
+   * 尝试从文本中提取JSON
+   */
+  private tryExtractJson<T>(response: string): T | null {
+    // 使用更高效的正则表达式
+    const jsonPatterns = [
+      /\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]/g,  // 数组模式
+      /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g         // 对象模式
+    ]
+    
+    for (const pattern of jsonPatterns) {
+      const matches = response.match(pattern)
+      if (matches) {
+        for (const match of matches) {
+          try {
+            return JSON.parse(match)
+          } catch {
+            continue
+          }
+        }
+      }
+    }
+    
+    return null
+  }
+
 
   /**
    * 错误处理
@@ -376,14 +378,15 @@ export class LLMClient {
     let errorMessage = error instanceof Error ? error.message : String(error)
     
     // 根据错误类型设置重试策略
+    // 简化错误分类日志
     if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
-      this.logger.warn(`[LLMClient] 遇到限流错误: ${errorMessage}`)
+      this.logger.warn(`[LLMClient] 限流错误`)
     } else if (errorMessage.includes('context') || errorMessage.includes('too long')) {
-      this.logger.warn(`[LLMClient] 上下文超限错误: ${errorMessage}`)
+      this.logger.warn(`[LLMClient] 上下文超限`)
     } else if (errorMessage.includes('timeout')) {
-      this.logger.warn(`[LLMClient] 超时错误: ${errorMessage}`)
+      this.logger.warn(`[LLMClient] 请求超时`)
     } else {
-      this.logger.error(`[LLMClient] 未知错误: ${errorMessage}`)
+      this.logger.error(`[LLMClient] 请求错误: ${errorMessage}`)
     }
     
     return {

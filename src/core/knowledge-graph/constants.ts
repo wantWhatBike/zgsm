@@ -4,31 +4,33 @@
 
 import type { KnowledgeGraphConfig, ExportFormat } from './types'
 
+// 基础配置常量 - 统一管理所有配置值
+export const BASE_CONFIG = {
+  MAX_CONCURRENCY: 5,
+  BATCH_SIZE: 10,
+  MAX_FILES: 50000,
+  FILE_SIZE_LIMIT: 5 * 1024 * 1024, // 5MB
+  FILE_LINES_LIMIT: 5000,
+  MAX_FILES_PER_BATCH: 50,
+  MAX_LINES_PER_FILE: 10000,
+  // 运行时配置
+  INCREMENTAL_UPDATE: true,
+  BREAKPOINT_RESUME: true,
+} as const
+
 // 默认配置
 export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   enabled: true,
   model: 'auto',
-  maxConcurrency: 5,
-  batchSize: 10,
-  maxFiles: 50000,
-  fileSizeLimit: 5 * 1024 * 1024, // 5MB
-  fileLinesLimit: 5000,
+  maxConcurrency: BASE_CONFIG.MAX_CONCURRENCY,
+  batchSize: BASE_CONFIG.BATCH_SIZE,
+  maxFiles: BASE_CONFIG.MAX_FILES,
+  fileSizeLimit: BASE_CONFIG.FILE_SIZE_LIMIT,
+  fileLinesLimit: BASE_CONFIG.FILE_LINES_LIMIT,
   storageType: 'file',
   cacheDir: '.costrict/cache/knowledge-graph',
   exportFormat: 'markdown'
 }
-
-// 固定的运行时配置常量（不在UI中暴露）
-export const RUNTIME_CONFIG = {
-  // 最大并发数 - 固定为5，平衡性能和资源使用
-  MAX_CONCURRENCY: 5,
-  // 批次大小 - 固定为10，优化内存使用和处理效率
-  BATCH_SIZE: 10,
-  // 启用增量更新 - 固定为true，提高构建效率
-  INCREMENTAL_UPDATE: true,
-  // 启用断点执行 - 固定为true，支持任务中断后恢复
-  BREAKPOINT_RESUME: true,
-} as const
 
 
 // 项目关键文件模式
@@ -190,13 +192,13 @@ export const IGNORE_PATTERNS = [
 
 export const INCLUDE_EXTS = [
   // 已有的主流语言
-  '.java', '.go', '.py', '.rs', '.c', '.cpp', '.h', '.cs', '.kt', 
+  '.java', '.go', '.py', '.rs', '.c', '.cpp', '.h', '.cs', '.kt',
   '.js', '.jsx', '.ts', '.tsx', '.vue', '.html', '.css', '.sh', '.bash', '.lua',
 
   // 新增：后端/服务器端语言
   '.php', '.php3', '.php5', '.phtml', // PHP
   '.rb', '.rbw', // Ruby
-  '.pl', '.pm', '.pod', // Perl
+  '.pl', '.pm', '.pod', // Perl (注意：.pl 也用于 Prolog，需要上下文区分)
   '.scala', '.sc', // Scala
   '.groovy', '.gvy', '.gy', // Groovy
   '.dart', // Dart（Flutter）
@@ -213,13 +215,12 @@ export const INCLUDE_EXTS = [
 
   // 新增：移动端/桌面端
   '.swift', // Swift（iOS/macOS）
-  '.m', // Objective-C（iOS/macOS，.h已包含）
+  '.m', // Objective-C/MATLAB (注意：需要上下文区分 iOS 项目 vs 科学计算项目)
   '.kts', // Kotlin Script（Kotlin脚本）
 
   // 新增：数据科学/统计
   '.R', '.r', '.Rmd', // R语言及R Markdown
   '.jl', // Julia
-  '.m', // MATLAB（与Objective-C共用，实际场景可区分）
 
   // 新增：系统/脚本
   '.ps1', '.psm1', '.psd1', // PowerShell
@@ -236,7 +237,7 @@ export const INCLUDE_EXTS = [
   '.hs', '.lhs', // Haskell（.lhs为Literate Haskell）
   '.clj', '.cljs', '.cljc', // Clojure（及ClojureScript）
   '.lisp', '.lsp', // Lisp
-  '.prolog', '.pl', // Prolog（.pl与Perl共用，实际场景可区分）
+  '.prolog', // Prolog (使用专用扩展名避免与 Perl 的 .pl 冲突)
 
   // 新增：传统/企业级
   '.cob', '.cbl', // COBOL
@@ -247,40 +248,43 @@ export const INCLUDE_EXTS = [
   '.pks', '.pkb' // PL/SQL（Oracle存储过程）
 ]
 
+// 扩展名冲突处理映射
+export const EXT_CONFLICT_RESOLUTION = {
+  '.m': {
+    // 通过项目特征判断是 Objective-C 还是 MATLAB
+    'objective-c': ['*.xcodeproj', '*.xcworkspace', 'Podfile', 'Info.plist'],
+    'matlab': ['*.mat', '*.fig', '*.mlx', '*.slx']
+  },
+  '.pl': {
+    // 通过项目特征判断是 Perl 还是 Prolog
+    'perl': ['cpanfile', 'Makefile.PL', 'Build.PL', '*.pm'],
+    'prolog': ['*.pro', '*.swi', '*.yap']
+  }
+} as const
+
+// 重试配置常量
+export const RETRY_CONFIG = {
+  maxRetries: 3,
+  initialDelay: 1000,
+  backoffMultiplier: 2,
+  maxDelay: 30000
+} as const
+
 // LLM配置
 export const LLM_CONFIG = {
-  maxRetries: 3,
-  retryDelay: 1000,
+  maxRetries: RETRY_CONFIG.maxRetries,
+  retryDelay: RETRY_CONFIG.initialDelay,
   maxTokens: 4000,
   temperature: 0.1,
   timeout: 60000,
-  
-  // 模型特定的配置
-  models: {
-    'gpt-4': {
-      contextWindow: 8192,
-      maxOutputTokens: 2048,
-      supportsImages: false
-    },
-    'gpt-4-turbo': {
-      contextWindow: 128000,
-      maxOutputTokens: 4096,
-      supportsImages: true
-    },
-    'claude-3-sonnet': {
-      contextWindow: 200000,
-      maxOutputTokens: 4096,
-      supportsImages: true
-    }
-  }
 }
 
 // 分析配置
 export const ANALYSIS_CONFIG = {
-  maxFileSize: 1024 * 1024, // 1MB
-  maxLinesPerFile: 10000,
-  maxFilesPerBatch: 50,
-  maxConcurrency: 5,
+  maxFileSize: BASE_CONFIG.FILE_SIZE_LIMIT,
+  maxLinesPerFile: BASE_CONFIG.MAX_LINES_PER_FILE,
+  maxFilesPerBatch: BASE_CONFIG.MAX_FILES_PER_BATCH,
+  maxConcurrency: BASE_CONFIG.MAX_CONCURRENCY,
   
   // 复杂度计算权重
   complexityWeights: {
@@ -349,11 +353,3 @@ export const ERROR_CODES = {
   INVALID_RESPONSE: 'INVALID_RESPONSE',
   TIMEOUT: 'TIMEOUT'
 } as const
-
-// 重试配置
-export const RETRY_CONFIG = {
-  maxRetries: 3,
-  backoffMultiplier: 2,
-  initialDelay: 1000,
-  maxDelay: 30000
-}
