@@ -8,7 +8,7 @@ import { LLMClient } from "../llm/LLMClient"
 import { ROOT_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
 import { RootInfo, KnowledgeGraphConfig, FileInfo } from "../types"
 import { KEY_FILE_PATTERNS } from "../constants"
-import { ErrorHandler } from "../errors/KnowledgeGraphError"
+import { ErrorHandler } from "../errors/ErrorHandler"
 import { IStorage } from "../storage/IStorage"
 import { ILogger } from "../../../utils/logger"
 import { StorageUtils } from "../storage/StorageUtils"
@@ -63,26 +63,21 @@ export class RootAnalyzer {
 			}
 
 			// 4. 构建提示词
-			const prompt = buildPrompt(ROOT_ANALYSIS_PROMPT, {
+			const userPrompt = buildPrompt(ROOT_ANALYSIS_PROMPT, {
 				fileContents: formattedFileContents,
 				fileList: formattedFileList,
 			})
 
 			// 验证提示词不为空
-			if (prompt.trim().length === 0) {
+			if (userPrompt.trim().length === 0) {
 				throw ErrorHandler.createInvalidResponseError("构建的提示词为空，无法进行根目录分析")
 			}
 
 			// 5. 发送LLM请求
-			const response = await this.llmClient.sendStructuredRequest<RootInfo>(prompt, this.getRootInfoSchema(), {
-				systemPrompt: "你是代码分析专家，专门分析项目结构和技术栈。请严格按照JSON格式返回分析结果。",
-			})
+			const response = await this.llmClient.sendStructuredRequest<RootInfo>(userPrompt, this.getRootInfoSchema())
 
 			if (!response.success || !response.data) {
-				throw ErrorHandler.createInvalidResponseError(
-					`根目录分析失败: ${response.error || "未知错误"}`,
-					response,
-				)
+				throw ErrorHandler.createInvalidResponseError(`根目录分析失败: ${response.error || "未知错误"}`)
 			}
 
 			// 6. 验证和清理数据
@@ -226,62 +221,12 @@ export class RootAnalyzer {
 	 */
 	private getRootInfoSchema(): any {
 		return {
-			type: "object",
-			properties: {
-				project_positioning: { type: "string" },
-				tech_stack: {
-					type: "array",
-					items: { type: "string" },
-					maxItems: 10,
-				},
-				core_modules: {
-					type: "array",
-					items: { type: "string" },
-					maxItems: 10,
-				},
-				entry_points: {
-					type: "array",
-					items: { type: "string" },
-					maxItems: 5,
-				},
-				key_terms: {
-					type: "object",
-					additionalProperties: { type: "string" },
-				},
-				core_dependencies: {
-					type: "array",
-					items: { type: "string" },
-					maxItems: 10,
-				},
-				config_files: {
-					type: "array",
-					items: { type: "string" },
-				},
-				environment_requirements: {
-					type: "array",
-					items: { type: "string" },
-				},
-				build_steps: {
-					type: "array",
-					items: { type: "string" },
-				},
-				deployment_info: {
-					type: "object",
-					properties: {
-						dockerfile: { type: "string" },
-						docker_compose: { type: "string" },
-						kubernetes: { type: "string" },
-					},
-				},
-			},
-			required: [
-				"project_positioning",
-				"tech_stack",
-				"core_modules",
-				"entry_points",
-				"key_terms",
-				"core_dependencies",
-			],
+			project_description: "项目目标和定位描述（简体中文）",
+			tech_stack: ["技术1", "技术2", "技术3"],
+			core_modules: ["模块1：路径", "模块2：路径", "模块3：路径"],
+			core_dependencies: ["依赖1", "依赖2", "依赖3"],
+			environment_requirements: ["环境要求1", "环境要求2"],
+			build_steps: ["构建步骤1", "构建步骤2"],
 		}
 	}
 
@@ -291,24 +236,15 @@ export class RootAnalyzer {
 	private validateAndCleanRootInfo(rootInfo: RootInfo): RootInfo {
 		// 确保所有必需字段都存在
 		const cleaned: RootInfo = {
-			project_positioning: rootInfo.project_positioning || "",
+			project_description: rootInfo.project_description || "",
 			tech_stack: Array.isArray(rootInfo.tech_stack) ? rootInfo.tech_stack.slice(0, 10) : [],
 			core_modules: Array.isArray(rootInfo.core_modules) ? rootInfo.core_modules.slice(0, 10) : [],
-			entry_points: Array.isArray(rootInfo.entry_points) ? rootInfo.entry_points.slice(0, 5) : [],
-			key_terms: typeof rootInfo.key_terms === "object" ? rootInfo.key_terms : {},
 			core_dependencies: Array.isArray(rootInfo.core_dependencies) ? rootInfo.core_dependencies.slice(0, 10) : [],
-			config_files: Array.isArray(rootInfo.config_files) ? rootInfo.config_files : [],
 			environment_requirements: Array.isArray(rootInfo.environment_requirements)
 				? rootInfo.environment_requirements
 				: [],
 			build_steps: Array.isArray(rootInfo.build_steps) ? rootInfo.build_steps : [],
-			deployment_info: {
-				dockerfile: rootInfo.deployment_info?.dockerfile,
-				docker_compose: rootInfo.deployment_info?.docker_compose,
-				kubernetes: rootInfo.deployment_info?.kubernetes,
-			},
 		}
-
 		return cleaned
 	}
 
@@ -334,7 +270,7 @@ export class RootAnalyzer {
 			}
 			return StorageUtils.deserialize<RootInfo>(content)
 		} catch (error) {
-			this.logger.warn("[FileStorage] 获取项目根信息失败:", error)
+			this.logger.warn("[RootAnalyzer] 获取项目根信息失败:", error)
 			throw new Error(`get root info failed： ${error}`)
 		}
 	}

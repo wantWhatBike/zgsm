@@ -22,20 +22,21 @@ export class FileFilter {
     ignorePatterns: string[] = IGNORE_PATTERNS,
     includeExts: string[] =  INCLUDE_EXTS,
     maxFileSize: number = 1024 * 1024, // 1MB
-    maxFiles: number = 50000
+    maxFiles: number = 50000,
+    logger?: ILogger
   ) {
     this.ignorePatterns = ignorePatterns
     this.maxFileSize = maxFileSize
     this.maxFiles = maxFiles
     this.includeExts = includeExts
-    this.logger = createLogger()
+    this.logger = logger || createLogger('FileFilter')
   }
 
   /**
    * 过滤文件列表
    */
   async filterFiles(files: FileInfo[], basePath?: string): Promise<FileInfo[]> {
-    this.logger.info(`[FileFilter] 开始过滤文件: ${files.length}个`)
+    this.logger.info(`[FileFilter] 开始过滤文件，过滤前: ${files.length}个`)
 
     // 1. 应用忽略模式
     files = this.applyIgnorePatterns(files)
@@ -73,28 +74,17 @@ export class FileFilter {
    * 按文件大小过滤
    */
   private async filterBySize(files: FileInfo[]): Promise<FileInfo[]> {
-    return files.filter(
-      file=> {
-        if (file.size <= this.maxFileSize) {
-          return true
-        }else {
-          return false
-        }
-      }
-    )
+    return files.filter(file => file.size <= this.maxFileSize)
   }
 
   /**
    * 按扩展名过滤
    */
   private async filterByExt(files: FileInfo[]): Promise<FileInfo[]> {
-
-    return files.filter(
-      file=> {
-        const fileExt = path.extname(file.path);
-        return INCLUDE_EXTS.includes(fileExt);
-      }
-    )
+    return files.filter(file => {
+      const fileExt = path.extname(file.path)
+      return this.includeExts.includes(fileExt)
+    })
   }
 
 
@@ -125,48 +115,7 @@ export class FileFilter {
     return normalizedPath.includes(pattern)
   }
 
-
-  /**
-   * 获取文件类型
-   */
-  getFileType(filePath: string): 'source' | 'config' | 'document' | 'test' | 'other' {
-    const ext = path.extname(filePath).toLowerCase()
-    const basename = path.basename(filePath)
-    
-    // 检查测试文件
-    if (basename.includes('.test.') || basename.includes('.spec.') || basename.startsWith('test_')) {
-      return 'test'
-    }
-    
-    // 检查配置文件
-    const configFiles = ['package.json', 'tsconfig.json', 'webpack.config.js', 'vite.config.js']
-    if (configFiles.includes(basename)) {
-      return 'config'
-    }
-    
-    // 检查文档文件
-    const docExts = ['.md', '.markdown', '.rst', '.txt']
-    if (docExts.includes(ext)) {
-      return 'document'
-    }
-    
-    // 检查源代码文件
-    const sourceExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.cpp', '.c', '.go', '.rs']
-    if (sourceExts.includes(ext)) {
-      return 'source'
-    }
-    
-    return 'other'
-  }
-
-  /**
-   * 检查文件是否应该被分析
-   */
-  shouldAnalyzeFile(filePath: string): boolean {
-    const fileType = this.getFileType(filePath)
-    return fileType === 'source' || fileType === 'config' || fileType === 'document'
-  }
-
+  
   /**
    * 添加自定义忽略模式
    */
@@ -209,12 +158,12 @@ export class FileFilter {
 /**
  * 安全读取文件
  */
-export async function safeReadFile(filePath: string, maxSize: number = 5000): Promise<string | null> {
+export async function safeReadFile(filePath: string, maxSize: number = 5 * 1024 * 1024): Promise<string | null> {
   try {
     const stats = await fs.stat(filePath)
     
     // 检查文件大小
-    if (stats.size > maxSize) { // 1MB
+    if (stats.size > maxSize) {
       return null
     }
     
@@ -234,39 +183,6 @@ export async function isFileReadable(filePath: string): Promise<boolean> {
   } catch (error) {
     return false
   }
-}
-
-/**
- * 获取文件类型
- */
-export function getFileType(filePath: string): 'source' | 'config' | 'document' | 'test' | 'other' {
-  const ext = path.extname(filePath).toLowerCase()
-  const basename = path.basename(filePath)
-  
-  // 检查测试文件
-  if (basename.includes('.test.') || basename.includes('.spec.') || basename.startsWith('test_')) {
-    return 'test'
-  }
-  
-  // 检查配置文件
-  const configFiles = ['package.json', 'tsconfig.json', 'webpack.config.js', 'vite.config.js']
-  if (configFiles.includes(basename)) {
-    return 'config'
-  }
-  
-  // 检查文档文件
-  const docExts = ['.md', '.markdown', '.rst', '.txt']
-  if (docExts.includes(ext)) {
-    return 'document'
-  }
-  
-  // 检查源代码文件
-  const sourceExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.cpp', '.c', '.go', '.rs']
-  if (sourceExts.includes(ext)) {
-    return 'source'
-  }
-  
-  return 'other'
 }
 
 /**

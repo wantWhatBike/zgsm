@@ -2,8 +2,6 @@
  * 存储工具类
  */
 
-import { FileSummary, DirectorySummary, DependencyRelation, RootInfo } from "../types"
-
 export class StorageUtils {
   /**
    * 生成存储键
@@ -42,97 +40,6 @@ export class StorageUtils {
     } catch (error) {
       throw new Error(`反序列化失败: ${error instanceof Error ? error.message : String(error)}`)
     }
-  }
-
-  /**
-   * 验证文件摘要
-   */
-// 2. 完善类型守卫函数：验证数组中所有元素是否为FileSummary类型
-  static validateFileSummaries(summaries: unknown): summaries is FileSummary[] {
-    // 先检查是否为数组
-    if (!Array.isArray(summaries)) {
-      return false;
-    }
-
-    // 3. 遍历数组，验证每个元素
-    for (const summary of summaries) {
-      // 基础检查：必须是对象且不为null
-      if (summary === null || typeof summary !== 'object') {
-        return false;
-      }
-
-      // 类型断言为对象，方便访问属性
-      const s = summary as Record<string, unknown>;
-
-      // 4. 逐一验证每个属性的类型（严格类型检查）
-      if (
-        typeof s.path !== 'string' || // path必须是字符串
-        typeof s.type !== 'string' || // type必须是字符串
-        typeof s.description !== 'string' || // description必须是字符串
-        !Array.isArray(s.keywords) || // keywords必须是数组
-        s.core_functions === null || typeof s.core_functions !== 'object' || // core_functions必须是非null对象
-        !Array.isArray(s.dependencies) || // dependencies必须是数组
-        typeof s.timestamp !== 'string' || // timestamp必须是字符串
-        typeof s.size !== 'number' || // size必须是数字
-        typeof s.lastModified !== 'number' // lastModified必须是数字
-      ) {
-        return false; // 任何一个属性不满足则整体无效
-      }
-    }
-
-    // 所有元素都通过验证
-    return true;
-  }
-
-  /**
-   * 验证目录摘要
-   */
-  static validateDirectorySummary(summary: any): summary is DirectorySummary {
-    return (
-      summary &&
-      typeof summary.path === 'string' &&
-      typeof summary.type === 'string' &&
-      typeof summary.description === 'string' &&
-      Array.isArray(summary.keywords) &&
-      Array.isArray(summary.key_files) &&
-      Array.isArray(summary.upstream) &&
-      Array.isArray(summary.downstream) &&
-      typeof summary.collaboration === 'string' &&
-      typeof summary.timestamp === 'string'
-    )
-  }
-
-  /**
-   * 验证依赖关系
-   */
-  static validateDependencyRelation(relation: any): relation is DependencyRelation {
-    return (
-      relation &&
-      typeof relation.from === 'string' &&
-      typeof relation.to === 'string' &&
-      typeof relation.type === 'string' &&
-      typeof relation.strength === 'number' &&
-      typeof relation.timestamp === 'string'
-    )
-  }
-
-  /**
-   * 验证项目根信息
-   */
-  static validateRootInfo(info: any): info is RootInfo {
-    return (
-      info &&
-      typeof info.project_positioning === 'string' &&
-      Array.isArray(info.tech_stack) &&
-      Array.isArray(info.core_modules) &&
-      Array.isArray(info.entry_points) &&
-      typeof info.key_terms === 'object' &&
-      Array.isArray(info.core_dependencies) &&
-      Array.isArray(info.config_files) &&
-      Array.isArray(info.environment_requirements) &&
-      Array.isArray(info.build_steps) &&
-      typeof info.deployment_info === 'object'
-    )
   }
 
   /**

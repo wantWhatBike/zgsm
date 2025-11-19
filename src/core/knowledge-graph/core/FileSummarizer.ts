@@ -6,18 +6,16 @@ import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
 import { FILE_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
 import { FileSummary, RootInfo, BuildProgress, KnowledgeGraphConfig, FileInfo } from "../types"
-import { ErrorHandler } from "../errors/KnowledgeGraphError"
+import { ErrorHandler } from "../errors/ErrorHandler"
 import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
 import { ILogger } from "../../../utils/logger"
 import { countTokens } from "../../../utils/countTokens"
 import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
 
-
 const FILE_SUMMARIES_FILE = "file_summaries.jsonl"
 
 export class FileSummarizer {
-
 	private llmClient: LLMClient
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
@@ -83,9 +81,16 @@ export class FileSummarizer {
 
 				// 如果当前批次加上新文件会超过限制，先处理当前批次
 				if (batchFiles.length > 0 && batchToken + currentToken > fileContentsWindow) {
-					await this.processBatch(batchFiles, basePrompt, rootInfo, onProgress, processedCount, filesToAnalyze.length)
+					await this.processBatch(
+						batchFiles,
+						basePrompt,
+						rootInfo,
+						onProgress,
+						processedCount,
+						filesToAnalyze.length,
+					)
 					processedCount += batchFiles.length
-					
+
 					// 清理批次数据，防止内存泄漏
 					batchFiles = []
 					batchToken = 0
@@ -101,7 +106,14 @@ export class FileSummarizer {
 
 			// 处理最后一个批次（如果有剩余文件）
 			if (batchFiles.length > 0) {
-				await this.processBatch(batchFiles, basePrompt, rootInfo, onProgress, processedCount, filesToAnalyze.length)
+				await this.processBatch(
+					batchFiles,
+					basePrompt,
+					rootInfo,
+					onProgress,
+					processedCount,
+					filesToAnalyze.length,
+				)
 			}
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "文件摘要生成")
@@ -117,34 +129,35 @@ export class FileSummarizer {
 		rootInfo: RootInfo,
 		onProgress?: (progress: BuildProgress) => void,
 		processedCount: number = 0,
-		totalFiles: number = 0
+		totalFiles: number = 0,
 	): Promise<void> {
+		this.logger.info(`[FileSummarizer] start to process batch, current batch size: ${batchFiles.length}`)
+		const batchStartTime = Date.now()
 		const prompt = buildPrompt(basePrompt, {
 			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
 			fileContents: formatFileContents(batchFiles),
 		})
 
 		// 发送LLM请求
-		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(
-			prompt,
-			this.getFileSummarySchema(),
-		)
+		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
+
+		const batchDuration = Date.now() - batchStartTime
 
 		if (response.success && response.data) {
 			// 验证和清理数据
-			let batchSummaries = response.data.map((summary: FileSummary) =>
-				this.validateAndCleanFileSummary(summary),
-			)
+			let batchSummaries = response.data.map((summary: FileSummary) => this.validateAndCleanFileSummary(summary))
 
 			await this.saveSummaries(batchSummaries)
-			
-			const progress = {
+
+			const progress: BuildProgress = {
 				phase: "file_analysis" as const,
-				processedFilePaths: batchSummaries.map(s => s.path),
+				batchProcessedFilePaths: batchSummaries.map((s) => s.path),
+				totalProcessedFiles: processedCount + batchFiles.length,
 				totalFiles: totalFiles,
-				message: `已分析 ${processedCount + batchFiles.length}/${totalFiles} 个文件`,
+				message: "",
 				filesToProcess: totalFiles,
-				failedFiles: 0,
+				batchFailedFiles: 0,
+				batchDuration: batchDuration,
 			}
 
 			onProgress?.(progress)
@@ -166,10 +179,9 @@ export class FileSummarizer {
 		}
 	}
 
-
 	// 支持动态字段选择
 	public async getFileSummaries<K extends keyof FileSummary = keyof FileSummary>(
-		fields: K[]|undefined = undefined, // 参数：指定需要返回的字段（动态个数）
+		fields: K[] | undefined = undefined, // 参数：指定需要返回的字段（动态个数）
 	): Promise<Array<Pick<FileSummary, K>> | undefined> {
 		// 返回类型：Pick从基础接口中“拾取”指定字段K，生成只包含这些字段的对象数组
 		// 3. 内部实现思路（示例）：
@@ -182,7 +194,7 @@ export class FileSummarizer {
 		if (!fields) {
 			return fullSummaries
 		}
-		
+
 		// - 根据fields过滤，只保留指定字段
 		return fullSummaries.map((summary) => {
 			const picked: Partial<FileSummary> = {}
@@ -192,7 +204,6 @@ export class FileSummarizer {
 			return picked as Pick<FileSummary, K>
 		})
 	}
-
 
 	public async clear(): Promise<void> {
 		try {
@@ -204,6 +215,27 @@ export class FileSummarizer {
 		}
 	}
 
+
+	
+	/**
+	 * 获取文件摘要模式
+	 */
+	private getFileSummarySchema(): any {
+		return [
+			{
+				path: "本文件路径",
+				type: "source|test|config",
+				description: "150字左右，突出核心业务逻辑和架构角色（简体中文）",
+				keywords: ["3-5个关键词，按重要性排序（简体中文）"],
+				core_functions: {
+					function_name1: "功能描述，50~100字，突出函数功能、业务价值（简体中文）",
+					funciton_name2: "功能描述，50~100字，突出函数功能、业务价值（简体中文）",
+				},
+				dependencies: ["本文将依赖的项目内依赖文件路径"],
+			},
+		]
+	}
+
 	/**
 	 * 验证和清理文件摘要
 	 */
@@ -213,7 +245,7 @@ export class FileSummarizer {
 		return {
 			path: summary.path || "",
 			type: this.validateFileType(summary.type),
-			description: summary.description || "未提供描述",
+			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
 			core_functions: typeof summary.core_functions === "object" ? summary.core_functions : {},
 			dependencies: Array.isArray(summary.dependencies) ? summary.dependencies : [],
@@ -226,46 +258,13 @@ export class FileSummarizer {
 	/**
 	 * 验证文件类型
 	 */
-	private validateFileType(type: string): "source" | "config" | "document" | "test" {
-		if (["source", "config", "document", "test"].includes(type)) {
+	private validateFileType(type: string): "source" | "config" | "test" {
+		if (["source", "config", "test"].includes(type)) {
 			return type as any
 		}
 		return "source"
 	}
 
-	/**
-	 * 获取文件摘要模式
-	 */
-	private getFileSummarySchema(): any {
-		return {
-			type: "array",
-			items: {
-				type: "object",
-				properties: {
-					path: { type: "string" },
-					type: {
-						type: "string",
-						enum: ["source", "config", "document", "test"],
-					},
-					description: { type: "string" },
-					keywords: {
-						type: "array",
-						items: { type: "string" },
-						maxItems: 10,
-					},
-					core_functions: {
-						type: "object",
-						additionalProperties: { type: "string" },
-					},
-					dependencies: {
-						type: "array",
-						items: { type: "string" },
-					},
-				},
-				required: ["path", "type", "description", "keywords", "core_functions", "dependencies"],
-			},
-		}
-	}
 
 	/**
 	 * 设置暂停检查回调

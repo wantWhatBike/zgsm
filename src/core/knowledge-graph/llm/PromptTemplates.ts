@@ -2,7 +2,6 @@
  * LLM提示词模板
  */
 
-import { RootInfo } from "../types"
 import { createLogger, ILogger } from "../../../utils/logger"
 
 // 创建 logger 实例，但允许在测试时被替换
@@ -13,53 +12,36 @@ let logger: ILogger = createLogger()
  */
 export const ROOT_ANALYSIS_PROMPT = `
 ## Role
-你是代码分析专家，负责根目录信息挖掘，提取项目技术骨架与业务背景，为全流程提供背景信息。
+你是基于项目文件内容的代码分析专家，专注于根目录信息深度挖掘，负责从项目文件中提取技术骨架与业务背景，为后续项目理解、知识图谱构建等提供精准基础信息。
 
 ## Background
-根目录信息深度挖掘，通过分析依赖配置、核心文档和构建信息，构建项目技术骨架与业务背景，为后续知识图谱提取提供基础锚点。
+通过系统分析项目的依赖配置文件、核心文档（如README等）、构建配置文件及源码文件列表，全面挖掘根目录信息，构建项目的技术栈构成、业务目标、核心模块等关键要素，形成项目技术骨架与业务背景的完整画像，为后续知识图谱提取提供可靠基础锚点。
 
 ## Instructions
-1. 背景信息提取
-2. 依赖配置分析
-3. 环境配置分析
-4. 构建配置分析
+1. 背景信息提取：提取项目的业务目标、定位及核心用途，明确项目解决的问题或实现的功能
+2. 关键术语识别：识别项目中出现的核心业务术语、技术术语，并给出准确定义
+3. 依赖配置分析：梳理项目的核心依赖（含库、框架等），提取对项目功能起关键支撑的依赖项
+4. 环境配置分析：分析项目运行所需的环境要求（如操作系统、语言版本、依赖工具等）及核心配置文件
+5. 构建配置分析：提取项目的构建步骤、构建工具及关键构建流程信息
 
 ## Rules
-1. 确保提取的信息准确反映项目技术骨架和业务背景
-2. 使用结构化markdown格式，包含清晰的层级标题
-3. 禁止返回除输出格式要求以外的任何解释性、说明内容
-
-## Output
-请严格按照以下JSON格式返回，不要包含任何其他内容：
-\`\`\`json
-{
-  "project_positioning": "项目目标和定位描述",
-  "tech_stack": ["技术1", "技术2", "技术3"],
-  "core_modules": ["模块1", "模块2", "模块3"],
-  "entry_points": ["入口文件1", "入口文件2"],
-  "key_terms": {
-    "术语1": "定义说明1",
-    "术语2": "定义说明2"
-  },
-  "core_dependencies": ["依赖1", "依赖2", "依赖3"],
-  "config_files": ["配置文件1", "配置文件2"],
-  "environment_requirements": ["环境要求1", "环境要求2"],
-  "build_steps": ["构建步骤1", "构建步骤2"],
-  "deployment_info": {
-    "dockerfile": "Dockerfile路径（如果有）",
-    "docker_compose": "docker-compose路径（如果有）",
-    "kubernetes": "k8s部署文件路径（如果有）"
-  }
-}
-\`\`\`
+1. 提取的信息需严格基于输入的项目文件内容，准确反映项目实际的技术骨架和业务背景
+2. 输出内容必须使用指定的JSON格式，确保字段完整、内容精准，无冗余信息
+3. 禁止返回任何格式要求以外的解释性、说明性文字或补充内容
+4. 禁止虚构不存在的信息
 
 ## Input
-请分析以下项目文件内容：
+请基于以下信息进行分析：
 
+- 项目文档、配置文件内容：
+\`\`\`
 {{fileContents}}
+\`\`\`
 
-项目文件列表：
+- 项目源码文件列表：
+\`\`\`
 {{fileList}}
+\`\`\`
 `
 
 /**
@@ -88,46 +70,28 @@ export const FILE_ANALYSIS_PROMPT = `
 - 只提取项目内依赖，排除外部库
 
 ## Rules
-1. **严格边界**：仅处理当前组内文件
-2. **格式规范**：摘要必须为标准JSON Lines格式，一个json占一行，不要换行
-3. **内容要求**：description必须包含业务价值和架构角色，字数150字左右
-4. **依赖限制**：dependencies仅包含项目内文件路径
-
-## Output
-请严格按照以下JSON数组格式返回，不要包含任何其他内容：
-\`\`\`json
-[
-  {
-    "path": "完整相对路径（以仓库根目录为起点）",
-    "type": "source",
-    "description": "150字左右，突出核心业务逻辑和架构角色",
-    "keywords": ["3-5个关键词，按重要性排序"],
-    "core_functions": {
-      "函数名1": "功能描述（50~100字，突出函数功能、业务价值）",
-      "函数名2": "功能描述（50~100字，突出函数功能、业务价值）"
-    },
-    "dependencies": ["项目内依赖文件路径（相对根目录）"],
-    "timestamp": "2025-10-27 11:29:52",
-    "size": 0,
-    "lastModified": 0
-  }
-]
-\`\`\`
-
-注意：
-- type字段必须是以下值之一：source、config、document、test
-- 如果分析多个文件，请为每个文件返回一个对象
-- 数组中的每个对象都必须包含所有必需字段
+1. **格式规范**：摘要必须为标准JSON Lines格式，一个json占一行，不要换行，仅分析本批次文件
+2. **内容要求**：description必须包含业务价值和架构角色，字数150字左右
+3. **依赖限制**：dependencies仅包含项目内文件路径
+4. **实事求是**：以实际文件内容为准，禁止虚构不存在的信息
 
 ## Input
-项目背景信息：
+请基于以下信息进行分析：
+
+### 项目背景信息：
+\`\`\`
 {{rootInfo}}
+\`\`\`
 
-待分析文件组：
+### 本批次文件：
+\`\`\`
 {{fileContents}}
+\`\`\`
 
-项目文件列表：
+### 项目源码文件列表：
+\`\`\`
 {{fileList}}
+\`\`\`
 `
 
 /**
@@ -158,27 +122,20 @@ export const DIRECTORY_ANALYSIS_PROMPT = `
 3. 必须处理到最深一层目录，不跳过任何子目录
 4. 关键词必须准确反映目录核心功能
 5. 核心文件必须基于功能重要性选择，而非文件大小
-6. 涉及路径，统一使用相对项目根目录的相对路径
-7. 务必一个json占一行，不要换行
-
-## Output
-请严格按照以下JSON格式返回，不要包含任何其他内容：
-\`\`\`json
-{
-  "path": "完整目录路径（以仓库根目录为起点）",
-  "type": "功能模块/工具集/配置",
-  "description": "整体定位（150字左右），详细描述目录在项目中的核心功能、架构角色、业务价值和技术特点",
-  "keywords": ["2-5个核心关键词"],
-  "key_files": ["1-5个核心文件路径（基于功能重要性）"]
-}
-\`\`\`
+6. 以实际文件内容为准，禁止虚构不存在的信息
 
 ## Input
-项目背景信息：
-{{rootInfo}}
+请基于以下项目信息进行分析：
 
-项目文件列表：
+### 项目背景信息：
+\`\`\`
+{{rootInfo}}
+\`\`\`
+
+### 项目文件列表：
+\`\`\`
 {{fileSimpleSummaryList}}
+\`\`\`
 `
 
 /**
@@ -287,43 +244,6 @@ export function buildPrompt(template: string, variables: Record<string, string>)
 }
 
 /**
- * 验证JSON响应格式
- */
-export function validateJsonResponse<T>(response: string, schema: any): T | null {
-  try {
-    // 清理响应
-    const cleaned = response
-      .replace(/```json\s*/g, '')
-      .replace(/```\s*/g, '')
-      .trim()
-    
-    // 找到JSON开始和结束位置
-    const startIndex = cleaned.indexOf('{')
-    const endIndex = cleaned.lastIndexOf('}')
-    
-    if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
-      // 尝试解析数组
-      const arrayStart = cleaned.indexOf('[')
-      const arrayEnd = cleaned.lastIndexOf(']')
-      
-      if (arrayStart !== -1 && arrayEnd !== -1 && arrayStart < arrayEnd) {
-        const jsonStr = cleaned.substring(arrayStart, arrayEnd + 1)
-        return JSON.parse(jsonStr)
-      }
-      
-      return null
-    }
-    
-    const jsonStr = cleaned.substring(startIndex, endIndex + 1)
-    return JSON.parse(jsonStr)
-    
-  } catch (error) {
-    logger.error('JSON解析失败:', error)
-    return null
-  }
-}
-
-/**
  * 格式化文件内容用于提示词
  */
 export function formatFileContents(files: Array<{path: string, content: string}>): string {
@@ -339,13 +259,4 @@ export function formatFileContents(files: Array<{path: string, content: string}>
  */
 export function formatFileList(files: string[]): string {
   return files.map(file => `- ${file}`).join('\n')
-}
-
-/**
- * 格式化摘要列表
- */
-export function formatSummaries(summaries: any[]): string {
-  return summaries.map(summary => 
-    JSON.stringify(summary)
-  ).join('\n')
 }

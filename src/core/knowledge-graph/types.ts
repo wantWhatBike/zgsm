@@ -13,7 +13,7 @@ export interface FileInfo {
 // 文件摘要
 export interface FileSummary {
   path: string
-  type: 'source' | 'config' | 'document' | 'test'
+  type: 'source' | 'config' | 'test'
   description: string
   keywords: string[]
   core_functions: Record<string, string>
@@ -27,13 +27,10 @@ export interface FileSummary {
 // 目录摘要
 export interface DirectorySummary {
   path: string
-  type: 'module' | 'utils' | 'config' | 'feature'
+  type: 'module' | 'utils' | 'config'
   description: string
   keywords: string[]
   key_files: string[]
-  upstream: string[]
-  downstream: string[]
-  collaboration: string
   timestamp: string
 }
 
@@ -48,20 +45,12 @@ export interface DependencyRelation {
 
 // 项目根信息
 export interface RootInfo {
-  project_positioning: string
+  project_description: string
   tech_stack: string[]
   core_modules: string[]
-  entry_points: string[]
-  key_terms: Record<string, string>
   core_dependencies: string[]
-  config_files: string[]
   environment_requirements: string[]
   build_steps: string[]
-  deployment_info: {
-    dockerfile?: string
-    docker_compose?: string
-    kubernetes?: string
-  }
 }
 
 // 知识图谱配置
@@ -76,8 +65,6 @@ export interface KnowledgeGraphConfig {
   storageType: 'file' | 'database'
   cacheDir: string
   exportFormat: string
-  enableDetailedLogging?: boolean
-  progressReportInterval?: number
 }
 
 // 构建进度 - 移到前面避免循环依赖
@@ -86,35 +73,52 @@ export interface BuildProgress {
   message: string
   totalFiles: number
   filesToProcess: number
-  processedFilePaths: string[]
-  failedFiles: number
+	totalProcessedFiles: number
+  batchProcessedFilePaths: string[]
+  batchFailedFiles: number
+  // 新增耗时统计字段
+  batchDuration?: number
+  batchIndex?: number
 }
 
 // 知识图谱状态
 export interface KnowledgeGraphBuildState {
-  enabled: boolean
-  isRunning: boolean
-  isPaused: boolean
   progress: number
   totalFiles: number
   totalFilesToProcess: number
   processedFiles: number
   failedFiles: number
   currentFile: string
-  status: 'idle' | 'running' | 'paused' | 'completed' | 'error'
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'error'
   error?: string
-  lastUpdated?: string
   // 新增字段
   taskId?: string
   startTime?: string
-  totalRequests?: number
-  totalTokens?: {
-    input: number
-    output: number
-  }
   phase: BuildProgress['phase']
   lastUpdateTime: string
   totalDuration: number
+  
+  // LLM 统计信息
+  llmStatistics?: {
+    // Token 统计
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalTokens: number
+    // 请求统计
+    totalRequests: number
+    successfulRequests: number
+    failedRequests: number
+    // 成本和耗时统计
+    totalDuration: number
+  }
+  
+  // 各阶段耗时统计
+  phaseDurations?: {
+    fileCollection?: number
+    rootAnalysis?: number
+    fileSummary?: number
+    directorySummary?: number
+  }
 }
 
 

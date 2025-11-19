@@ -157,23 +157,14 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			type: "knowledgeGraphGetStatus",
 		})
 
-		// 修复：无条件启动轮询，让后续的状态检查来决定是否继续
-		// Use longer interval (4 seconds) to reduce server load but maintain responsiveness
+		// 使用简化的轮询逻辑，避免闭包陷阱
 		pollingIntervalId.current = setInterval(() => {
-			// Double check if we should continue polling based on current status
-			if (knowledgeGraphStatus.status === 'success' ||
-				knowledgeGraphStatus.status === 'failed' ||
-				knowledgeGraphStatus.status === 'pending') {
-				// Stop polling for terminal states (but not paused state)
-				stopPolling()
-				return
-			}
-			
+			// 直接发送状态请求，让消息处理器决定是否停止轮询
 			vscode.postMessage({
 				type: "knowledgeGraphGetStatus",
 			})
-		}, 4000) // 减少到4秒，提高响应性
-	}, [knowledgeGraphStatus.status, stopPolling])
+		}, 2000)
+	}, [])
 
 	// Get status once without polling
 	const getStatusOnce = useCallback(() => {
@@ -182,7 +173,14 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		})
 	}, [])
 
-	// Check if polling should be stopped (task is completed or failed)
+	// Check if polling should be stopped (task is completed or failed) - 参考代码库设置组件
+	const shouldStopPolling = useCallback((statusInfo: KnowledgeGraphStatusInfo) => {
+		return (
+			statusInfo.status === "success" ||
+			statusInfo.status === "failed" ||
+			statusInfo.status === "pending"
+		)
+	}, [])
 
 	// Handle messages from extension
 	useEffect(() => {
@@ -227,36 +225,37 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			type: "knowledgeGraphBuild",
 		})
 
-		// Start polling after a longer delay to allow backend to initialize properly
+		// Start polling after a shorter delay to get status quickly
 		setTimeout(() => {
 			startPolling()
-		}, 2000) // 增加延迟到2秒，给后端更多初始化时间
+		}, 1000) // 减少延迟到1秒，更快获取状态
 	}, [startPolling])
 
 	const handlePauseBuild = useCallback(() => {
-		// 先停止轮询
-		stopPolling()
-		
-		// 更新本地状态为暂停
-		setKnowledgeGraphStatus((prev) => ({ ...prev, status: "paused" }))
-		
+		// 发送暂停消息，不立即更新本地状态
 		vscode.postMessage({
 			type: "knowledgeGraphPause",
 		})
-	}, [stopPolling])
+		
+		// 停止轮询，等待后端确认暂停状态
+		stopPolling()
+		
+		// 延迟获取状态确认暂停成功
+		setTimeout(() => {
+			getStatusOnce()
+		}, 1000)
+	}, [stopPolling, getStatusOnce])
 
 	const handleResumeBuild = useCallback(() => {
-		// 先更新本地状态为运行中
-		setKnowledgeGraphStatus((prev) => ({ ...prev, status: "running" }))
-		
+		// 发送恢复消息
 		vscode.postMessage({
 			type: "knowledgeGraphResume",
 		})
 		
-		// 开始轮询，使用较短延迟因为是恢复操作
+		// 立即开始轮询以获取最新状态
 		setTimeout(() => {
 			startPolling()
-		}, 1000) // 增加到1秒，避免过于频繁的状态切换
+		}, 500) // 减少延迟，更快响应状态变化
 	}, [startPolling])
 
 	const handleClearBuild = useCallback(() => {
@@ -335,6 +334,11 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 				const statusInfo = message.payload.status as KnowledgeGraphStatusInfo
 				const newStatus = mapKnowledgeGraphStatusInfoToStatus(statusInfo, t)
 				
+				// 只有当前没有轮询时才启动轮询，避免重复
+				if ((statusInfo.status === "running" || statusInfo.status === "paused") && !isPollingActive.current) {
+					startPolling()
+				}
+				
 				// 修复：确保状态更新正确，避免显示错误的0值
 				if (statusInfo.status === "pending" && statusInfo.process === 0 && statusInfo.totalFiles === 0) {
 					// 真正的pending状态：没有开始构建
@@ -353,20 +357,8 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 					}))
 				}
 
-				// 智能轮询控制：只在运行状态时轮询，其他状态停止轮询 - 修复轮询逻辑
-				const currentlyPolling = isPollingActive.current
-				const shouldPoll = statusInfo.status === "running"
-				
-				if (shouldPoll && !currentlyPolling) {
-					// 需要轮询但当前没有轮询，延迟启动轮询避免过于频繁
-					setTimeout(() => {
-						// 检查最新状态而不是旧状态
-						if (statusInfo.status === "running") {
-							startPolling()
-						}
-					}, 1000)
-				} else if (!shouldPoll && currentlyPolling) {
-					// 不需要轮询但当前在轮询，立即停止轮询
+				// 前端判断是否停止轮询 - 参考代码库设置组件的机制
+				if (shouldStopPolling(statusInfo)) {
 					stopPolling()
 				}
 			} else if (message.type === "knowledgeGraphBuildProgress" && message.payload?.progress) {
@@ -395,7 +387,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 				}
 			}
 		},
-		[setCachedStateField, startPolling, stopPolling, t, getStatusOnce],
+		[setCachedStateField, startPolling, stopPolling, t, getStatusOnce, shouldStopPolling],
 	)
 
 	useEvent("message", handleMessage)

@@ -2,7 +2,7 @@
  * 知识图谱常量配置
  */
 
-import type { KnowledgeGraphConfig, ExportFormat } from './types'
+import type { KnowledgeGraphConfig } from './types'
 
 // 基础配置常量 - 统一管理所有配置值
 export const BASE_CONFIG = {
@@ -55,10 +55,10 @@ export const KEY_FILE_PATTERNS = [
     'settings.gradle', 'settings.gradle.kts',
     
     // Go
-    'go.mod', 'go.sum',
+    'go.mod',
     
     // Rust
-    'Cargo.toml', 'Cargo.lock',
+    'Cargo.toml',
     
     // PHP
     'composer.json', 'composer.lock',
@@ -91,8 +91,6 @@ export const KEY_FILE_PATTERNS = [
   // 第三优先级：项目配置（环境、工具、规范配置）
   [
     '.env*',                  // 环境变量（.env、.env.local、.env.example）
-    '.gitignore', '.gitattributes',  // Git配置
-    '.editorconfig',          // 编辑器统一配置
     '.eslint*', '.prettier*', // 代码规范（.eslintrc.js、prettier.config.json）
     'tsconfig.*', 'jsconfig.*', // 类型配置（tsconfig.json、tsconfig.app.json）
     'jest.config.*', 'pytest.ini', 'pylintrc' // 测试工具配置
@@ -277,44 +275,9 @@ export const LLM_CONFIG = {
   maxTokens: 4000,
   temperature: 0.1,
   timeout: 60000,
+  ANSWER_LANGUAGE: "简体中文"
 }
 
-// 分析配置
-export const ANALYSIS_CONFIG = {
-  maxFileSize: BASE_CONFIG.FILE_SIZE_LIMIT,
-  maxLinesPerFile: BASE_CONFIG.MAX_LINES_PER_FILE,
-  maxFilesPerBatch: BASE_CONFIG.MAX_FILES_PER_BATCH,
-  maxConcurrency: BASE_CONFIG.MAX_CONCURRENCY,
-  
-  // 复杂度计算权重
-  complexityWeights: {
-    lines: 0.1,
-    functions: 2,
-    classes: 5,
-    imports: 0.5,
-    dependencies: 1
-  },
-  
-  // 依赖强度计算
-  dependencyStrength: {
-    direct_import: 1.0,
-    indirect_reference: 0.7,
-    inheritance: 0.9,
-    composition: 0.8
-  }
-}
-
-// 进度报告配置
-export const PROGRESS_CONFIG = {
-  updateInterval: 1000, // 1秒
-  reportThreshold: 10, // 每10个文件报告一次
-  phases: {
-    root_analysis: { weight: 0.1, message: '分析项目根目录...' },
-    file_analysis: { weight: 0.6, message: '分析文件...' },
-    directory_analysis: { weight: 0.2, message: '分析目录...' },
-    dependency_analysis: { weight: 0.1, message: '分析依赖关系...' }
-  }
-}
 
 // 导出配置
 export const EXPORT_CONFIG = {
@@ -335,12 +298,6 @@ export const EXPORT_CONFIG = {
   }
 }
 
-// 缓存配置
-export const CACHE_CONFIG = {
-  ttl: 24 * 60 * 60 * 1000, // 24小时
-  maxSize: 1000,
-  cleanupInterval: 60 * 60 * 1000 // 1小时
-}
 
 // 错误代码
 export const ERROR_CODES = {
@@ -353,3 +310,5 @@ export const ERROR_CODES = {
   INVALID_RESPONSE: 'INVALID_RESPONSE',
   TIMEOUT: 'TIMEOUT'
 } as const
+
+const LLM_LANGUAGE = "简体中文"

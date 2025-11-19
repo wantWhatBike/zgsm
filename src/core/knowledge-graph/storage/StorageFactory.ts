@@ -61,7 +61,9 @@ export class StorageFactory {
    * @returns 存储实例
    */
   static createStorage(config: StorageConfig): IStorage {
-    this.validateConfig(config)
+    if (!this.validateConfig(config)) {
+      throw new StorageError(`存储配置无效`, "INVALID_CONFIG", false)
+    }
     
     const creator = this.creators.find(c => c.supports(config.type))
     if (!creator) {

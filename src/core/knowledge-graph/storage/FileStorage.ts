@@ -1,16 +1,8 @@
 import * as fs from "fs/promises"
 import path, * as nodePath from "path"
 import { safeWriteJson } from "../../../utils/safeWriteJson"
-import { StorageConfig, StorageInfo, StorageError, IStorage } from "./IStorage"
-import {
-	FileSummary,
-	DirectorySummary,
-	DependencyRelation,
-	RootInfo,
-	KnowledgeGraphBuildState,
-	FileInfo,
-} from "../types"
-import { StorageUtils } from "./StorageUtils"
+import { StorageConfig, StorageError, IStorage } from "./IStorage"
+
 import { createLogger, ILogger } from "../../../utils/logger"
 import { pathExists, safeReadFile } from "../tools/FileUtils"
 
@@ -19,10 +11,10 @@ export class FileStorage implements IStorage {
 	private basePath: string
 	private logger: ILogger
 
-	constructor(config: StorageConfig) {
+	constructor(config: StorageConfig, logger?: ILogger) {
 		this.config = config
 		this.basePath = config.path
-		this.logger = createLogger()
+		this.logger = logger || createLogger('FileStorage')
 	}
 
 	/**
@@ -58,11 +50,19 @@ export class FileStorage implements IStorage {
 	}
 
 	/**
-	 * 追加到JSONL文件  TODO 当前是追加，改为upsert
+	 * 追加到JSONL文件
 	 */
 	private async appendToJsonl(filePath: string, data: any): Promise<void> {
-		const jsonLine = JSON.stringify(data) + "\n"
-		await fs.appendFile(filePath, jsonLine, "utf-8")
+		try {
+			const jsonLine = JSON.stringify(data) + "\n"
+			await fs.appendFile(filePath, jsonLine, "utf-8")
+		} catch (error) {
+			throw new StorageError(
+				`追加JSONL文件失败: ${error instanceof Error ? error.message : String(error)}`,
+				"JSONL_APPEND_ERROR",
+				true
+			)
+		}
 	}
 
 	/**
@@ -110,19 +110,19 @@ export class FileStorage implements IStorage {
 	 */
 	async clear(name: string): Promise<void> {
 		if (!this.basePath) {
-			throw new Error("[Storage] basePath is null, cannot clear.")
+			throw new StorageError("basePath is null, cannot clear", "INVALID_PATH", false)
 		}
 		const fullPath = path.join(this.basePath, name)
-		try {			
+		try {
 			// 检查基础路径是否存在
 			const baseExists = await pathExists(fullPath)
 			if (!baseExists) {
-				this.logger.warn(`[Storage] path ${fullPath} does not exist, skip clear.`)
+				this.logger.warn(`[FileStorage] 文件 ${fullPath} 不存在，跳过删除`)
 				return
 			}
-			this.logger.debug(`[Storage] start to delete file: ${fullPath}`)
+			this.logger.debug(`[FileStorage] 开始删除文件: ${fullPath}`)
 			await fs.unlink(fullPath)
-			this.logger.debug(`[Storage] Successfully Deleted file: ${fullPath}`)
+			this.logger.debug(`[FileStorage] 成功删除文件: ${fullPath}`)
 		} catch (error) {
 			throw new StorageError(`删除${fullPath}失败: ${error instanceof Error ? error.message : String(error)}`)
 		}

@@ -2,12 +2,10 @@
  * 导出器 - 提供知识图谱数据导出功能
  */
 
-import { FileStorage } from "../storage/FileStorage"
 import {
 	FileSummary,
 	DirectorySummary,
-	DependencyRelation,
-	ExportFormat,
+
 	ExportOptions,
 	ExportResult,
 	RootInfo,
@@ -297,19 +295,6 @@ export class Exporter {
 				if (summary.key_files.length > 0) {
 					content += `- **核心文件**: ${summary.key_files.join(", ")}\n`
 				}
-
-				if (summary.upstream.length > 0) {
-					content += `- **上游依赖**: ${summary.upstream.join(", ")}\n`
-				}
-
-				if (summary.downstream.length > 0) {
-					content += `- **下游依赖**: ${summary.downstream.join(", ")}\n`
-				}
-
-				if (summary.collaboration) {
-					content += `- **协作关系**: ${summary.collaboration}\n`
-				}
-
 				content += "\n"
 			}
 		}

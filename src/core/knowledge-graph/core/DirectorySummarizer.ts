@@ -1,19 +1,7 @@
-/**
- * 目录分析器 - 分析项目目录
- */
-
-import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
-import { DIRECTORY_ANALYSIS_PROMPT, buildPrompt, formatSummaries } from "../llm/PromptTemplates"
-import {
-	DirectorySummary,
-	FileSummary,
-	BuildProgress,
-	KnowledgeGraphConfig,
-	FileInfo,
-	RootInfo,
-} from "../types"
-import { ErrorHandler } from "../errors/KnowledgeGraphError"
+import { DIRECTORY_ANALYSIS_PROMPT, buildPrompt } from "../llm/PromptTemplates"
+import { DirectorySummary, FileSummary, BuildProgress, KnowledgeGraphConfig, FileInfo, RootInfo } from "../types"
+import { ErrorHandler } from "../errors/ErrorHandler"
 import { ILogger } from "../../../utils/logger"
 import { FileSummarizer as FileSummarizer } from "./FileSummarizer"
 import { IStorage } from "../storage/IStorage"
@@ -22,7 +10,6 @@ import { StorageUtils } from "../storage/StorageUtils"
 const DIRECTORY_SUMMARIES_FILE = "directory_summaries.jsonl"
 
 export class DirectorySummarizer {
-
 	private llmClient: LLMClient
 	private fileAnalyzer: FileSummarizer
 	private logger: ILogger
@@ -72,7 +59,7 @@ export class DirectorySummarizer {
 				return
 			}
 			const fileSimpleSummaryList = await this.fileAnalyzer.getFileSummaries(["path", "description"])
-			if (!fileSimpleSummaryList)	{
+			if (!fileSimpleSummaryList) {
 				throw new Error("get file summaries are null, cannot continue.")
 			}
 
@@ -118,7 +105,7 @@ export class DirectorySummarizer {
 		}
 	}
 
-	public async getDirectorySummaries(workspacePath: string): Promise<DirectorySummary[]|undefined> {
+	public async getDirectorySummaries(workspacePath: string): Promise<DirectorySummary[] | undefined> {
 		try {
 			const content = await this.storage!.load(DIRECTORY_SUMMARIES_FILE)
 			if (!content) {
@@ -131,31 +118,25 @@ export class DirectorySummarizer {
 		}
 	}
 
-
 	/**
 	 * 验证和清理目录摘要
 	 */
 	private validateAndCleanDirectorySummary(summary: DirectorySummary): DirectorySummary {
-		const now = new Date().toISOString()
-
 		return {
 			path: summary.path,
 			type: this.validateDirectoryType(summary.type),
 			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
 			key_files: Array.isArray(summary.key_files) ? summary.key_files.slice(0, 5) : [],
-			upstream: Array.isArray(summary.upstream) ? summary.upstream : [],
-			downstream: Array.isArray(summary.downstream) ? summary.downstream : [],
-			collaboration: summary.collaboration || "",
-			timestamp: summary.timestamp || now,
+			timestamp: summary.timestamp || "",
 		}
 	}
 
 	/**
 	 * 验证目录类型
 	 */
-	private validateDirectoryType(type: string): "module" | "utils" | "config" | "feature" {
-		const validTypes = ["module", "utils", "config", "feature"]
+	private validateDirectoryType(type: string): "module" | "utils" | "config" {
+		const validTypes = ["module", "utils", "config"]
 		if (validTypes.includes(type)) {
 			return type as any
 		}
@@ -177,39 +158,11 @@ export class DirectorySummarizer {
 	 */
 	private getDirectorySummarySchema(): any {
 		return {
-			type: "array",
-			items: {
-				type: "object",
-				properties: {
-					path: { type: "string" },
-					type: {
-						type: "string",
-						enum: ["module", "utils", "config", "feature"],
-					},
-					description: { type: "string" },
-					keywords: {
-						type: "array",
-						items: { type: "string" },
-						maxItems: 10,
-					},
-					key_files: {
-						type: "array",
-						items: { type: "string" },
-						maxItems: 5,
-					},
-					upstream: {
-						type: "array",
-						items: { type: "string" },
-					},
-					downstream: {
-						type: "array",
-						items: { type: "string" },
-					},
-					collaboration: { type: "string" },
-					timestamp: { type: "string" },
-				},
-				required: ["path", "type", "description", "keywords", "key_files", "upstream", "downstream"],
-			}
+			path: "目录路径",
+			type: "功能模块/工具集/配置",
+			description: "整体定位（150字左右），详细描述目录在项目中的核心功能、架构角色、业务价值和技术特点（简体中文）",
+			keywords: ["2-5个核心关键词（简体中文）"],
+			key_files: ["1-5个核心文件路径"],
 		}
 	}
 }

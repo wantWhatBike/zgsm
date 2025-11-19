@@ -20,29 +20,38 @@ export class FileService {
   private hashCache = new Map<string, HashCacheEntry>()
   private readonly CACHE_TTL = 24 * 60 * 60 * 1000 // 24小时
 
-  constructor(fileFilter?: FileFilter) {
+  constructor(fileFilter?: FileFilter, logger?: ILogger) {
     this.fileFilter = fileFilter || new FileFilter()
-    this.logger = createLogger('OptimizedFileService')
+    this.logger = logger || createLogger('FileService')
   }
 
   /**
    * 获取项目文件列表 - 优化版本
    */
   async getProjectFilteredFiles(workspacePath: string): Promise<FileInfo[]> {
-    const allFiles = await this.walkDirectoryOptimized(workspacePath)
-    // 将绝对路径转换为相对路径进行过滤
-    const relativeFiles = allFiles.map(file => ({
-      ...file,
-      path: path.relative(workspacePath, file.path)
-    }))
-    return await this.fileFilter.filterFiles(relativeFiles, workspacePath)
+    this.logger.info(`[FileService] 开始收集工作区文件：${workspacePath}`)
+    
+    // 1. 收集所有文件路径
+    const filePaths = await this.collectFilePaths(workspacePath)
+    this.logger.info(`[FileService] 收集到文件：${filePaths.length}个`)
+    
+    // 2. 将路径封装为FileInfo（不计算hash）
+    const fileInfos = await this.createFileInfos(filePaths, workspacePath)
+    
+    // 3. 过滤文件
+    const filteredFiles = await this.fileFilter.filterFiles(fileInfos, workspacePath)
+    
+    // 4. 只对过滤后的文件计算hash
+    const filesWithHash = await this.calculateHashForFiles(filteredFiles, workspacePath)
+    
+    return filesWithHash
   }
 
   /**
-   * 优化的目录遍历 - 使用栈替代递归，避免栈溢出
+   * 收集文件路径 - 只负责遍历目录收集路径
    */
-  private async walkDirectoryOptimized(dirPath: string): Promise<FileInfo[]> {
-    const files: FileInfo[] = []
+  private async collectFilePaths(dirPath: string): Promise<string[]> {
+    const filePaths: string[] = []
     const stack = [dirPath]
 
     while (stack.length > 0) {
@@ -58,20 +67,7 @@ export class FileService {
             // 添加到栈中继续处理
             stack.push(fullPath)
           } else if (entry.isFile()) {
-            try {
-              const fileStats = await fs.stat(fullPath)
-              const hash = await this.getFileHashCached(fullPath, fileStats.mtime.getTime(), fileStats.size)
-              
-              files.push({
-                path: fullPath,
-                size: fileStats.size,
-                lastModified: fileStats.mtime.getTime(),
-                hash
-              })
-            } catch (fileError) {
-              // 跳过无法访问的文件
-              this.logger.warn(`[FileService] 无法处理文件: ${fullPath}`)
-            }
+            filePaths.push(fullPath)
           }
         }
       } catch (error) {
@@ -80,7 +76,67 @@ export class FileService {
       }
     }
 
-    return files
+    return filePaths
+  }
+
+  /**
+   * 创建FileInfo对象 - 只负责获取文件基本信息，不计算hash
+   */
+  private async createFileInfos(filePaths: string[], workspacePath: string): Promise<FileInfo[]> {
+    const fileInfos: FileInfo[] = []
+    
+    for (const filePath of filePaths) {
+      try {
+        const fileStats = await fs.stat(filePath)
+        const relativePath = path.relative(workspacePath, filePath)
+        
+        fileInfos.push({
+          path: relativePath,
+          size: fileStats.size,
+          lastModified: fileStats.mtime.getTime(),
+          hash: '' // 暂时为空，后续计算
+        })
+      } catch (error) {
+        // 跳过无法访问的文件
+        this.logger.warn(`[FileService] 无法获取文件信息: ${filePath}`)
+      }
+    }
+    
+    return fileInfos
+  }
+
+  /**
+   * 为文件列表计算hash - 限制并发数量避免资源占用过高
+   */
+  private async calculateHashForFiles(files: FileInfo[], workspacePath: string): Promise<FileInfo[]> {
+    const results: FileInfo[] = []
+    const concurrency = 4 // 固定4个并发，适合低配置环境
+    
+    for (let i = 0; i < files.length; i += concurrency) {
+      const batch = files.slice(i, i + concurrency)
+      const batchResults = await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const absolutePath = path.isAbsolute(file.path) ? file.path : path.join(workspacePath, file.path)
+            const hash = await this.getFileHashCached(absolutePath, file.lastModified, file.size)
+            
+            return {
+              ...file,
+              hash
+            }
+          } catch (error) {
+            this.logger.warn(`[FileService] 计算文件hash失败: ${file.path}`)
+            return {
+              ...file,
+              hash: this.generateSimpleHash(file.path, file.lastModified, file.size)
+            }
+          }
+        })
+      )
+      results.push(...batchResults)
+    }
+    
+    return results
   }
 
   /**
@@ -124,35 +180,6 @@ export class FileService {
     return crypto.createHash('md5').update(content).digest('hex')
   }
 
-  /**
-   * 清理过期缓存
-   */
-  public cleanupCache(): void {
-    const now = Date.now()
-    const keysToDelete: string[] = []
-    
-    for (const [key, entry] of this.hashCache.entries()) {
-      if (now - entry.timestamp > this.CACHE_TTL) {
-        keysToDelete.push(key)
-      }
-    }
-    
-    keysToDelete.forEach(key => this.hashCache.delete(key))
-    
-    if (keysToDelete.length > 0) {
-      this.logger.info(`[FileService] 清理缓存: ${keysToDelete.length}个条目`)
-    }
-  }
-
-  /**
-   * 获取缓存统计信息
-   */
-  public getCacheStats(): { size: number; hitRate: number } {
-    return {
-      size: this.hashCache.size,
-      hitRate: 0 // 可以在实际使用中添加命中率统计
-    }
-  }
 
 
   /**

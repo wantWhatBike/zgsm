@@ -27,6 +27,61 @@ export class ErrorHandler {
   }
 
   /**
+   * 包装错误为KnowledgeGraphError
+   */
+  static wrapError(error: unknown, context?: string): KnowledgeGraphError {
+    if (error instanceof KnowledgeGraphError) {
+      return error
+    }
+
+    if (error instanceof Error) {
+      return new KnowledgeGraphError(
+        context ? `${context}: ${error.message}` : error.message,
+        ERROR_CODES.NETWORK_ERROR,
+        false,
+        false,
+        { originalError: error.message, stack: error.stack }
+      )
+    }
+
+    return new KnowledgeGraphError(
+      context ? `${context}: ${String(error)}` : String(error),
+      ERROR_CODES.NETWORK_ERROR,
+      false,
+      false,
+      { originalError: String(error) }
+    )
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  static formatError(error: unknown): string {
+    if (error instanceof KnowledgeGraphError) {
+      return `[${error.code}] ${error.message}`
+    }
+    
+    if (error instanceof Error) {
+      return error.message
+    }
+    
+    return String(error)
+  }
+
+  /**
+   * 创建文件读取错误
+   */
+  static createFileReadError(filePath: string, originalError: Error): KnowledgeGraphError {
+    return new KnowledgeGraphError(
+      `读取文件失败: ${filePath}`,
+      ERROR_CODES.FILE_READ_ERROR,
+      true,
+      false,
+      { filePath, originalError: originalError.message }
+    )
+  }
+
+  /**
    * 智能重试机制
    * 根据错误类型采用不同的重试策略
    */
@@ -112,6 +167,44 @@ export class ErrorHandler {
            errorMessage.includes('timed out')
   }
 
+
+  /**
+   * 智能重试机制 - 根据错误类型采用不同策略
+   */
+  static async withLLMRetry<T>(
+    operation: () => Promise<T>,
+    context: string,
+    logger?: ILogger,
+    maxRetries: number = RETRY_CONFIG.maxRetries
+  ): Promise<T> {
+    let lastError: unknown
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const result = await operation()
+        return result
+      } catch (error) {
+        lastError = error
+        
+        if (attempt < maxRetries - 1) {
+          const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+          
+          // 检查是否应该停止重试
+          if (this.isContextExceededError(errorMessage) || this.isInvalidResponseError(errorMessage)) {
+            logger?.warn(`[ErrorHandler] ${context} 错误不可重试，停止重试`)
+            break
+          }
+          
+          const delay = this.calculateRetryDelay(errorMessage, attempt)
+          logger?.warn(`[ErrorHandler] ${context} 重试 (${attempt + 1}/${maxRetries}), 延迟: ${delay}ms`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+      }
+    }
+    
+    throw this.handleAnalysisError(lastError, context)
+  }
+
   /**
    * 判断是否为上下文超限错误（不应重试）
    */
@@ -131,37 +224,15 @@ export class ErrorHandler {
   }
 
   /**
-   * 批量操作错误处理
+   * 创建无效响应错误
    */
-  static async handleBatchOperation<T, R>(
-    items: T[],
-    operation: (item: T) => Promise<R>,
-    context: string,
-    logger?: ILogger,
-    continueOnError: boolean = true
-  ): Promise<{ results: R[], errors: Array<{ item: T, error: unknown }> }> {
-    const results: R[] = []
-    const errors: Array<{ item: T, error: unknown }> = []
-
-    for (const item of items) {
-      try {
-        const result = await this.withRetry(
-          () => operation(item),
-          `${context}[${JSON.stringify(item)}]`,
-          logger
-        )
-        results.push(result)
-      } catch (error) {
-        errors.push({ item, error })
-        
-        if (!continueOnError) {
-          throw this.handleAnalysisError(error, context)
-        }
-        
-        logger?.error(`[ErrorHandler] ${context} 处理项目失败:`, error)
-      }
-    }
-
-    return { results, errors }
+  static createInvalidResponseError(message: string, context?: string): KnowledgeGraphError {
+    return new KnowledgeGraphError(
+      message,
+      ERROR_CODES.INVALID_RESPONSE,
+      false, // 不可重试
+      true,  // 可恢复
+      context
+    )
   }
 }

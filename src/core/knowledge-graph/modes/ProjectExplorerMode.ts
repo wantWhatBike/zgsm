@@ -52,7 +52,7 @@ export class ProjectExplorerMode {
       
       if (rootInfo) {
         overview += '## 项目定位\n'
-        overview += `${rootInfo.project_positioning}\n\n`
+        overview += `${rootInfo.project_description}\n\n`
         
         overview += '## 技术栈\n'
         overview += rootInfo.tech_stack.map((tech: string) => `- ${tech}`).join('\n') + '\n\n'

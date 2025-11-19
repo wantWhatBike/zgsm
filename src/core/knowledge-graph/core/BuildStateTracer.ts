@@ -2,15 +2,53 @@ import type { KnowledgeGraphBuildState, BuildProgress, FileInfo, FileChanges } f
 import { ILogger } from "../../../utils/logger"
 import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
-import { string } from "zod"
+
+/**
+ * 简单的互斥锁实现
+ */
+class Mutex {
+	private locked = false
+	private waitingQueue: (() => void)[] = []
+
+	async lock(): Promise<void> {
+		return new Promise<void>((resolve) => {
+			if (!this.locked) {
+				this.locked = true
+				resolve()
+			} else {
+				this.waitingQueue.push(resolve)
+			}
+		})
+	}
+
+	unlock(): void {
+		if (this.waitingQueue.length > 0) {
+			const next = this.waitingQueue.shift()!
+			next()
+		} else {
+			this.locked = false
+		}
+	}
+
+	async withLock<T>(fn: () => Promise<T>): Promise<T> {
+		await this.lock()
+		try {
+			return await fn()
+		} finally {
+			this.unlock()
+		}
+	}
+}
 
 const FILES_LIST_FILE = "files.json"
 const BUILD_STATE_FILE = "build_state.json"
+const CONFIG_FILE = "config.json"
 
 export class BuildStateTracer {
 	private storage: IStorage
 	private logger: ILogger
 	private currentState: KnowledgeGraphBuildState | undefined
+	private mutex = new Mutex()
 
 	constructor(storage: IStorage, logger: ILogger) {
 		this.storage = storage
@@ -20,34 +58,21 @@ export class BuildStateTracer {
 	public async init(): Promise<KnowledgeGraphBuildState> {
 		const state = await this.load()
 		if (!state) {
-			this.currentState = await this.initializeEmptyState()
+			this.currentState = await this.createBuildState({
+				progress: 0,
+				totalFiles: 0,
+				totalFilesToProcess: 0,
+				processedFiles: 0,
+				failedFiles: 0,
+				currentFile: "",
+				status: "pending" as const,
+				phase: "root_analysis",
+				totalDuration: 0,
+			} as KnowledgeGraphBuildState)
 		} else {
 			this.currentState = state
 		}
 		return this.currentState!
-	}
-
-	/**
-	 * 初始化空状态
-	 */
-	private async initializeEmptyState(): Promise<KnowledgeGraphBuildState> {
-		const emptyState: KnowledgeGraphBuildState = {
-			enabled: false,
-			isRunning: false,
-			isPaused: false,
-			progress: 0,
-			totalFiles: 0,
-			totalFilesToProcess: 0,
-			processedFiles: 0,
-			failedFiles: 0,
-			currentFile: "",
-			status: "idle" as const,
-			lastUpdateTime: new Date().toISOString(),
-			totalDuration: 0,
-			phase: "root_analysis",
-		}
-		await this.saveBuildState(emptyState)
-		return emptyState
 	}
 
 	/**
@@ -69,29 +94,33 @@ export class BuildStateTracer {
 
 		try {
 			const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
-			const startTime = new Date().toLocaleDateString()
+			const startTime = new Date().toISOString()
 
 			let taskState: KnowledgeGraphBuildState = {
-				isRunning: true,
-				isPaused: false,
 				taskId,
 				phase: "root_analysis",
 				progress: 0,
 				startTime,
 				lastUpdateTime: startTime,
-				totalRequests: 0,
 				totalDuration: 0,
-				totalTokens: { input: 0, output: 0 },
 				status: "running",
 				totalFiles,
 				processedFiles: 0,
 				failedFiles: 0,
 				currentFile: "",
-				enabled: true,
 				totalFilesToProcess: totalFilesToProcess,
+				llmStatistics: {
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalTokens: 0,
+					totalRequests: 0,
+					successfulRequests: 0,
+					failedRequests: 0,
+					totalDuration: 0,
+				},
 			}
 
-			await this.updateBuildState(taskState)
+			this.currentState = await this.createBuildState(taskState)
 			this.logger.info(`[BuildStateTracer] 初始化构建任务: ${taskId}, 总文件数: ${totalFiles}`)
 
 			// 更新内部状态
@@ -101,210 +130,210 @@ export class BuildStateTracer {
 		}
 	}
 
-	/**
-	 * 增加已处理文件数
-	 */
-	async incrementProcessedFiles(): Promise<void> {
-		const currentState = this.currentState
-		if (currentState) {
-			const newProcessedFiles = currentState.processedFiles + 1
-
-			// 重新计算整体进度 - 基于阶段权重
-			const phaseWeights = {
-				root_analysis: 0.1,
-				file_analysis: 0.8,
-				directory_analysis: 0.1,
-			}
-
-			// 计算当前阶段的进度
-			let currentPhaseProgress = 0
-			if (currentState.phase === "file_analysis" && currentState.totalFiles > 0) {
-				currentPhaseProgress = (newProcessedFiles / currentState.totalFiles) * 100
-			} else if (currentState.phase === "root_analysis") {
-				currentPhaseProgress = 100 // 根分析完成
-			}
-
-			// 计算总体进度
-			let overallProgress = 0
-			const phases = ["root_analysis", "file_analysis", "directory_analysis"]
-			const currentPhaseIndex = phases.indexOf(currentState.phase)
-
-			// 已完成的阶段
-			for (let i = 0; i < currentPhaseIndex; i++) {
-				overallProgress += phaseWeights[phases[i] as keyof typeof phaseWeights] * 100
-			}
-
-			// 当前阶段的进度
-			if (currentPhaseIndex >= 0) {
-				overallProgress += phaseWeights[currentState.phase as keyof typeof phaseWeights] * currentPhaseProgress
-			}
-
-			await this.updateBuildState({
-				processedFiles: newProcessedFiles,
-				progress: Math.min(100, overallProgress),
-			})
-
-			this.logger.info(
-				`[BuildStateTracer] 进度: ${newProcessedFiles}/${currentState.totalFiles} (${overallProgress.toFixed(1)}%)`,
-			)
-		}
-	}
 
 	/**
-	 * 更新构建状态 - 支持部分更新
+	 * 统一的构建状态更新方法 - 同时支持文件列表更新
 	 */
-	public async updateBuildState(updates: Partial<KnowledgeGraphBuildState>): Promise<void> {
-		try {
-			const currentState = this.currentState
-			if (!currentState) {
-				throw new Error("构建状态不存在，无法更新")
-			}
-
-			const updatedState: KnowledgeGraphBuildState = {
-				...currentState,
-				...updates,
-				lastUpdateTime: new Date().toISOString(), // 总是更新时间戳
-			}
-
-			// 如果更新了进度，确保在有效范围内
-			if (updates.progress !== undefined) {
-				updatedState.progress = Math.max(0, Math.min(100, updates.progress))
-			}
-
-			await this.saveBuildState(updatedState)
-		} catch (error) {
-			throw new Error(`更新构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
-		}
-	}
-
-	/**
-	 * 保存构建状态
-	 */
-	async saveBuildState(state: KnowledgeGraphBuildState): Promise<void> {
-		try {
-			// 确保状态包含所有必需字段
-			const currentStatus: KnowledgeGraphBuildState = {
-				taskId: state.taskId,
-				phase: state.phase,
-				progress: Math.max(0, Math.min(100, state.progress)), // 确保在0-100范围内
-				startTime: state.startTime,
-				lastUpdateTime: new Date().toISOString(), // 始终更新为当前时间
-				totalRequests: state.totalRequests || 0,
-				totalDuration: state.totalDuration || 0,
-				totalTokens: {
-					input: state.totalTokens?.input || 0,
-					output: state.totalTokens?.output || 0,
-				},
-				status: state.status,
-				totalFiles: state.totalFiles || 0,
-				processedFiles: state.processedFiles || 0,
-				failedFiles: state.failedFiles || 0,
-				currentFile: state.currentFile || "",
-				error: state.error,
-				enabled: state.enabled,
-				isRunning: state.isRunning,
-				isPaused: state.isPaused,
-				totalFilesToProcess: state.totalFilesToProcess || 0,
-			}
-
-			await this.storage.overwrite(BUILD_STATE_FILE, currentStatus)
-			this.logger.info(
-				`[BuildStateTracer] 状态已保存: ${currentStatus.status} (${currentStatus.progress.toFixed(1)}%)`,
-			)
-		} catch (error) {
-			throw new Error(`保存构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
-		}
-	}
-
-	/**
-	 * 更新请求统计
-	 */
-	async updateRequestStats(
-		requestCount: number,
-		duration: number,
-		tokens: { input: number; output: number },
+	public async updateBuildState(
+		updates: Partial<KnowledgeGraphBuildState>,
+		filePaths?: string[],
+		fileStatus?: "pending" | "success" | "failed"
 	): Promise<void> {
-		const currentState = this.currentState
-		if (currentState) {
-			// 给可能未定义的属性加默认值
-			const currentTotalRequests = currentState.totalRequests ?? 0 // 若为undefined，默认0
-			const currentTotalDuration = currentState.totalDuration ?? 0
-			// 处理totalTokens（若整个对象未定义，默认初始化为{input:0, output:0}）
-			const currentTotalTokens = currentState.totalTokens ?? { input: 0, output: 0 }
+		return this.mutex.withLock(async () => {
+			try {
+				// 先更新文件列表（如果提供了文件路径和状态）
+				if (filePaths && fileStatus) {
+					await this.updateFileList(filePaths, fileStatus)
+				}
 
-			await this.updateBuildState({
-				totalRequests: currentTotalRequests + requestCount,
-				totalDuration: currentTotalDuration + duration,
-				totalTokens: {
-					input: (currentTotalTokens.input ?? 0) + tokens.input, // 子属性也加默认值
-					output: (currentTotalTokens.output ?? 0) + tokens.output,
-				},
-			})
-		}
+				if (!this.currentState) {
+					throw new Error("构建状态不存在，无法更新")
+				}
+
+				const updatedState: KnowledgeGraphBuildState = {
+					...this.currentState,
+					...updates,
+					lastUpdateTime: new Date().toISOString(),
+				}
+
+				// 统一进度计算
+				if (updates.processedFiles !== undefined || updates.phase !== undefined) {
+					updatedState.progress = this.calculateProgress(updatedState)
+				}
+
+				// 保存状态
+				await this.storage.overwrite(BUILD_STATE_FILE, updatedState)
+				this.currentState = updatedState
+				
+				this.logger.info(
+					`[BuildStateTracer] 状态已更新: ${updatedState.status} (${updatedState.progress.toFixed(1)}%)`
+				)
+			} catch (error) {
+				throw new Error(`更新构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		})
 	}
 
-	async initializeFileRecords(files: FileInfo[]): Promise<FileChanges> {
-		try {
-			// 初始化文件历史记录（若为空则设为默认空对象）
-			const fileList = (await this.getFilesList()) || {}
-			const result: FileChanges = { added: [], modified: [], deleted: [] }
-
-			// 提取当前文件路径集合，用于快速判断删除的文件
-			const currentFilePaths = new Set(files.map((file) => file.path))
-
-			// 处理新增和修改的文件
-			for (const file of files) {
-				const existingRecord = fileList[file.path]
-				// 生成要更新的记录（复用逻辑，减少重复代码）
-				const newRecord = {
-					timestamp: file.lastModified,
-					hash: file.hash,
-					status: "pending" as const, // 明确类型为字符串字面量
+	/**
+	 * 创建新的构建状态
+	 */
+	private async createBuildState(state: KnowledgeGraphBuildState): Promise<KnowledgeGraphBuildState> {
+		return this.mutex.withLock(async () => {
+			try {
+				const newState: KnowledgeGraphBuildState = {
+					taskId: state.taskId,
+					phase: state.phase || "root_analysis",
+					progress: 0,
+					startTime: state.startTime || new Date().toISOString(),
+					lastUpdateTime: new Date().toISOString(),
+					totalDuration: state.totalDuration || 0,
+					status: state.status || "pending",
+					totalFiles: state.totalFiles || 0,
+					processedFiles: state.processedFiles || 0,
+					failedFiles: state.failedFiles || 0,
+					currentFile: state.currentFile || "",
+					error: state.error,
+					totalFilesToProcess: state.totalFilesToProcess || 0,
+					llmStatistics: state.llmStatistics || {
+						totalInputTokens: 0,
+						totalOutputTokens: 0,
+						totalTokens: 0,
+						totalRequests: 0,
+						successfulRequests: 0,
+						failedRequests: 0,
+						totalDuration: 0,
+					},
 				}
 
-				if (!existingRecord) {
-					// 路径不存在于历史记录 → 新增文件
-					result.added.push(file)
-				} else if (file.hash !== existingRecord.hash) {
-					// 哈希值变化 → 修改文件
-					result.modified.push(file)
-				} else {
-					// 无变化 → 不处理
-					continue
-				}
+				newState.progress = this.calculateProgress(newState)
+				await this.storage.overwrite(BUILD_STATE_FILE, newState)
+				this.currentState = newState
+				
+				this.logger.info(
+					`[BuildStateTracer] 状态已创建: ${newState.status} (${newState.progress.toFixed(1)}%)`
+				)
 
-				// 无论新增还是修改，都更新历史记录
-				fileList[file.path] = newRecord
+				return newState
+			} catch (error) {
+				throw new Error(`创建构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
 			}
+		})
+	}
 
-			// 处理删除的文件（历史记录存在但当前文件列表不存在的路径）
-			for (const existingPath of Object.keys(fileList)) {
-				if (!currentFilePaths.has(existingPath)) {
-					// 补充删除文件的基础信息（默认值统一维护）
-					result.deleted.push({
-						path: existingPath,
-						size: 0,
-						lastModified: 0,
-						hash: "",
-					})
-					delete fileList[existingPath]
-				}
-			}
-
-			// 保存更新后的历史记录
-			await this.saveFilesList(fileList)
-
-			return result
-		} catch (error) {
-			throw new Error(`初始化文件记录失败: ${error instanceof Error ? error.message : String(error)}`)
+	/**
+	 * 统一的进度计算方法
+	 */
+	private calculateProgress(state: KnowledgeGraphBuildState): number {
+		if (state.status === "completed") {
+			return 100
 		}
+
+		if (!state.totalFilesToProcess || state.totalFilesToProcess === 0) {
+			return 0
+		}
+
+		// 阶段权重
+		const phaseWeights = {
+			root_analysis: 0.1,
+			file_analysis: 0.8,
+			directory_analysis: 0.1,
+			dependency_analysis: 0.0,
+			completed: 0.0,
+		}
+
+		const phases = ["root_analysis", "file_analysis", "directory_analysis", "dependency_analysis", "completed"]
+		const currentPhaseIndex = phases.indexOf(state.phase)
+
+		if (currentPhaseIndex === -1) {
+			return 0
+		}
+
+		// 已完成阶段的进度
+		let completedProgress = 0
+		for (let i = 0; i < currentPhaseIndex; i++) {
+			completedProgress += phaseWeights[phases[i] as keyof typeof phaseWeights] * 100
+		}
+
+		// 当前阶段的进度
+		let currentPhaseProgress = 0
+		if (state.phase === "file_analysis" && state.totalFilesToProcess > 0) {
+			currentPhaseProgress = (state.processedFiles / state.totalFilesToProcess) * 100
+		} else if (currentPhaseIndex > 0) {
+			currentPhaseProgress = 100 // 其他阶段完成时为100%
+		}
+
+		const currentPhaseWeight = phaseWeights[state.phase as keyof typeof phaseWeights]
+		const totalProgress = completedProgress + currentPhaseWeight * currentPhaseProgress
+
+		return Math.max(0, Math.min(100, totalProgress))
+	}
+
+
+
+	public async resolveFileList(files: FileInfo[]): Promise<FileChanges> {
+		return this.mutex.withLock(async () => {
+			try {
+				// 初始化文件历史记录（若为空则设为默认空对象）
+				const previousFileList = (await this.getFilesList()) || {}
+				const result: FileChanges = { added: [], modified: [], deleted: [] }
+
+				// 提取当前文件路径集合，用于快速判断删除的文件
+				const currentFilePaths = new Set(files.map((file) => file.path))
+
+				// 处理新增和修改的文件
+				for (const file of files) {
+					const existingRecord = previousFileList[file.path]
+					// 生成要更新的记录（复用逻辑，减少重复代码）
+					const newRecord = {
+						timestamp: file.lastModified,
+						hash: file.hash,
+						status: "pending" as const, // 明确类型为字符串字面量
+					}
+
+					if (!existingRecord) {
+						// 路径不存在于历史记录 → 新增文件
+						result.added.push(file)
+					} else if (file.hash !== existingRecord.hash || existingRecord.status !== "success") {
+						// 哈希变化 或 状态非成功 → 均视为修改
+						result.modified.push(file)
+					} else {
+						// 无变化且已处理成功 → 不处理
+						continue
+					}
+
+					// 无论新增还是修改，都更新历史记录
+					previousFileList[file.path] = newRecord
+				}
+
+				// 处理删除的文件（历史记录存在但当前文件列表不存在的路径）
+				for (const existingPath of Object.keys(previousFileList)) {
+					if (!currentFilePaths.has(existingPath)) {
+						// 补充删除文件的基础信息（默认值统一维护）
+						result.deleted.push({
+							path: existingPath,
+							size: 0,
+							lastModified: 0,
+							hash: "",
+						})
+						delete previousFileList[existingPath]
+					}
+				}
+
+				// 保存更新后的历史记录
+				await this.saveFilesList(previousFileList)
+
+				return result
+			} catch (error) {
+				throw new Error(`初始化文件记录失败: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		})
 	}
 
 	/**
 	 * 读取或初始化文件列表 - 新格式：包含状态信息
 	 */
 	public async getFilesList(): Promise<
-		| Record<string, { timestamp: number; status: "pending" | "processing" | "success" | "failed"; hash: string }>
+		| Record<string, { timestamp: number; status: "pending" | "success" | "failed"; hash: string }>
 		| undefined
 	> {
 		try {
@@ -318,7 +347,7 @@ export class BuildStateTracer {
 			// 兼容旧格式：如果是数字，转换为新格式
 			const result: Record<
 				string,
-				{ timestamp: number; status: "pending" | "processing" | "success" | "failed"; hash: string }
+				{ timestamp: number; status: "pending" | "success" | "failed"; hash: string }
 			> = {}
 			for (const [path, value] of Object.entries(data)) {
 				result[path] = {
@@ -330,7 +359,7 @@ export class BuildStateTracer {
 			return result
 		} catch (error) {
 			this.logger.error("[BuildStateTracer] 获取构建状态失败:", error)
-			return {}
+			return undefined
 		}
 	}
 
@@ -346,51 +375,37 @@ export class BuildStateTracer {
 		await this.storage.overwrite(FILES_LIST_FILE, files)
 	}
 
-	/**
-	 * 更新进度
-	 */
-	public async updateProgress(
-		phase: BuildProgress["phase"],
-		processedFilesPaths: string[] | undefined = undefined,
-		failed: number,
-		errorMessage: string,
-	): Promise<void> {
-		// 更新files.json
-		await this.updateFileList(processedFilesPaths, "success")
-
-		return this.updateBuildState({
-			phase: phase,
-			processedFiles: processedFilesPaths?.length,
-			failedFiles: failed,
-			error: errorMessage,
-		})
-	}
 
 	private async updateFileList(
 		processedFilesPaths: string[] | undefined,
-		buildStatus: "pending" | "processing" | "success" | "failed",
+		buildStatus: "pending" | "success" | "failed",
 	) {
-		let fileList = await this.getFilesList()
-		if (!fileList) {
-			throw new Error("file.json not exists, cannot update.")
-		}
-		// 处理已完成的文件路径（更新状态为 success）
-		if (processedFilesPaths && processedFilesPaths.length > 0) {
-			processedFilesPaths.forEach((filePath) => {
-				// 检查 key 是否存在于文件列表中
-				if (Object.prototype.hasOwnProperty.call(fileList, filePath)) {
-					// 更新状态为 success，保留其他字段（timestamp、hash）
-					fileList[filePath] = {
-						...fileList[filePath],
-						status: buildStatus,
+		// 注意：这个方法现在在 updateBuildState 内部调用，已经在锁内，所以不需要再加锁
+		try {
+			let fileList = await this.getFilesList()
+			if (!fileList) {
+				throw new Error("file.json not exists, cannot update.")
+			}
+			// 处理已完成的文件路径（更新状态为 success）
+			if (processedFilesPaths && processedFilesPaths.length > 0) {
+				processedFilesPaths.forEach((filePath) => {
+					// 检查 key 是否存在于文件列表中
+					if (Object.prototype.hasOwnProperty.call(fileList, filePath)) {
+						// 更新状态为 success，保留其他字段（timestamp、hash）
+						fileList[filePath] = {
+							...fileList[filePath],
+							status: buildStatus,
+						}
+					} else {
+						this.logger.warn(`[BuildStateTracer] 文件路径未在files.json中找到: ${filePath}`)
 					}
-				} else {
-					this.logger.warn(`[BuildStateTracer] 文件路径未找到: ${filePath}`)
-				}
-			})
-		}
+				})
+			}
 
-		await this.saveFilesList(fileList)
+			await this.saveFilesList(fileList)
+		} catch (error) {
+			throw new Error(`更新文件列表失败: ${error instanceof Error ? error.message : String(error)}`)
+		}
 	}
 
 	/**
@@ -422,6 +437,7 @@ export class BuildStateTracer {
 	public async clear(): Promise<void> {
 		try {
 			await this.storage.clear(BUILD_STATE_FILE)
+			await this.storage.clear(FILES_LIST_FILE)
 		} catch (error) {
 			throw new Error(`删除构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
 		}
@@ -431,14 +447,14 @@ export class BuildStateTracer {
 	 * 检查是否正在运行
 	 */
 	public isRunning(): boolean | undefined {
-		return this.currentState?.isRunning
+		return this.currentState?.status === "running"
 	}
 
 	/**
 	 * 检查是否已暂停
 	 */
 	public isPaused(): boolean | undefined {
-		return this.currentState?.isPaused
+		return this.currentState?.status === "paused"
 	}
 
 	/**
@@ -453,5 +469,36 @@ export class BuildStateTracer {
 	 */
 	public hasError(): boolean | undefined {
 		return this.currentState?.status === "error"
+	}
+
+	/**
+	 * 启用/禁用知识图谱 - 独立配置文件
+	 */
+	public async enableKnowledgeGraph(enabled: boolean): Promise<void> {
+		try {
+			const config = { enabled }
+			await this.storage.overwrite(CONFIG_FILE, config)
+			this.logger.info(`[BuildStateTracer] 知识图谱启用状态已更新: ${enabled}`)
+		} catch (error) {
+			throw new Error(`更新启用状态失败: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
+
+	/**
+	 * 获取知识图谱启用状态
+	 */
+	public async isKnowledgeGraphEnabled(): Promise<boolean> {
+		try {
+			const content = await this.storage.load(CONFIG_FILE)
+			if (!content) {
+				// 默认为禁用状态
+				return false
+			}
+			const config = JSON.parse(content)
+			return config.enabled ?? false
+		} catch (error) {
+			this.logger.warn(`[BuildStateTracer] 获取启用状态失败: ${error instanceof Error ? error.message : String(error)}`)
+			return false
+		}
 	}
 }

@@ -22,7 +22,8 @@ import { GraphBuilder } from "./core/GraphBuilder"
 import { GraphRetriever } from "./core/GraphRetriever"
 import { BuildStateTracer } from "./core/BuildStateTracer"
 import { StorageFactory } from "./storage/StorageFactory"
-import { ErrorHandler } from "./errors/KnowledgeGraphError"
+import { ErrorHandler } from "./errors/ErrorHandler"
+import { ProgressTracer } from "./tools/ProgressTracer"
 
 /**
  * 激活知识图谱功能
@@ -43,7 +44,7 @@ export async function activateKnowledgeGraph(
 
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : "激活知识图谱功能失败"
-		logger.error(`[KnowledgeGraphExtension] ${errorMessage}`)
+		logger.error(`[KnowledgeGraphManager] 激活失败: ${errorMessage}`)
 
 		// 显示错误提示
 		vscode.window.showErrorMessage(`知识图谱功能激活失败: ${errorMessage}`)
@@ -55,13 +56,13 @@ export async function activateKnowledgeGraph(
  */
 export async function deactivateKnowledgeGraph(): Promise<void> {
 	const logger = createLogger(Package.outputChannel)
-	logger.info("[KnowledgeGraph] 停用知识图谱功能")
+	logger.info("[KnowledgeGraphManager] 停用知识图谱功能")
 	try {
 		await knowledgeGraphManager.dispose()
-		logger.info("[KnowledgeGraph] 知识图谱功能停用完成")
+		logger.info("[KnowledgeGraphManager] 知识图谱功能停用完成")
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : "停用知识图谱功能失败"
-		logger.error(`[KnowledgeGraph] ${errorMessage}`)
+		logger.error(`[KnowledgeGraphManager] 停用失败: ${errorMessage}`)
 	}
 }
 
@@ -75,6 +76,7 @@ export class KnowledgeGraphManager {
 	private clineProvider: ClineProvider | undefined;
 	private isInitialized: boolean = false
 	private graphBuilder: GraphBuilder | undefined;
+	private stateTracer: BuildStateTracer | undefined;
 	private graphRetriever: GraphRetriever | undefined;
 	private exporter: Exporter | undefined;
 	
@@ -115,30 +117,32 @@ export class KnowledgeGraphManager {
 	 */
 	public async initialize(): Promise<void> {
 		if (this.isInitialized) {
-			this.logger?.info("知识图谱服务已经初始化，跳过")
+			this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已经初始化，跳过")
 			return
 		}
 		const workspacePath = this.getWorkspacePath()
 		if (!workspacePath) {
-			throw new Error("workspace path is empty, initialize knowledge-graph failed.")
+			throw ErrorHandler.wrapError(new Error("workspace path is empty"), "初始化知识图谱服务")
 		}
 
 		try {
 			
 			// 检查是否启用了知识图谱功能
 			if (!(await this.isKnowledgeGraphEnabled())) {
-				this.logger?.info("知识图谱功能未启用")
+				this.logger?.info("[KnowledgeGraphManager] 知识图谱功能未启用")
 				return
 			}
 
-			// 使用优化后的组件初始化服务
-			const fileService = new FileService(new FileFilter())
+			// 使用优化后的组件初始化服务，统一传入logger和ProgressTracer
+			const progressTracer = new ProgressTracer()
+			const fileFilter = new FileFilter(undefined, undefined, undefined, undefined, this.logger!)
+			const fileService = new FileService(fileFilter, this.logger!)
 			const storage = StorageFactory.createStorage({
 				type: this.config.storageType,
 				path: StorageFactory.getWorkspaceStoragePath(workspacePath)
 			})
 
-			const llmClient = new LLMClient(this.config.model)
+			const llmClient = new LLMClient(this.config.model,progressTracer, undefined,  this.logger!)
 			
 			// 初始化分析器
 			const rootAnalyzer = new RootAnalyzer(llmClient, storage, this.config, this.logger!)
@@ -152,6 +156,7 @@ export class KnowledgeGraphManager {
 			)
 			const stateTracer = new BuildStateTracer(storage, this.logger!)
 			await stateTracer.init()
+			this.stateTracer = stateTracer
 
 			this.graphBuilder = new GraphBuilder(this.config, {
 				rootAnalyzer: rootAnalyzer,
@@ -167,21 +172,15 @@ export class KnowledgeGraphManager {
 			this.exporter = new Exporter(rootAnalyzer, fileAnalyzer, directoryAnalyzer, this.logger!)
 
 			// 设置暂停检查器
-			const pauseChecker = () => this.graphBuilder?.getState()?.isPaused ?? false
+			const pauseChecker = () => stateTracer.isPaused() ?? false
 			rootAnalyzer.setPauseChecker(pauseChecker)
 			fileAnalyzer.setPauseChecker(pauseChecker)
 			directoryAnalyzer.setPauseChecker(pauseChecker)
-
-			// 定期清理文件服务缓存
-			setInterval(() => {
-				fileService.cleanupCache()
-			}, 60 * 60 * 1000) // 每小时清理一次
-
 			this.isInitialized = true
 
 		} catch (error) {
 			const wrappedError = ErrorHandler.wrapError(error, "初始化知识图谱服务")
-			this.logger?.error(`initialize knowledgegraph service failed: ${ErrorHandler.formatError(wrappedError)}`)
+			this.logger?.error(`[GraphBuilder] initialize knowledgegraph service failed: ${ErrorHandler.formatError(wrappedError)}`)
 			throw wrappedError
 		}
 	}
@@ -190,7 +189,7 @@ export class KnowledgeGraphManager {
 	/**
 	 * 检查知识图谱是否启用
 	 */
-	private async isKnowledgeGraphEnabled(): Promise<boolean> {
+	public async isKnowledgeGraphEnabled(): Promise<boolean|undefined> {
 		if (!this.clineProvider) {
 			return false
 		}
@@ -201,7 +200,7 @@ export class KnowledgeGraphManager {
 				return false
 			}
 			// 检查全局设置中是否启用了知识图谱
-			return state.knowledgeGraphEnabled === true
+			return this.stateTracer?.isKnowledgeGraphEnabled()
 		} catch {
 			return false
 		}
@@ -235,7 +234,10 @@ export class KnowledgeGraphManager {
 	 */
 	public async dispose(): Promise<void> {
 		// 暂停构建
-		await this.graphBuilder?.pause(this.getWorkspacePath()!)
+		const workspacePath = this.getWorkspacePath()
+		if (workspacePath && this.graphBuilder) {
+			await this.graphBuilder.pause(workspacePath)
+		}
 		
 		await this.stopService()
 	}
@@ -263,7 +265,7 @@ export class KnowledgeGraphManager {
 	 * 获取构建状态
 	 */
 	public getBuildStatus(): KnowledgeGraphBuildState|undefined {
-		return this.graphBuilder!.getState()
+		return this.stateTracer?.getCurrentState()
 	}
 
 	
@@ -272,7 +274,7 @@ export class KnowledgeGraphManager {
 	 */
 	public async startBuild(options: Partial<BuildOptions> = {}): Promise<void> {
 		if (!this.graphBuilder) {
-			throw new Error("GraphBuilder not initialized")
+			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
 		}
 		return await this.graphBuilder.start(this.getWorkspacePath()!, options)
 	}
@@ -282,7 +284,7 @@ export class KnowledgeGraphManager {
 	 */
 	public async pauseBuild(): Promise<void> {
 		if (!this.graphBuilder) {
-			throw new Error("GraphBuilder not initialized")
+			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "暂停构建")
 		}
 		return await this.graphBuilder.pause(this.getWorkspacePath()!)
 	}
@@ -292,7 +294,7 @@ export class KnowledgeGraphManager {
 	 */
 	public async resumeBuild(): Promise<void> {
 		if (!this.graphBuilder) {
-			throw new Error("GraphBuilder not initialized")
+			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "继续构建")
 		}
 		return await this.graphBuilder.resume(this.getWorkspacePath()!)
 	}
@@ -302,17 +304,27 @@ export class KnowledgeGraphManager {
 	 */
 	public async clearKnowledgeGraph(): Promise<void> {
 		if (!this.graphBuilder) {
-			throw new Error("GraphBuilder not initialized")
+			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "清除知识图谱")
 		}
 		return await this.graphBuilder.clear(this.getWorkspacePath()!)
 	}
 
+	/**
+		* 启用/禁用知识图谱
+		*/
+	public async enableKnowledgeGraph(enabled: boolean): Promise<void> {
+		if (!this.graphBuilder) {
+			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "启用/禁用知识图谱")
+		}
+		return await this.stateTracer?.enableKnowledgeGraph(enabled)
+	}
+
 		/**
-	 * 搜索知识图谱
-	 */
+		* 搜索知识图谱
+		*/
 	public async search(query: SearchQuery): Promise<any[]> {
 		if (!this.graphRetriever) {
-			throw new Error("GraphRetriever not initialized")
+			throw ErrorHandler.wrapError(new Error("GraphRetriever not initialized"), "搜索知识图谱")
 		}
 		return await this.graphRetriever.search(this.getWorkspacePath()!, query)
 	}
@@ -322,11 +334,11 @@ export class KnowledgeGraphManager {
 	 */
 	public async export(format: ExportFormat, outputPath: string): Promise<ExportResult> {
 		if (!this.exporter) {
-			throw new Error("Exporter not initialized")
+			throw ErrorHandler.wrapError(new Error("Exporter not initialized"), "导出知识图谱")
 		}
 		const workspacePath = this.getWorkspacePath()
 		if (!workspacePath) {
-			throw new Error("Workspace path not available")
+			throw ErrorHandler.wrapError(new Error("Workspace path not available"), "导出知识图谱")
 		}
 		return await this.exporter.export(workspacePath, {format, outputPath })
 	}

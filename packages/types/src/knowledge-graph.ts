@@ -63,7 +63,7 @@ export const knowledgeGraphStatusSchema = z.object({
 	totalFiles: z.number(),
 	processedFiles: z.number(),
 	currentFile: z.string(),
-	status: z.enum(["idle", "running", "paused", "completed", "error"]),
+	status: z.enum(["pending", "running", "paused", "completed", "error"]),
 	error: z.string().optional(),
 	lastUpdated: z.string().optional(),
 })

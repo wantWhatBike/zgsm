@@ -4,12 +4,6 @@
 
 import {
   StorageConfig,
-  FileSummary,
-  DirectorySummary,
-  DependencyRelation,
-  RootInfo,
-  KnowledgeGraphBuildState,
-  FileInfo
 } from "../types"
 
 /**
