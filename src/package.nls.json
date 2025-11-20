@@ -121,5 +121,6 @@
 	"settings.knowledgeGraph.resume": "Resume",
 	"settings.knowledgeGraph.clear": "Clear",
 	"settings.knowledgeGraph.export": "Export",
-	"settings.knowledgeGraph.export.description": "Export knowledge graph data as ZIP file"
+	"settings.knowledgeGraph.export.description": "Export knowledge graph data as ZIP file",
+	"settings.knowledgeGraph.cannotDisableWhileRunning": "Cannot disable while running, please stop first"
 }

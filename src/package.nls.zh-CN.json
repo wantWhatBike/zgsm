@@ -141,5 +141,6 @@
 	"settings.knowledgeGraph.status.failed": "失败",
 	"settings.knowledgeGraph.status.paused": "已暂停",
 	"settings.knowledgeGraph.status.unknown": "未知",
-	"settings.knowledgeGraph.selectModel": "选择模型"
+	"settings.knowledgeGraph.selectModel": "选择模型",
+	"settings.knowledgeGraph.cannotDisableWhileRunning": "运行中不能禁用，请先停止"
 }

@@ -229,9 +229,13 @@ export class DirectorySummarizer {
 				}
 
 				processedCount++
+				
+				// 增加详细的进度日志打印，参考文件摘要的进度打印方式
+				this.logger.info(`[DirectorySummarizer] 目录摘要进度: ${processedCount}/${dirsToProcess} - 正在分析目录: ${dirPath}`)
+				
 				onProgress?.({
 					phase: "directory_analysis",
-					message: `正在分析目录: ${dirPath}`,
+					message: '',
 					totalFiles: dirsToProcess,
 					filesToProcess: dirsToProcess,
 					totalProcessedFiles: processedCount,

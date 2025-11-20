@@ -223,6 +223,20 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		return t(textKey)
 	}, [t])
 
+	// 获取禁用提示文本 - 简化复杂的三元表达式
+	const getDisabledTooltipText = useCallback(() => {
+		if (knowledgeGraphStatus.status === "running") {
+			return t("settings.knowledgeGraph.cannotDisableWhileRunning")
+		}
+		if (!isZgsmProvider) {
+			return t("settings.knowledgeGraph.onlyCostrictProviderSupport")
+		}
+		if (!cwd) {
+			return t("settings.knowledgeGraph.disabled")
+		}
+		return t("settings.knowledgeGraph.disabled")
+	}, [knowledgeGraphStatus.status, isZgsmProvider, cwd, t])
+
 	const handleMessage = useCallback(
 		(event: MessageEvent) => {
 			const message = event.data
@@ -291,11 +305,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 							</TooltipTrigger>
 							{shouldDisableCheckbox && (
 								<TooltipContent>
-									<p>
-										{!cwd
-											? t("settings:ui.knowledgeGraph.disabled")
-											: t("settings:ui.knowledgeGraph.onlyCostrictProviderSupport")}
-									</p>
+									<p>{getDisabledTooltipText()}</p>
 								</TooltipContent>
 							)}
 						</Tooltip>

@@ -445,4 +445,42 @@ export class GraphBuilder {
 		})
 	}
 
+	/**
+	 * 状态修复：检查Build_state为running但实际没有正在运行的任务
+	 * 主要处理插件关闭后状态还是running的情况
+	 */
+	public async repairBuildState(): Promise<void> {
+		if (!this.buildStateTracer) {
+			return
+		}
+
+		try {
+			const currentState = this.buildStateTracer.getCurrentState()
+			if (!currentState) {
+				return
+			}
+
+			// 如果Build_state显示为running，但实际没有正在运行的任务
+			if (currentState.status === "running") {
+				// 检查是否有正在执行的任务（检查currentBuildPromise）
+				const hasRunningTask = this.currentBuildPromise !== null
+				
+				if (!hasRunningTask) {
+					this.logger.warn("[GraphBuilder] 检测到状态不一致：Build_state为running但无实际运行任务，修复为paused")
+					
+					// 将状态修复为paused，用户可以选择继续或清空
+					await this.buildStateTracer.updateBuildState({
+						status: "paused",
+						error: "检测到异常中断，已自动修复状态"
+					})
+					
+					this.logger.info("[GraphBuilder] 状态修复完成：running -> paused")
+				}
+			}
+		} catch (error) {
+			this.logger.error(`[GraphBuilder] 状态修复失败: ${error}`)
+			// 状态修复失败不应该阻止初始化
+		}
+	}
+
 }
