@@ -72,6 +72,12 @@ export class GraphBuilder {
 		if (this.isClearing) {
 			throw new Error("正在清除知识图谱，请稍后重试")
 		}
+
+		// 检查状态是否允许启动构建
+		if (!this.buildStateTracer.canStartBuild()) {
+			const currentStatus = this.buildStateTracer.getCurrentState()?.status
+			throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
+		}
 		
 		// 如果已有任务在执行，直接返回该任务
 		if (this.currentBuildPromise) {
@@ -94,17 +100,22 @@ export class GraphBuilder {
 	}
 
 	/**
-	 * 暂停构建
+	 * 暂停构建 - 修复状态同步问题
 	 */
 	async pause(workspacePath: string): Promise<void> {
 		if (!workspacePath) {
 			throw new Error("workspacePath is null, cannot pause.")
 		}
-		if (!this.buildStateTracer.isRunning()) {
+		
+		// 使用新的状态检查方法
+		if (!this.buildStateTracer.canPause()) {
+			const currentStatus = this.buildStateTracer.getCurrentState()?.status
+			this.logger.warn(`[GraphBuilder] 当前状态 ${currentStatus} 不支持暂停操作`)
 			return
 		}
 
-		this.buildStateTracer.updateBuildState({
+		// 原子性更新状态，避免竞态条件
+		await this.buildStateTracer.updateBuildState({
 			status: "paused",
 		})
 
@@ -112,14 +123,23 @@ export class GraphBuilder {
 	}
 
 	/**
-	 * 继续构建
+	 * 继续构建 - 修复状态同步和任务管理问题
 	 */
 	async resume(workspacePath: string): Promise<void> {
 		if (!workspacePath) {
 			throw new Error("workspacePath is null, cannot resume.")
 		}
-		if (!this.buildStateTracer.isPaused()) {
-			throw new Error("构建任务未处于暂停状态")
+		
+		// 使用新的状态检查方法
+		if (!this.buildStateTracer.canResume()) {
+			const currentStatus = this.buildStateTracer.getCurrentState()?.status
+			throw new Error(`构建任务未处于暂停状态，当前状态: ${currentStatus}`)
+		}
+
+		// 防止重复恢复
+		if (this.currentBuildPromise) {
+			this.logger.warn("[GraphBuilder] 构建任务已在执行中，忽略恢复请求")
+			return this.currentBuildPromise
 		}
 
 		// 1. 先更新状态为 running
@@ -128,19 +148,12 @@ export class GraphBuilder {
 		})
 		this.logger.info(`[GraphBuilder] 构建状态已更新为 running`)
 
-		// 2. 检查是否已有任务在执行
-		if (this.currentBuildPromise) {
-			// 如果有任务在执行，且状态已改为 running，该任务会在下一次检查 shouldPause 时继续执行
-			this.logger.info("[GraphBuilder] 检测到现有构建任务，已恢复其执行")
-			return
-		}
-
-		this.logger.info(`[GraphBuilder] 启动新的构建任务以恢复：${workspacePath}`)
-
-		// 3. 如果没有任务在执行，启动新任务
+		// 2. 启动恢复任务
+		this.logger.info(`[GraphBuilder] 启动恢复构建任务：${workspacePath}`)
 		this.currentBuildPromise = this.executeBuild(workspacePath, { resumeFromPrevious: true })
 			.catch(async (error) => {
 				await this.handleBuildError(error)
+				throw error
 			})
 			.finally(() => {
 				this.currentBuildPromise = null
@@ -149,6 +162,9 @@ export class GraphBuilder {
 		return this.currentBuildPromise
 	}
 
+	/**
+	 * 清除知识图谱 - 修复状态检查和清理逻辑
+	 */
 	async clear(workspacePath: string): Promise<void> {
 		if (!workspacePath) {
 			throw new Error("workspacePath is null, cannot clear.")
@@ -159,14 +175,22 @@ export class GraphBuilder {
 			return
 		}
 
-		// 检查是否有正在运行的构建任务
-		if (this.currentBuildPromise && this.buildStateTracer.isRunning()) {
-			throw new Error("知识图谱正在构建中，无法清除。请先暂停构建后再清除。")
+		// 使用新的状态检查方法
+		if (!this.buildStateTracer.canClear()) {
+			const currentStatus = this.buildStateTracer.getCurrentState()?.status
+			throw new Error(`当前状态 ${currentStatus} 不允许清除。请先暂停构建后再清除。`)
 		}
 
 		this.isClearing = true
 		
 		try {
+			// 如果有暂停的任务，先取消它
+			if (this.currentBuildPromise) {
+				this.logger.info("[GraphBuilder] 取消暂停的构建任务")
+				this.currentBuildPromise = null
+			}
+
+			// 清除所有存储
 			await this.buildStateTracer.clear()
 			await this.rootAnalyzer.clear()
 			await this.fileSummarizer.clear()

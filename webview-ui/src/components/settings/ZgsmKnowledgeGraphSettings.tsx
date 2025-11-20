@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useEffect, useRef, useCallback, useMemo, useReducer } from "react"
 import { FileText, AlertCircle, Play, Pause, Trash, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 
@@ -22,39 +22,24 @@ import { SetCachedStateField } from "./types"
 import { useEvent } from "react-use"
 import { KnowledgeGraphBuildState, KNOWLEDGE_GRAPH_MESSAGES, API_PROVIDER } from "@roo-code/types"
 
-// 前端UI常量 - 轮询配置
+// 前端UI常量
 const POLLING_INTERVAL = 2000
+const DEBOUNCE_DELAY = 300
 
-// 需要轮询的状态
-const POLLING_STATUSES = ["running"]
-// 需要停止轮询的状态
-const STOP_POLLING_STATUSES = ["completed", "error", "pending", "paused"]
+// 状态机定义
+type UIState = {
+	knowledgeGraphStatus: KnowledgeGraphBuildState
+	isOperating: boolean
+	toggleError: string | null
+}
 
-// 状态配置 - 统一管理图标和文本键
-const STATUS_CONFIG = {
-	running: {
-		icon: "w-3 h-3 bg-yellow-500 rounded-full animate-pulse",
-		textKey: "settings:ui.knowledgeGraph.status.running"
-	},
-	pending: {
-		icon: "w-3 h-3 bg-gray-400 rounded-full animate-pulse",
-		textKey: "settings:ui.knowledgeGraph.status.pending"
-	},
-	completed: {
-		icon: "w-3 h-3 bg-green-500 rounded-full",
-		textKey: "settings:ui.knowledgeGraph.status.success"
-	},
-	error: {
-		icon: "w-3 h-3 bg-red-500 rounded-full",
-		textKey: "settings:ui.knowledgeGraph.status.failed"
-	},
-	paused: {
-		icon: "w-3 h-3 bg-orange-500 rounded-full",
-		textKey: "settings:ui.knowledgeGraph.status.paused"
-	}
-} as const
+type UIAction =
+	| { type: 'UPDATE_STATUS'; payload: KnowledgeGraphBuildState }
+	| { type: 'SET_OPERATING'; payload: boolean }
+	| { type: 'SET_TOGGLE_ERROR'; payload: string | null }
+	| { type: 'RESET_TO_DEFAULT' }
 
-// 默认状态生成函数 - 消除重复定义
+// 默认状态生成函数
 const createDefaultBuildState = (): KnowledgeGraphBuildState => ({
 	progress: 0,
 	totalFiles: 0,
@@ -68,6 +53,69 @@ const createDefaultBuildState = (): KnowledgeGraphBuildState => ({
 	totalDuration: 0,
 })
 
+// 状态机Reducer - 统一状态管理
+const uiStateReducer = (state: UIState, action: UIAction): UIState => {
+	switch (action.type) {
+		case 'UPDATE_STATUS':
+			return {
+				...state,
+				knowledgeGraphStatus: action.payload,
+				isOperating: false,
+			}
+		case 'SET_OPERATING':
+			return { ...state, isOperating: action.payload }
+		case 'SET_TOGGLE_ERROR':
+			return { ...state, toggleError: action.payload }
+		case 'RESET_TO_DEFAULT':
+			return {
+				...state,
+				knowledgeGraphStatus: createDefaultBuildState(),
+				isOperating: false,
+			}
+		default:
+			return state
+	}
+}
+
+// 状态配置 - 统一管理图标和文本键
+const STATUS_CONFIG = {
+	running: {
+		icon: "w-3 h-3 bg-yellow-500 rounded-full animate-pulse",
+		textKey: "knowledgeGraph.statusRunning"
+	},
+	pending: {
+		icon: "w-3 h-3 bg-gray-400 rounded-full animate-pulse",
+		textKey: "knowledgeGraph.statusPending"
+	},
+	completed: {
+		icon: "w-3 h-3 bg-green-500 rounded-full",
+		textKey: "knowledgeGraph.statusSuccess"
+	},
+	error: {
+		icon: "w-3 h-3 bg-red-500 rounded-full",
+		textKey: "knowledgeGraph.statusFailed"
+	},
+	paused: {
+		icon: "w-3 h-3 bg-orange-500 rounded-full",
+		textKey: "knowledgeGraph.statusPaused"
+	}
+} as const
+
+// 防抖Hook
+const useDebounce = <T extends (...args: any[]) => void>(
+	callback: T,
+	delay: number
+): T => {
+	const timeoutRef = useRef<NodeJS.Timeout>()
+	
+	return useCallback((...args: Parameters<T>) => {
+		if (timeoutRef.current) {
+			clearTimeout(timeoutRef.current)
+		}
+		timeoutRef.current = setTimeout(() => callback(...args), delay)
+	}, [callback, delay]) as T
+}
+
 interface KnowledgeGraphSettingsProps {
 	setCachedStateField?: SetCachedStateField<"knowledgeGraphEnabled">
 }
@@ -80,14 +128,15 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		apiConfiguration,
 		cwd	} = useExtensionState()
 	
-	// 轮询状态管理 - 简化为单一状态
-	const pollingIntervalId = useRef<NodeJS.Timeout | null>(null)
-
-	const [knowledgeGraphStatus, setKnowledgeGraphStatus] = useState<KnowledgeGraphBuildState>(() => {
-		return initialStatus || createDefaultBuildState()
+	// 使用状态机管理UI状态
+	const [uiState, dispatch] = useReducer(uiStateReducer, {
+		knowledgeGraphStatus: initialStatus || createDefaultBuildState(),
+		isOperating: false,
+		toggleError: null,
 	})
-	const [toggleError, setToggleError] = useState<string | null>(null)
-	const [isPausing, setIsPausing] = useState(false)
+	
+	// 轮询管理
+	const pollingIntervalId = useRef<NodeJS.Timeout | null>(null)
 
 	// 检查是否为支持的API提供者 - 使用共享常量
 	const isZgsmProvider = useMemo(
@@ -97,8 +146,8 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 
 	// Check if should disable checkbox - when API provider is not zgsm, no cwd, or running
 	const shouldDisableCheckbox = useMemo(
-		() => !isZgsmProvider || !cwd || knowledgeGraphStatus.status === "running",
-		[isZgsmProvider, cwd, knowledgeGraphStatus.status],
+		() => !isZgsmProvider || !cwd || uiState.knowledgeGraphStatus.status === "running",
+		[isZgsmProvider, cwd, uiState.knowledgeGraphStatus.status],
 	)
 
 	// Use useMemo to avoid unnecessary state updates
@@ -112,12 +161,12 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		vscode.postMessage({ type, ...payload })
 	}, [])
 
-	// 获取状态 - 单次请求
+	// 获取状态
 	const getStatusOnce = useCallback(() => {
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS)
 	}, [sendMessage])
 
-	// 停止轮询 - 简化逻辑
+	// 轮询管理 - 简化逻辑
 	const stopPolling = useCallback(() => {
 		if (pollingIntervalId.current) {
 			clearInterval(pollingIntervalId.current)
@@ -125,28 +174,21 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		}
 	}, [])
 
-	// 启动轮询 - 优化逻辑，避免竞态条件
 	const startPolling = useCallback(() => {
-		// 如果已经在轮询，则不重复启动
-		if (pollingIntervalId.current) {
-			return
-		}
-		
-		// 启动新的轮询
-		pollingIntervalId.current = setInterval(() => {
-			getStatusOnce()
-		}, POLLING_INTERVAL)
+		if (pollingIntervalId.current) return
+		pollingIntervalId.current = setInterval(getStatusOnce, POLLING_INTERVAL)
 	}, [getStatusOnce])
 
-	// 检查是否需要停止轮询
-	const shouldStopPolling = useCallback((status: string) => {
-		return STOP_POLLING_STATUSES.includes(status as any)
-	}, [])
-
-	// 检查是否需要启动轮询
-	const shouldStartPolling = useCallback((status: string) => {
-		return POLLING_STATUSES.includes(status as any)
-	}, [])
+	// 轮询控制 - 基于状态自动管理
+	useEffect(() => {
+		const { status } = uiState.knowledgeGraphStatus
+		if (status === "running") {
+			startPolling()
+		} else {
+			stopPolling()
+		}
+		return stopPolling
+	}, [uiState.knowledgeGraphStatus, startPolling, stopPolling])
 
 	// Handle messages from extension
 	useEffect(() => {
@@ -184,32 +226,43 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.ENABLED, { bool: newChecked })
 	}, [knowledgeGraphEnabled, sendMessage])
 
-	const handleStartBuild = useCallback(() => {
-		setKnowledgeGraphStatus((prev: KnowledgeGraphBuildState) => ({ ...prev, status: "running" }))
+	// 防抖的操作函数 - 统一状态检查和防重复点击
+	const handleStartBuild = useDebounce(() => {
+		const { status } = uiState.knowledgeGraphStatus
+		if (status !== "pending" && status !== "completed" && status !== "error" || uiState.isOperating) {
+			return
+		}
+		dispatch({ type: 'SET_OPERATING', payload: true })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.BUILD)
-		// 启动轮询
-		startPolling()
-	}, [startPolling, sendMessage])
+	}, DEBOUNCE_DELAY)
 
-	const handlePauseBuild = useCallback(() => {
-		setIsPausing(true)
+	const handlePauseBuild = useDebounce(() => {
+		const { status } = uiState.knowledgeGraphStatus
+		if (status !== "running" || uiState.isOperating) {
+			return
+		}
+		dispatch({ type: 'SET_OPERATING', payload: true })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.PAUSE)
-		// 依赖后端推送的新状态来决定是否停止轮询
-	}, [sendMessage])
+	}, DEBOUNCE_DELAY)
 
-	const handleResumeBuild = useCallback(() => {
+	const handleResumeBuild = useDebounce(() => {
+		const { status } = uiState.knowledgeGraphStatus
+		if (status !== "paused" || uiState.isOperating) {
+			return
+		}
+		dispatch({ type: 'SET_OPERATING', payload: true })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.RESUME)
-		// 依赖后端推送的新状态来决定是否启动轮询
-	}, [sendMessage])
+	}, DEBOUNCE_DELAY)
 
-	const handleClearBuild = useCallback(() => {
-		// 清空时停止轮询，避免竞态条件
-		stopPolling()
-		// 立即更新本地状态为pending，避免显示错误状态
-		setKnowledgeGraphStatus(createDefaultBuildState())
+	const handleClearBuild = useDebounce(() => {
+		const { status } = uiState.knowledgeGraphStatus
+		if (status === "running" || uiState.isOperating) {
+			return
+		}
+		dispatch({ type: 'SET_OPERATING', payload: true })
+		dispatch({ type: 'RESET_TO_DEFAULT' })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.CLEAR)
-		// 依赖后端推送的新状态
-	}, [sendMessage, stopPolling])
+	}, DEBOUNCE_DELAY)
 
 	const getStatusIcon = useCallback((status: string) => {
 		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
@@ -219,23 +272,23 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 
 	const getStatusText = useCallback((status: string) => {
 		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
-		const textKey = config?.textKey || "settings:ui.knowledgeGraph.status.unknown"
+		const textKey = config?.textKey || "knowledgeGraph.statusUnknown"
 		return t(textKey)
 	}, [t])
 
 	// 获取禁用提示文本 - 简化复杂的三元表达式
 	const getDisabledTooltipText = useCallback(() => {
-		if (knowledgeGraphStatus.status === "running") {
-			return t("settings.knowledgeGraph.cannotDisableWhileRunning")
+		if (uiState.knowledgeGraphStatus.status === "running") {
+			return t("knowledgeGraph.cannotDisableWhileRunning")
 		}
 		if (!isZgsmProvider) {
-			return t("settings.knowledgeGraph.onlyCostrictProviderSupport")
+			return t("knowledgeGraph.onlyCostrictProviderSupport")
 		}
 		if (!cwd) {
-			return t("settings.knowledgeGraph.disabled")
+			return t("knowledgeGraph.disabled")
 		}
-		return t("settings.knowledgeGraph.disabled")
-	}, [knowledgeGraphStatus.status, isZgsmProvider, cwd, t])
+		return t("knowledgeGraph.disabled")
+	}, [uiState.knowledgeGraphStatus.status, isZgsmProvider, cwd, t])
 
 	const handleMessage = useCallback(
 		(event: MessageEvent) => {
@@ -244,35 +297,17 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			if (message.type === KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE && message.payload?.status) {
 				const statusInfo = message.payload.status as KnowledgeGraphBuildState
 				
-				// 处理暂停状态的UI反馈
-				if (statusInfo.status === "paused") {
-					setIsPausing(false)
-				}
-
-				// 原子性处理轮询控制 - 先停止再启动，避免竞态条件
-				const needsPolling = shouldStartPolling(statusInfo.status)
-				const shouldStop = shouldStopPolling(statusInfo.status)
-				
-				// 先处理停止轮询
-				if (shouldStop) {
-					stopPolling()
-				}
-				// 再处理启动轮询，确保没有重复轮询
-				else if (needsPolling && !pollingIntervalId.current) {
-					startPolling()
-				}
-				
-				// 更新状态
-				setKnowledgeGraphStatus(statusInfo)
+				// 更新状态 - 使用状态机
+				dispatch({ type: 'UPDATE_STATUS', payload: statusInfo })
 			} else if (message.type === KNOWLEDGE_GRAPH_MESSAGES.ENABLED && setCachedStateField) {
 				// 处理启用/禁用响应
 				if (message.error) {
 					console.error("Knowledge Graph Toggle Error:", message.error)
-					setToggleError(message.error)
+					dispatch({ type: 'SET_TOGGLE_ERROR', payload: message.error })
 					// 强制设置为 false
 					setCachedStateField("knowledgeGraphEnabled", false)
 				} else {
-					setToggleError(null)
+					dispatch({ type: 'SET_TOGGLE_ERROR', payload: null })
 					setCachedStateField("knowledgeGraphEnabled", message.payload)
 					
 					// 当知识图谱被启用时，立即获取状态
@@ -282,7 +317,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 				}
 			}
 		},
-		[setCachedStateField, startPolling, stopPolling, getStatusOnce, shouldStopPolling, shouldStartPolling],
+		[setCachedStateField, getStatusOnce],
 	)
 
 	useEvent("message", handleMessage)
@@ -300,7 +335,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 										onClick={handleKnowledgeGraphToggle}
 										disabled={shouldDisableCheckbox}
 									/>
-									<div>{t("settings:ui.knowledgeGraph.title")}</div>
+									<div>{t("knowledgeGraph.title")}</div>
 								</div>
 							</TooltipTrigger>
 							{shouldDisableCheckbox && (
@@ -314,12 +349,12 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			</SectionHeader>
 
 			<Section>
-				{toggleError && (
+				{uiState.toggleError && (
 					<div className="mb-4 p-2 bg-vscode-textBlockQuote-background border border-vscode-input-border rounded">
 						<div className="flex items-center gap-2">
 							<AlertCircle className="w-4 h-4 text-red-500" />
 							<span className="text-sm text-vscode-errorForeground">
-								{toggleError}
+								{uiState.toggleError}
 							</span>
 						</div>
 					</div>
@@ -329,32 +364,32 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 					<div className={`flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background ${shouldDisableAll ? "pointer-events-none" : ""}`}>
 						<div className="flex items-center gap-4 font-bold">
 							<FileText className="w-4 h-4" />
-							<div>{t("settings:ui.knowledgeGraph.buildStatus")}</div>
+							<div>{t("knowledgeGraph.buildStatus")}</div>
 						</div>
 						<div className="text-vscode-descriptionForeground text-sm mb-3">
-							{t("settings:ui.knowledgeGraph.description")}
+							{t("knowledgeGraph.description")}
 						</div>
 						
 						{(!isZgsmProvider || !cwd) ? (
 							<div className="text-vscode-descriptionForeground text-sm italic py-4">
-								{t("settings:ui.knowledgeGraph.enableToShowDetails")}
+								{t("knowledgeGraph.enableToShowDetails")}
 							</div>
 						) : (
 							<>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
 										<div className="text-vscode-descriptionForeground text-sm">
-											{t("settings:ui.knowledgeGraph.fileCount")}
+											{t("knowledgeGraph.fileCount")}
 										</div>
-										<div className="font-medium">{knowledgeGraphStatus.totalFiles}</div>
+										<div className="font-medium">{uiState.knowledgeGraphStatus.totalFiles}</div>
 									</div>
 									<div>
 										<div className="text-vscode-descriptionForeground text-sm">
-											{t("settings:ui.knowledgeGraph.lastUpdated")}
+											{t("knowledgeGraph.lastUpdated")}
 										</div>
 										<div className="font-medium">
-											{knowledgeGraphStatus.lastUpdateTime
-												? format(new Date(knowledgeGraphStatus.lastUpdateTime), "yyyy-MM-dd HH:mm:ss")
+											{uiState.knowledgeGraphStatus.lastUpdateTime
+												? format(new Date(uiState.knowledgeGraphStatus.lastUpdateTime), "yyyy-MM-dd HH:mm:ss")
 												: "-"
 											}
 										</div>
@@ -363,17 +398,17 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 
 								<div className="mt-2">
 									<div className="flex justify-between text-sm mb-1">
-										<span>{t("settings:ui.knowledgeGraph.buildProgress")}</span>
-										<span>{(knowledgeGraphStatus.progress || 0).toFixed(1)}%</span>
+										<span>{t("knowledgeGraph.buildProgress")}</span>
+										<span>{(uiState.knowledgeGraphStatus.progress || 0).toFixed(1)}%</span>
 									</div>
 									<Progress
-										value={knowledgeGraphStatus.progress}
+										value={uiState.knowledgeGraphStatus.progress}
 										className="h-2"
 										progressBackgroundClass="bg-vscode-button-background"
 									/>
-									{knowledgeGraphStatus.status === "running" && knowledgeGraphStatus.currentFile && (
-										<div className="text-xs text-vscode-descriptionForeground mt-1 truncate" title={knowledgeGraphStatus.currentFile}>
-											Processing: {knowledgeGraphStatus.currentFile}
+									{uiState.knowledgeGraphStatus.status === "running" && uiState.knowledgeGraphStatus.currentFile && (
+										<div className="text-xs text-vscode-descriptionForeground mt-1 truncate" title={uiState.knowledgeGraphStatus.currentFile}>
+											Processing: {uiState.knowledgeGraphStatus.currentFile}
 										</div>
 									)}
 								</div>
@@ -381,78 +416,78 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 								{/* Status and Control Buttons */}
 								<div className="flex items-center justify-between mt-3">
 									<div className="flex items-center gap-2">
-										{getStatusIcon(knowledgeGraphStatus.status)}
-										<span>{getStatusText(knowledgeGraphStatus.status)}</span>
-										{knowledgeGraphStatus.status === "error" && knowledgeGraphStatus.failedFiles > 0 && (
+										{getStatusIcon(uiState.knowledgeGraphStatus.status)}
+										<span>{getStatusText(uiState.knowledgeGraphStatus.status)}</span>
+										{uiState.knowledgeGraphStatus.status === "error" && uiState.knowledgeGraphStatus.failedFiles > 0 && (
 											<Badge variant="destructive" className="text-xs">
-												{knowledgeGraphStatus.failedFiles}
+												{uiState.knowledgeGraphStatus.failedFiles}
 											</Badge>
 										)}
 									</div>
 									
 									<div className="flex items-center gap-2">
-										{knowledgeGraphStatus.status === "pending" && (
+										{uiState.knowledgeGraphStatus.status === "pending" && (
 											<Button
 												onClick={handleStartBuild}
 												variant="outline"
 												size="sm"
 												className="flex items-center gap-1"
-												disabled={shouldDisableAll}>
+												disabled={shouldDisableAll || uiState.isOperating}>
 												<Play className="w-3 h-3" />
-												{t("settings:ui.knowledgeGraph.start")}
+												{t("knowledgeGraph.start")}
 											</Button>
 										)}
-										{knowledgeGraphStatus.status === "running" && (
+										{uiState.knowledgeGraphStatus.status === "running" && (
 											<Button
 												onClick={handlePauseBuild}
 												variant="outline"
 												size="sm"
 												className="flex items-center gap-1"
-												disabled={shouldDisableAll || isPausing}>
-												{isPausing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pause className="w-3 h-3" />}
-												{t("settings:ui.knowledgeGraph.pause")}
+												disabled={shouldDisableAll || uiState.isOperating}>
+												{uiState.isOperating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pause className="w-3 h-3" />}
+												{t("knowledgeGraph.pause")}
 											</Button>
 										)}
-										{knowledgeGraphStatus.status === "paused" && (
+										{uiState.knowledgeGraphStatus.status === "paused" && (
 											<Button
 												onClick={handleResumeBuild}
 												variant="outline"
 												size="sm"
 												className="flex items-center gap-1"
-												disabled={shouldDisableAll}>
+												disabled={shouldDisableAll || uiState.isOperating}>
 												<Play className="w-3 h-3" />
-												{t("settings:ui.knowledgeGraph.resume")}
+												{t("knowledgeGraph.resume")}
 											</Button>
 										)}
-										{(knowledgeGraphStatus.status === "completed" || knowledgeGraphStatus.status === "error") && (
+										{(uiState.knowledgeGraphStatus.status === "completed" || uiState.knowledgeGraphStatus.status === "error") && (
 											<Button
 												onClick={handleClearBuild}
 												variant="outline"
 												size="sm"
 												className="flex items-center gap-1"
-												disabled={shouldDisableAll}>
+												disabled={shouldDisableAll || uiState.isOperating}>
 												<Trash className="w-3 h-3" />
-												{t("settings:ui.knowledgeGraph.clear")}
+												{t("knowledgeGraph.clear")}
 											</Button>
 										)}
 									</div>
 								</div>
 
 								{/* Error Details */}
-								{knowledgeGraphStatus.status === "error" && knowledgeGraphStatus.error && (
+								{uiState.knowledgeGraphStatus.status === "error" && uiState.knowledgeGraphStatus.error && (
 									<div className="mt-2 p-2 bg-vscode-textBlockQuote-background border border-vscode-input-border rounded">
 										<div className="flex items-center gap-2 mb-2">
 											<AlertCircle className="w-4 h-4 text-red-500" />
 											<span className="text-sm font-medium text-vscode-errorForeground">
-												{t("settings:ui.knowledgeGraph.buildFailed")}
+												{t("knowledgeGraph.buildFailed")}
 											</span>
 										</div>
 										<p className="text-sm text-vscode-errorForeground">
-											{knowledgeGraphStatus.error}
+											{uiState.knowledgeGraphStatus.error}
 										</p>
-										{knowledgeGraphStatus.failedFiles > 0 && (
+										{uiState.knowledgeGraphStatus.failedFiles > 0 && (
 											<p className="text-xs text-vscode-descriptionForeground mt-1">
-												{t("settings:ui.knowledgeGraph.failedFileCount", { count: knowledgeGraphStatus.failedFiles })}
+												{t("knowledgeGraph.failedFileCount", { count: uiState.knowledgeGraphStatus.failedFiles })}
 											</p>
 										)}
 									</div>

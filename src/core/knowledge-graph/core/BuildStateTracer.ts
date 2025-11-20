@@ -517,31 +517,61 @@ export class BuildStateTracer {
 	}
 
 	/**
-	 * 检查是否正在运行
+	 * 检查是否正在运行 - 增强状态检查
 	 */
-	public isRunning(): boolean | undefined {
+	public isRunning(): boolean {
 		return this.currentState?.status === "running"
 	}
 
 	/**
-	 * 检查是否已暂停
+	 * 检查是否已暂停 - 增强状态检查
 	 */
-	public isPaused(): boolean | undefined {
+	public isPaused(): boolean {
 		return this.currentState?.status === "paused"
 	}
 
 	/**
-	 * 检查是否已完成
+	 * 检查是否已完成 - 增强状态检查
 	 */
-	public isCompleted(): boolean | undefined {
+	public isCompleted(): boolean {
 		return this.currentState?.status === "completed"
 	}
 
 	/**
-	 * 检查是否有错误
+	 * 检查是否有错误 - 增强状态检查
 	 */
-	public hasError(): boolean | undefined {
+	public hasError(): boolean {
 		return this.currentState?.status === "error"
+	}
+
+	/**
+	 * 检查状态是否允许启动新构建
+	 */
+	public canStartBuild(): boolean {
+		const status = this.currentState?.status
+		return !status || status === "pending" || status === "completed" || status === "error"
+	}
+
+	/**
+	 * 检查状态是否允许暂停
+	 */
+	public canPause(): boolean {
+		return this.currentState?.status === "running"
+	}
+
+	/**
+	 * 检查状态是否允许恢复
+	 */
+	public canResume(): boolean {
+		return this.currentState?.status === "paused"
+	}
+
+	/**
+	 * 检查状态是否允许清除
+	 */
+	public canClear(): boolean {
+		const status = this.currentState?.status
+		return !status || status !== "running"
 	}
 
 }
