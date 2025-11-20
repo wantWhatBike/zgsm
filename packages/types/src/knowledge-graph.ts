@@ -19,6 +19,26 @@ export const KNOWLEDGE_GRAPH_DEFAULTS = {
 } as const
 
 /**
+ * API Provider Constants
+ */
+export const API_PROVIDER = {
+	ZGSM: 'zgsm'
+} as const
+
+/**
+ * Knowledge Graph Message Types
+ */
+export const KNOWLEDGE_GRAPH_MESSAGES = {
+	ENABLED: "knowledgeGraphEnabled",
+	GET_STATUS: "knowledgeGraphGetStatus",
+	BUILD: "knowledgeGraphBuild",
+	PAUSE: "knowledgeGraphPause",
+	RESUME: "knowledgeGraphResume",
+	CLEAR: "knowledgeGraphClear",
+	STATUS_RESPONSE: "knowledgeGraphStatusResponse",
+} as const
+
+/**
  * KnowledgeGraphConfig
  */
 export const knowledgeGraphConfigSchema = z.object({
@@ -81,3 +101,73 @@ export const knowledgeGraphProviderSchema = z.object({
 })
 
 export type KnowledgeGraphProvider = z.infer<typeof knowledgeGraphProviderSchema>
+
+// --- Shared Types for Build State ---
+
+export type KnowledgeGraphPhase = 'root_analysis' | 'file_analysis' | 'directory_analysis' | 'dependency_analysis' | 'completed';
+
+export interface BuildProgress {
+  phase: KnowledgeGraphPhase
+  message: string
+  totalFiles: number
+  filesToProcess: number
+  totalProcessedFiles: number
+  batchProcessedFilePaths: string[]
+  batchFailedFiles: number
+  batchDuration?: number
+  batchIndex?: number
+}
+
+export interface KnowledgeGraphBuildState {
+  progress: number
+  totalFiles: number
+  totalFilesToProcess: number
+  processedFiles: number
+  failedFiles: number
+  currentFile: string
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'error'
+  error?: string
+  taskId?: string
+  startTime?: string
+  phase: KnowledgeGraphPhase
+  lastUpdateTime: string
+  totalDuration: number
+  
+  // LLM Statistics
+  llmStatistics?: {
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalTokens: number
+    totalRequests: number
+    successfulRequests: number
+    failedRequests: number
+    totalDuration: number
+  }
+  
+  // Phase Durations
+  phaseDurations?: {
+    fileCollection?: number
+    rootAnalysis?: number
+    fileSummary?: number
+    directorySummary?: number
+  }
+
+  // Phase Progress Details
+  phaseProgress?: {
+    root_analysis: {
+      total: number
+      processed: number
+      status: 'pending' | 'running' | 'completed' | 'skipped'
+    }
+    file_analysis: {
+      total: number
+      processed: number
+      status: 'pending' | 'running' | 'completed' | 'skipped'
+    }
+    directory_analysis: {
+      total: number
+      processed: number
+      status: 'pending' | 'running' | 'completed' | 'skipped'
+    }
+  }
+}

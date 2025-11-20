@@ -6,7 +6,8 @@ import { StorageConfig, StorageError, IStorage } from "./IStorage"
 import { createLogger, ILogger } from "../../../utils/logger"
 import { pathExists, safeReadFile } from "../tools/FileUtils"
 
-export class FileStorage implements IStorage {
+// TODO: 仅用于存储小数据，比如构建状态、文件列表、根目录分析信息。
+export class JsonFileStorage implements IStorage {
 	private config: StorageConfig
 	private basePath: string
 	private logger: ILogger

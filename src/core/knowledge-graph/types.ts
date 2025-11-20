@@ -16,7 +16,7 @@ export interface FileSummary {
   type: 'source' | 'config' | 'test'
   description: string
   keywords: string[]
-  core_functions: Record<string, string>
+  functions: Record<string, string>
   dependencies: string[]
   timestamp: string
   // 继承 FileInfo 的字段以保持一致性
@@ -55,7 +55,6 @@ export interface RootInfo {
 
 // 知识图谱配置
 export interface KnowledgeGraphConfig {
-  enabled: boolean
   model: string
   maxConcurrency: number
   batchSize: number
@@ -67,59 +66,9 @@ export interface KnowledgeGraphConfig {
   exportFormat: string
 }
 
-// 构建进度 - 移到前面避免循环依赖
-export interface BuildProgress {
-  phase: 'root_analysis' | 'file_analysis' | 'directory_analysis' | 'dependency_analysis' | 'completed'
-  message: string
-  totalFiles: number
-  filesToProcess: number
-	totalProcessedFiles: number
-  batchProcessedFilePaths: string[]
-  batchFailedFiles: number
-  // 新增耗时统计字段
-  batchDuration?: number
-  batchIndex?: number
-}
+import type { BuildProgress, KnowledgeGraphBuildState } from "@roo-code/types"
 
-// 知识图谱状态
-export interface KnowledgeGraphBuildState {
-  progress: number
-  totalFiles: number
-  totalFilesToProcess: number
-  processedFiles: number
-  failedFiles: number
-  currentFile: string
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'error'
-  error?: string
-  // 新增字段
-  taskId?: string
-  startTime?: string
-  phase: BuildProgress['phase']
-  lastUpdateTime: string
-  totalDuration: number
-  
-  // LLM 统计信息
-  llmStatistics?: {
-    // Token 统计
-    totalInputTokens: number
-    totalOutputTokens: number
-    totalTokens: number
-    // 请求统计
-    totalRequests: number
-    successfulRequests: number
-    failedRequests: number
-    // 成本和耗时统计
-    totalDuration: number
-  }
-  
-  // 各阶段耗时统计
-  phaseDurations?: {
-    fileCollection?: number
-    rootAnalysis?: number
-    fileSummary?: number
-    directorySummary?: number
-  }
-}
+export type { BuildProgress, KnowledgeGraphBuildState }
 
 
 
@@ -128,6 +77,7 @@ export interface FileChanges {
   added: FileInfo[];
   modified: FileInfo[];
   deleted: FileInfo[];
+  unchangedCount?: number; // 未变更且已成功处理的文件数量
 }
 
 

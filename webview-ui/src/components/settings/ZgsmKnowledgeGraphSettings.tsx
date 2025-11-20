@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { FileText, AlertCircle, Copy, Play, Pause, Trash } from "lucide-react"
+import { FileText, AlertCircle, Play, Pause, Trash } from "lucide-react"
 import { format } from "date-fns"
 
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
@@ -11,9 +11,6 @@ import {
 	TooltipContent,
 	TooltipProvider,
 	TooltipTrigger,
-	Popover,
-	PopoverTrigger,
-	PopoverContent,
 	Badge,
 } from "@/components/ui"
 
@@ -23,71 +20,56 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { SetCachedStateField } from "./types"
 import { useEvent } from "react-use"
+import { KnowledgeGraphBuildState, KNOWLEDGE_GRAPH_MESSAGES, API_PROVIDER } from "@roo-code/types"
+
+// 前端UI常量 - 轮询配置
+const POLLING_INTERVAL = 2000
+
+// 需要轮询的状态
+const POLLING_STATUSES = ["running"]
+// 需要停止轮询的状态
+const STOP_POLLING_STATUSES = ["completed", "error", "pending", "paused"]
+
+// 状态配置 - 统一管理图标和文本键
+const STATUS_CONFIG = {
+	running: {
+		icon: "w-3 h-3 bg-yellow-500 rounded-full animate-pulse",
+		textKey: "settings:ui.knowledgeGraph.status.running"
+	},
+	pending: {
+		icon: "w-3 h-3 bg-gray-400 rounded-full animate-pulse",
+		textKey: "settings:ui.knowledgeGraph.status.pending"
+	},
+	completed: {
+		icon: "w-3 h-3 bg-green-500 rounded-full",
+		textKey: "settings:ui.knowledgeGraph.status.success"
+	},
+	error: {
+		icon: "w-3 h-3 bg-red-500 rounded-full",
+		textKey: "settings:ui.knowledgeGraph.status.failed"
+	},
+	paused: {
+		icon: "w-3 h-3 bg-orange-500 rounded-full",
+		textKey: "settings:ui.knowledgeGraph.status.paused"
+	}
+} as const
+
+// 默认状态生成函数 - 消除重复定义
+const createDefaultBuildState = (): KnowledgeGraphBuildState => ({
+	progress: 0,
+	totalFiles: 0,
+	totalFilesToProcess: 0,
+	processedFiles: 0,
+	failedFiles: 0,
+	currentFile: "",
+	status: "pending",
+	phase: "root_analysis",
+	lastUpdateTime: new Date().toISOString(),
+	totalDuration: 0,
+})
 
 interface KnowledgeGraphSettingsProps {
 	setCachedStateField?: SetCachedStateField<"knowledgeGraphEnabled">
-}
-
-interface KnowledgeGraphStatus {
-	fileCount: number | string
-	lastUpdated: string
-	progress: number
-	status: "success" | "failed" | "running" | "pending" | "paused"
-	errorMessage?: string
-	failedFiles?: string[]
-}
-
-// Knowledge graph status information type returned from backend
-export interface KnowledgeGraphStatusInfo {
-	status: "success" | "failed" | "running" | "pending" | "paused"
-	process: number
-	totalFiles: number
-	totalSucceed: number
-	totalFailed: number
-	failedReason: string
-	failedFiles: string[]
-	processTs: number
-	currentStage: "root_analysis" | "file_summary" | "directory_summary" | "dependency_graph" | "completed"
-	stageProgress: number
-}
-
-
-// Convert backend KnowledgeGraphStatusInfo to KnowledgeGraphStatus format used by frontend component
-const mapKnowledgeGraphStatusInfoToStatus = (statusInfo: KnowledgeGraphStatusInfo, t: (key: string) => string): KnowledgeGraphStatus => {
-	let errorMessage: string | undefined
-	let progress = 0
-
-	switch (statusInfo.status) {
-		case "running":
-			progress = statusInfo.process
-			break
-		case "pending":
-			progress = 0
-			break
-		case "success":
-			progress = 100
-			break
-		case "failed":
-			progress = statusInfo.process
-			errorMessage = statusInfo.failedReason || t("settings:ui.knowledgeGraph.buildFailed")
-			break
-		case "paused":
-			progress = statusInfo.process
-			break
-	}
-
-	const lastUpdated = statusInfo.processTs
-		? format(new Date(statusInfo.processTs * 1000), "yyyy-MM-dd HH:mm:ss")
-		: "-"
-
-	return {
-		fileCount: statusInfo.totalFiles,
-		lastUpdated,
-		progress,
-		status: statusInfo.status,
-		errorMessage,
-		failedFiles: (statusInfo.failedFiles || []).filter((file: string) => file !== ""),
-	}
 }
 
 export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSettingsProps) => {
@@ -98,94 +80,77 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		apiConfiguration,
 		cwd	} = useExtensionState()
 	
-	// Polling related states
+	// 轮询状态管理 - 简化为单一状态
 	const pollingIntervalId = useRef<NodeJS.Timeout | null>(null)
-	const isPollingActive = useRef<boolean>(false)
 
-	// Check if in pending enable state - only when API provider is not zgsm
-	const isPendingEnable = useMemo(
-		() => apiConfiguration?.apiProvider !== "zgsm" || !cwd,
-		[apiConfiguration?.apiProvider, cwd],
+	const [knowledgeGraphStatus, setKnowledgeGraphStatus] = useState<KnowledgeGraphBuildState>(() => {
+		return initialStatus || createDefaultBuildState()
+	})
+	const [toggleError, setToggleError] = useState<string | null>(null)
+
+	// 检查是否为支持的API提供者 - 使用共享常量
+	const isZgsmProvider = useMemo(
+		() => apiConfiguration?.apiProvider === API_PROVIDER.ZGSM,
+		[apiConfiguration?.apiProvider]
+	)
+
+	// Check if should disable checkbox - when API provider is not zgsm, no cwd, or running
+	const shouldDisableCheckbox = useMemo(
+		() => !isZgsmProvider || !cwd || knowledgeGraphStatus.status === "running",
+		[isZgsmProvider, cwd, knowledgeGraphStatus.status],
 	)
 
 	// Use useMemo to avoid unnecessary state updates
 	const shouldDisableAll = useMemo(
-		() => isPendingEnable || !knowledgeGraphEnabled,
-		[isPendingEnable, knowledgeGraphEnabled],
+		() => !isZgsmProvider || !cwd || !knowledgeGraphEnabled,
+		[isZgsmProvider, cwd, knowledgeGraphEnabled],
 	)
 
-	const [knowledgeGraphStatus, setKnowledgeGraphStatus] = useState<KnowledgeGraphStatus>(() => {
-		if (initialStatus) {
-			return mapKnowledgeGraphStatusInfoToStatus(initialStatus, t)
-		}
-		return {
-			fileCount: "-",
-			lastUpdated: "-",
-			progress: 0,
-			status: "pending",
-		}
-	})
+	// 统一的消息发送函数
+	const sendMessage = useCallback((type: string, payload?: any) => {
+		vscode.postMessage({ type, ...payload })
+	}, [])
 
+	// 获取状态 - 单次请求
+	const getStatusOnce = useCallback(() => {
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS)
+	}, [sendMessage])
 
-	// Stop polling
+	// 停止轮询 - 简化逻辑
 	const stopPolling = useCallback(() => {
 		if (pollingIntervalId.current) {
 			clearInterval(pollingIntervalId.current)
 			pollingIntervalId.current = null
 		}
-		isPollingActive.current = false
 	}, [])
 
-	// Start polling - only for running states with intelligent intervals
+	// 启动轮询 - 优化逻辑，避免竞态条件
 	const startPolling = useCallback(() => {
-		// If already polling, return directly
-		if (isPollingActive.current) {
+		// 如果已经在轮询，则不重复启动
+		if (pollingIntervalId.current) {
 			return
 		}
-
-		// Stop previous polling first
-		if (pollingIntervalId.current) {
-			clearInterval(pollingIntervalId.current)
-			pollingIntervalId.current = null
-		}
-
-		// Mark polling status as active
-		isPollingActive.current = true
-
-		// Get status immediately
-		vscode.postMessage({
-			type: "knowledgeGraphGetStatus",
-		})
-
-		// 使用简化的轮询逻辑，避免闭包陷阱
+		
+		// 启动新的轮询
 		pollingIntervalId.current = setInterval(() => {
-			// 直接发送状态请求，让消息处理器决定是否停止轮询
-			vscode.postMessage({
-				type: "knowledgeGraphGetStatus",
-			})
-		}, 2000)
+			getStatusOnce()
+		}, POLLING_INTERVAL)
+	}, [getStatusOnce])
+
+	// 检查是否需要停止轮询
+	const shouldStopPolling = useCallback((status: string) => {
+		return STOP_POLLING_STATUSES.includes(status as any)
 	}, [])
 
-	// Get status once without polling
-	const getStatusOnce = useCallback(() => {
-		vscode.postMessage({
-			type: "knowledgeGraphGetStatus",
-		})
-	}, [])
-
-	// Check if polling should be stopped (task is completed or failed) - 参考代码库设置组件
-	const shouldStopPolling = useCallback((statusInfo: KnowledgeGraphStatusInfo) => {
-		return (
-			statusInfo.status === "success" ||
-			statusInfo.status === "failed" ||
-			statusInfo.status === "pending"
-		)
+	// 检查是否需要启动轮询
+	const shouldStartPolling = useCallback((status: string) => {
+		return POLLING_STATUSES.includes(status as any)
 	}, [])
 
 	// Handle messages from extension
 	useEffect(() => {
 		// 1. Get build status once when page is opened
-		if (knowledgeGraphEnabled && !isPendingEnable) {
+		if (knowledgeGraphEnabled && isZgsmProvider && cwd) {
 			// Get status immediately without polling
 			getStatusOnce()
 		}
@@ -196,7 +161,8 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		}
 	}, [
 		knowledgeGraphEnabled,
-		isPendingEnable,
+		isZgsmProvider,
+		cwd,
 		getStatusOnce,
 		stopPolling,
 	])
@@ -214,180 +180,86 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		const newChecked = e.target._checked !== undefined ? e.target._checked : !knowledgeGraphEnabled
 
 		// Send message to extension directly without confirmation dialog
-		vscode.postMessage({ type: "knowledgeGraphEnabled", bool: newChecked })
-	}, [knowledgeGraphEnabled])
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.ENABLED, { bool: newChecked })
+	}, [knowledgeGraphEnabled, sendMessage])
 
 	const handleStartBuild = useCallback(() => {
-		setKnowledgeGraphStatus((prev) => ({ ...prev, status: "running", progress: 0 }))
-
-		// Send start build message to extension
-		vscode.postMessage({
-			type: "knowledgeGraphBuild",
-		})
-
-		// Start polling after a shorter delay to get status quickly
-		setTimeout(() => {
-			startPolling()
-		}, 1000) // 减少延迟到1秒，更快获取状态
-	}, [startPolling])
+		setKnowledgeGraphStatus((prev: KnowledgeGraphBuildState) => ({ ...prev, status: "running" }))
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.BUILD)
+		// 启动轮询
+		startPolling()
+	}, [startPolling, sendMessage])
 
 	const handlePauseBuild = useCallback(() => {
-		// 发送暂停消息，不立即更新本地状态
-		vscode.postMessage({
-			type: "knowledgeGraphPause",
-		})
-		
-		// 停止轮询，等待后端确认暂停状态
-		stopPolling()
-		
-		// 延迟获取状态确认暂停成功
-		setTimeout(() => {
-			getStatusOnce()
-		}, 1000)
-	}, [stopPolling, getStatusOnce])
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.PAUSE)
+		// 依赖后端推送的新状态来决定是否停止轮询
+	}, [sendMessage])
 
 	const handleResumeBuild = useCallback(() => {
-		// 发送恢复消息
-		vscode.postMessage({
-			type: "knowledgeGraphResume",
-		})
-		
-		// 立即开始轮询以获取最新状态
-		setTimeout(() => {
-			startPolling()
-		}, 500) // 减少延迟，更快响应状态变化
-	}, [startPolling])
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.RESUME)
+		// 依赖后端推送的新状态来决定是否启动轮询
+	}, [sendMessage])
 
 	const handleClearBuild = useCallback(() => {
-		// 先停止轮询，避免状态冲突
-		stopPolling()
-		
 		// 立即更新本地状态为pending，避免显示错误状态
-		setKnowledgeGraphStatus({
-			fileCount: 0,
-			lastUpdated: "-",
-			progress: 0,
-			status: "pending",
-			errorMessage: undefined,
-			failedFiles: []
-		})
-		
-		vscode.postMessage({
-			type: "knowledgeGraphClear",
-		})
-
-		// 清除后获取一次状态确认
-		setTimeout(() => {
-			getStatusOnce()
-		}, 500)
-	}, [stopPolling, getStatusOnce])
+		setKnowledgeGraphStatus(createDefaultBuildState())
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.CLEAR)
+		// 依赖后端推送的新状态
+	}, [sendMessage])
 
 
 
-	const handleOpenFailedFile = useCallback((filePath: string) => {
-		vscode.postMessage({
-			type: "openFile",
-			text: filePath,
-			values: {},
-		})
-	}, [])
 
 	const getStatusIcon = useCallback((status: string) => {
-		switch (status) {
-			case "running":
-				return <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></div>
-			case "pending":
-				return <div className="w-3 h-3 bg-gray-400 rounded-full animate-pulse"></div>
-			case "success":
-				return <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-			case "failed":
-				return <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-			case "paused":
-				return <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-			default:
-				return <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
-		}
+		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
+		const iconClass = config?.icon || STATUS_CONFIG.pending.icon
+		return <div className={iconClass}></div>
 	}, [])
 
 	const getStatusText = useCallback((status: string) => {
-		switch (status) {
-			case "running":
-				return t("settings:ui.knowledgeGraph.status.running")
-			case "pending":
-				return t("settings:ui.knowledgeGraph.status.pending")
-			case "success":
-				return t("settings:ui.knowledgeGraph.status.success")
-			case "failed":
-				return t("settings:ui.knowledgeGraph.status.failed")
-			case "paused":
-				return t("settings:ui.knowledgeGraph.status.paused")
-			default:
-				return t("settings:ui.knowledgeGraph.status.unknown")
-		}
+		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
+		const textKey = config?.textKey || "settings:ui.knowledgeGraph.status.unknown"
+		return t(textKey)
 	}, [t])
 
 	const handleMessage = useCallback(
 		(event: MessageEvent) => {
 			const message = event.data
 
-			if (message.type === "knowledgeGraphStatusResponse" && message.payload?.status) {
-				const statusInfo = message.payload.status as KnowledgeGraphStatusInfo
-				const newStatus = mapKnowledgeGraphStatusInfoToStatus(statusInfo, t)
+			if (message.type === KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE && message.payload?.status) {
+				const statusInfo = message.payload.status as KnowledgeGraphBuildState
 				
-				// 只有当前没有轮询时才启动轮询，避免重复
-				if ((statusInfo.status === "running" || statusInfo.status === "paused") && !isPollingActive.current) {
+				// 根据状态决定是否需要轮询
+				if (shouldStartPolling(statusInfo.status) && !pollingIntervalId.current) {
 					startPolling()
 				}
 				
-				// 修复：确保状态更新正确，避免显示错误的0值
-				if (statusInfo.status === "pending" && statusInfo.process === 0 && statusInfo.totalFiles === 0) {
-					// 真正的pending状态：没有开始构建
-					setKnowledgeGraphStatus({
-						...newStatus,
-						progress: 0,
-						fileCount: 0,
-						lastUpdated: "-"
-					})
-				} else {
-					// 正常状态更新：保持原有数据
-					setKnowledgeGraphStatus(prevStatus => ({
-						...newStatus,
-						// 如果新状态的文件数为0但之前有数据，保持之前的文件数（避免闪烁）
-						fileCount: statusInfo.totalFiles > 0 ? statusInfo.totalFiles : (prevStatus.fileCount === "-" ? 0 : prevStatus.fileCount)
-					}))
-				}
+				// 直接使用后端状态，无需映射
+				setKnowledgeGraphStatus(statusInfo)
 
-				// 前端判断是否停止轮询 - 参考代码库设置组件的机制
-				if (shouldStopPolling(statusInfo)) {
+				// 前端判断是否停止轮询
+				if (shouldStopPolling(statusInfo.status)) {
 					stopPolling()
 				}
-			} else if (message.type === "knowledgeGraphBuildProgress" && message.payload?.progress) {
-				// 处理构建进度消息
-				const progress = message.payload.progress
-				const newProgressStatus = progress.phase === 'completed' ? 'success' : 'running'
-				
-				setKnowledgeGraphStatus((prev) => ({
-					...prev,
-					progress: progress.percentage,
-					status: newProgressStatus,
-				}))
-				
-				// 如果构建完成，停止轮询
-				if (progress.phase === 'completed') {
-					stopPolling()
-				}
-			} else if (message.type === "knowledgeGraphEnabled" && setCachedStateField) {
-				setCachedStateField("knowledgeGraphEnabled", message.payload)
-				
-				// 当知识图谱被启用时，立即获取状态
-				if (message.payload) {
-					setTimeout(() => {
+			} else if (message.type === KNOWLEDGE_GRAPH_MESSAGES.ENABLED && setCachedStateField) {
+				// 处理启用/禁用响应
+				if (message.error) {
+					console.error("Knowledge Graph Toggle Error:", message.error)
+					setToggleError(message.error)
+					// 强制设置为 false
+					setCachedStateField("knowledgeGraphEnabled", false)
+				} else {
+					setToggleError(null)
+					setCachedStateField("knowledgeGraphEnabled", message.payload)
+					
+					// 当知识图谱被启用时，立即获取状态
+					if (message.payload) {
 						getStatusOnce()
-					}, 500) // 延迟500ms确保后端初始化完成
+					}
 				}
 			}
 		},
-		[setCachedStateField, startPolling, stopPolling, t, getStatusOnce, shouldStopPolling],
+		[setCachedStateField, startPolling, stopPolling, getStatusOnce, shouldStopPolling, shouldStartPolling],
 	)
 
 	useEvent("message", handleMessage)
@@ -403,12 +275,12 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 									<VSCodeCheckbox
 										defaultChecked={knowledgeGraphEnabled}
 										onClick={handleKnowledgeGraphToggle}
-										disabled={isPendingEnable}
+										disabled={shouldDisableCheckbox}
 									/>
 									<div>{t("settings:ui.knowledgeGraph.title")}</div>
 								</div>
 							</TooltipTrigger>
-							{isPendingEnable && (
+							{shouldDisableCheckbox && (
 								<TooltipContent>
 									<p>
 										{!cwd
@@ -423,6 +295,16 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			</SectionHeader>
 
 			<Section>
+				{toggleError && (
+					<div className="mb-4 p-2 bg-vscode-textBlockQuote-background border border-vscode-input-border rounded">
+						<div className="flex items-center gap-2">
+							<AlertCircle className="w-4 h-4 text-red-500" />
+							<span className="text-sm text-vscode-errorForeground">
+								{toggleError}
+							</span>
+						</div>
+					</div>
+				)}
 				<div className={`space-y-6 ${shouldDisableAll ? "opacity-50" : ""}`}>
 					{/* Knowledge Graph Status Section */}
 					<div className={`flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background ${shouldDisableAll ? "pointer-events-none" : ""}`}>
@@ -434,7 +316,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 							{t("settings:ui.knowledgeGraph.description")}
 						</div>
 						
-						{isPendingEnable ? (
+						{(!isZgsmProvider || !cwd) ? (
 							<div className="text-vscode-descriptionForeground text-sm italic py-4">
 								{t("settings:ui.knowledgeGraph.enableToShowDetails")}
 							</div>
@@ -445,13 +327,18 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 										<div className="text-vscode-descriptionForeground text-sm">
 											{t("settings:ui.knowledgeGraph.fileCount")}
 										</div>
-										<div className="font-medium">{knowledgeGraphStatus.fileCount}</div>
+										<div className="font-medium">{knowledgeGraphStatus.totalFiles}</div>
 									</div>
 									<div>
 										<div className="text-vscode-descriptionForeground text-sm">
 											{t("settings:ui.knowledgeGraph.lastUpdated")}
 										</div>
-										<div className="font-medium">{knowledgeGraphStatus.lastUpdated}</div>
+										<div className="font-medium">
+											{knowledgeGraphStatus.lastUpdateTime
+												? format(new Date(knowledgeGraphStatus.lastUpdateTime), "yyyy-MM-dd HH:mm:ss")
+												: "-"
+											}
+										</div>
 									</div>
 								</div>
 
@@ -465,6 +352,11 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 										className="h-2"
 										progressBackgroundClass="bg-vscode-button-background"
 									/>
+									{knowledgeGraphStatus.status === "running" && knowledgeGraphStatus.currentFile && (
+										<div className="text-xs text-vscode-descriptionForeground mt-1 truncate" title={knowledgeGraphStatus.currentFile}>
+											Processing: {knowledgeGraphStatus.currentFile}
+										</div>
+									)}
 								</div>
 
 								{/* Status and Control Buttons */}
@@ -472,9 +364,9 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 									<div className="flex items-center gap-2">
 										{getStatusIcon(knowledgeGraphStatus.status)}
 										<span>{getStatusText(knowledgeGraphStatus.status)}</span>
-										{knowledgeGraphStatus.status === "failed" && knowledgeGraphStatus.failedFiles && knowledgeGraphStatus.failedFiles.length > 0 && (
+										{knowledgeGraphStatus.status === "error" && knowledgeGraphStatus.failedFiles > 0 && (
 											<Badge variant="destructive" className="text-xs">
-												{knowledgeGraphStatus.failedFiles.length}
+												{knowledgeGraphStatus.failedFiles}
 											</Badge>
 										)}
 									</div>
@@ -513,7 +405,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 												{t("settings:ui.knowledgeGraph.resume")}
 											</Button>
 										)}
-										{(knowledgeGraphStatus.status === "success" || knowledgeGraphStatus.status === "failed") && (
+										{(knowledgeGraphStatus.status === "completed" || knowledgeGraphStatus.status === "error") && (
 											<Button
 												onClick={handleClearBuild}
 												variant="outline"
@@ -527,79 +419,24 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 									</div>
 								</div>
 
-								{/* Failed Files Details */}
-								{knowledgeGraphStatus.status === "failed" && knowledgeGraphStatus.failedFiles && knowledgeGraphStatus.failedFiles.length > 0 && (
-									<Popover>
-										<PopoverTrigger asChild>
-											<Button variant="ghost" size="sm" className="h-6 px-2 text-xs mt-2">
-												<AlertCircle className="w-3 h-3 mr-1" />
-												{t("settings:ui.knowledgeGraph.viewFailedFiles")}
-											</Button>
-										</PopoverTrigger>
-										<PopoverContent className="w-80 max-h-60 overflow-y-auto">
-											<div className="space-y-3">
-												<div className="flex items-center gap-2">
-													<AlertCircle className="w-4 h-4 text-red-500" />
-													<h4 className="font-medium">
-														{t("settings:ui.knowledgeGraph.failedFilesTitle")}
-													</h4>
-												</div>
-
-												{knowledgeGraphStatus.errorMessage && (
-													<p className="text-sm text-vscode-errorForeground">
-														{knowledgeGraphStatus.errorMessage}
-													</p>
-												)}
-
-												<div className="space-y-2">
-													<div className="flex justify-between items-center">
-														<p className="text-sm font-medium">
-															{t("settings:ui.knowledgeGraph.failedFileList")}
-														</p>
-														<Button
-															variant="ghost"
-															size="sm"
-															className="h-6 px-2 text-xs"
-															onClick={async () => {
-																try {
-																	const fileText =
-																		knowledgeGraphStatus.failedFiles?.join(
-																			"\n",
-																		) || ""
-																	await navigator.clipboard.writeText(
-																		fileText,
-																	)
-																} catch (error) {
-																	console.error(
-																		"Failed to copy to clipboard:",
-																		error,
-																	)
-																}
-															}}
-															disabled={shouldDisableAll}>
-															<Copy className="w-3 h-3 mr-1" />
-															{t("settings:ui.knowledgeGraph.copy")}
-														</Button>
-													</div>
-													<div className="max-h-40 overflow-y-auto border border-vscode-input-border rounded p-2 bg-vscode-textBlockQuote-background">
-														<ul className="text-xs space-y-1">
-															{knowledgeGraphStatus.failedFiles.map((file: string, index: number) => (
-																<li
-																	key={`${file}-${index}`}
-																	className={`text-vscode-errorForeground font-mono p-1 rounded transition-colors duration-150 ${shouldDisableAll ? "" : "hover:bg-vscode-list-hoverBackground cursor-pointer hover:text-vscode-foreground hover:underline"}`}
-																	onClick={() =>
-																		!shouldDisableAll &&
-																		handleOpenFailedFile(file)
-																	}>
-																	{file}
-																</li>
-															))}
-														</ul>
-													</div>
-												</div>
-											</div>
-										</PopoverContent>
-									</Popover>
+								{/* Error Details */}
+								{knowledgeGraphStatus.status === "error" && knowledgeGraphStatus.error && (
+									<div className="mt-2 p-2 bg-vscode-textBlockQuote-background border border-vscode-input-border rounded">
+										<div className="flex items-center gap-2 mb-2">
+											<AlertCircle className="w-4 h-4 text-red-500" />
+											<span className="text-sm font-medium text-vscode-errorForeground">
+												{t("settings:ui.knowledgeGraph.buildFailed")}
+											</span>
+										</div>
+										<p className="text-sm text-vscode-errorForeground">
+											{knowledgeGraphStatus.error}
+										</p>
+										{knowledgeGraphStatus.failedFiles > 0 && (
+											<p className="text-xs text-vscode-descriptionForeground mt-1">
+												{t("settings:ui.knowledgeGraph.failedFileCount", { count: knowledgeGraphStatus.failedFiles })}
+											</p>
+										)}
+									</div>
 								)}
 							</>
 						)}

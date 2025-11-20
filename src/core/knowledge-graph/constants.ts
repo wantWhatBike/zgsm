@@ -3,13 +3,14 @@
  */
 
 import type { KnowledgeGraphConfig } from './types'
+import { KNOWLEDGE_GRAPH_DEFAULTS, KnowledgeGraphBuildState } from "@roo-code/types"
 
 // 基础配置常量 - 统一管理所有配置值
 export const BASE_CONFIG = {
-  MAX_CONCURRENCY: 5,
-  BATCH_SIZE: 10,
-  MAX_FILES: 50000,
-  FILE_SIZE_LIMIT: 5 * 1024 * 1024, // 5MB
+  MAX_CONCURRENCY: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_CONCURRENCY,
+  BATCH_SIZE: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_BATCH_SIZE,
+  MAX_FILES: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_MAX_FILES,
+  FILE_SIZE_LIMIT: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_FILE_SIZE_LIMIT,
   FILE_LINES_LIMIT: 5000,
   MAX_FILES_PER_BATCH: 50,
   MAX_LINES_PER_FILE: 10000,
@@ -20,7 +21,6 @@ export const BASE_CONFIG = {
 
 // 默认配置
 export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
-  enabled: true,
   model: 'auto',
   maxConcurrency: BASE_CONFIG.MAX_CONCURRENCY,
   batchSize: BASE_CONFIG.BATCH_SIZE,
@@ -246,20 +246,6 @@ export const INCLUDE_EXTS = [
   '.pks', '.pkb' // PL/SQL（Oracle存储过程）
 ]
 
-// 扩展名冲突处理映射
-export const EXT_CONFLICT_RESOLUTION = {
-  '.m': {
-    // 通过项目特征判断是 Objective-C 还是 MATLAB
-    'objective-c': ['*.xcodeproj', '*.xcworkspace', 'Podfile', 'Info.plist'],
-    'matlab': ['*.mat', '*.fig', '*.mlx', '*.slx']
-  },
-  '.pl': {
-    // 通过项目特征判断是 Perl 还是 Prolog
-    'perl': ['cpanfile', 'Makefile.PL', 'Build.PL', '*.pm'],
-    'prolog': ['*.pro', '*.swi', '*.yap']
-  }
-} as const
-
 // 重试配置常量
 export const RETRY_CONFIG = {
   maxRetries: 3,
@@ -268,6 +254,9 @@ export const RETRY_CONFIG = {
   maxDelay: 30000
 } as const
 
+// LLM 语言设置
+export const LLM_LANGUAGE = "简体中文"
+
 // LLM配置
 export const LLM_CONFIG = {
   maxRetries: RETRY_CONFIG.maxRetries,
@@ -275,7 +264,7 @@ export const LLM_CONFIG = {
   maxTokens: 4000,
   temperature: 0.1,
   timeout: 60000,
-  ANSWER_LANGUAGE: "简体中文"
+  ANSWER_LANGUAGE: LLM_LANGUAGE
 }
 
 
@@ -311,4 +300,21 @@ export const ERROR_CODES = {
   TIMEOUT: 'TIMEOUT'
 } as const
 
-const LLM_LANGUAGE = "简体中文"
+// 默认构建状态
+export const DEFAULT_BUILD_STATE: KnowledgeGraphBuildState = {
+  progress: 0,
+  totalFiles: 0,
+  totalFilesToProcess: 0,
+  processedFiles: 0,
+  failedFiles: 0,
+  currentFile: "",
+  status: "pending",
+  phase: "root_analysis",
+  lastUpdateTime: new Date().toISOString(),
+  totalDuration: 0,
+  phaseProgress: {
+    root_analysis: { total: 0, processed: 0, status: 'pending' },
+    file_analysis: { total: 0, processed: 0, status: 'pending' },
+    directory_analysis: { total: 0, processed: 0, status: 'pending' }
+  }
+}

@@ -42,7 +42,6 @@ class Mutex {
 
 const FILES_LIST_FILE = "files.json"
 const BUILD_STATE_FILE = "build_state.json"
-const CONFIG_FILE = "config.json"
 
 export class BuildStateTracer {
 	private storage: IStorage
@@ -68,6 +67,7 @@ export class BuildStateTracer {
 				status: "pending" as const,
 				phase: "root_analysis",
 				totalDuration: 0,
+				lastUpdateTime: new Date().toISOString(),
 			} as KnowledgeGraphBuildState)
 		} else {
 			this.currentState = state
@@ -82,6 +82,7 @@ export class BuildStateTracer {
 		workspacePath: string,
 		totalFiles: number,
 		totalFilesToProcess: number,
+		initialProcessedFiles: number = 0,
 	): Promise<void> {
 		if (!this.storage) throw new Error("存储未初始化")
 
@@ -105,10 +106,15 @@ export class BuildStateTracer {
 				totalDuration: 0,
 				status: "running",
 				totalFiles,
-				processedFiles: 0,
+				processedFiles: initialProcessedFiles,
 				failedFiles: 0,
 				currentFile: "",
 				totalFilesToProcess: totalFilesToProcess,
+				phaseProgress: {
+					root_analysis: { processed: 0, total: 1, status: 'pending' },
+					file_analysis: { processed: 0, total: totalFilesToProcess, status: 'pending' },
+					directory_analysis: { processed: 0, total: 0, status: 'pending' }
+				},
 				llmStatistics: {
 					totalInputTokens: 0,
 					totalOutputTokens: 0,
@@ -228,19 +234,44 @@ export class BuildStateTracer {
 			return 100
 		}
 
-		if (!state.totalFilesToProcess || state.totalFilesToProcess === 0) {
-			return 0
-		}
-
-		// 阶段权重
+		// 阶段权重配置
 		const phaseWeights = {
-			root_analysis: 0.1,
-			file_analysis: 0.8,
+			root_analysis: 0.05,
+			file_analysis: 0.85,
 			directory_analysis: 0.1,
 			dependency_analysis: 0.0,
 			completed: 0.0,
 		}
 
+		// 如果有详细的阶段进度，优先使用
+		if (state.phaseProgress) {
+			let totalProgress = 0
+			
+			// 根目录分析
+			if (state.phaseProgress.root_analysis) {
+				const { processed, total, status } = state.phaseProgress.root_analysis
+				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
+				totalProgress += progress * phaseWeights.root_analysis * 100
+			}
+
+			// 文件分析
+			if (state.phaseProgress.file_analysis) {
+				const { processed, total, status } = state.phaseProgress.file_analysis
+				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
+				totalProgress += progress * phaseWeights.file_analysis * 100
+			}
+
+			// 目录分析
+			if (state.phaseProgress.directory_analysis) {
+				const { processed, total, status } = state.phaseProgress.directory_analysis
+				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
+				totalProgress += progress * phaseWeights.directory_analysis * 100
+			}
+
+			return Math.max(0, Math.min(100, totalProgress))
+		}
+
+		// 回退到基于当前阶段的简单计算逻辑
 		const phases = ["root_analysis", "file_analysis", "directory_analysis", "dependency_analysis", "completed"]
 		const currentPhaseIndex = phases.indexOf(state.phase)
 
@@ -256,10 +287,13 @@ export class BuildStateTracer {
 
 		// 当前阶段的进度
 		let currentPhaseProgress = 0
-		if (state.phase === "file_analysis" && state.totalFilesToProcess > 0) {
+		if ((state.phase === "file_analysis" || state.phase === "directory_analysis") && state.totalFilesToProcess > 0) {
 			currentPhaseProgress = (state.processedFiles / state.totalFilesToProcess) * 100
 		} else if (currentPhaseIndex > 0) {
-			currentPhaseProgress = 100 // 其他阶段完成时为100%
+			// 对于非计数型阶段（如root_analysis），如果已经进入下一个阶段，则认为已完成；
+			// 如果处于当前阶段，这里简单估算为0（或者可以根据具体情况优化）
+			// 实际上 root_analysis 很快，通常瞬间完成或处于 pending
+			currentPhaseProgress = 0
 		}
 
 		const currentPhaseWeight = phaseWeights[state.phase as keyof typeof phaseWeights]
@@ -268,14 +302,52 @@ export class BuildStateTracer {
 		return Math.max(0, Math.min(100, totalProgress))
 	}
 
+	/**
+		* 更新阶段进度
+		*/
+	public async updatePhaseProgress(
+		phase: 'root_analysis' | 'file_analysis' | 'directory_analysis',
+		processed: number,
+		total?: number,
+		status?: 'pending' | 'running' | 'completed'
+	): Promise<void> {
+		return this.mutex.withLock(async () => {
+			if (!this.currentState) {
+				throw new Error("构建状态不存在，无法更新阶段进度")
+			}
 
+			// 确保 phaseProgress 存在
+			if (!this.currentState.phaseProgress) {
+				this.currentState.phaseProgress = {
+					root_analysis: { processed: 0, total: 1, status: 'pending' },
+					file_analysis: { processed: 0, total: this.currentState.totalFilesToProcess, status: 'pending' },
+					directory_analysis: { processed: 0, total: 0, status: 'pending' }
+				}
+			}
+
+			// 更新指定阶段的进度
+			const currentPhaseProgress = this.currentState.phaseProgress[phase]
+			this.currentState.phaseProgress[phase] = {
+				processed,
+				total: total !== undefined ? total : currentPhaseProgress.total,
+				status: status || currentPhaseProgress.status
+			}
+
+			// 重新计算总进度
+			this.currentState.progress = this.calculateProgress(this.currentState)
+			this.currentState.lastUpdateTime = new Date().toISOString()
+
+			// 保存状态
+			await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
+		})
+	}
 
 	public async resolveFileList(files: FileInfo[]): Promise<FileChanges> {
 		return this.mutex.withLock(async () => {
 			try {
 				// 初始化文件历史记录（若为空则设为默认空对象）
 				const previousFileList = (await this.getFilesList()) || {}
-				const result: FileChanges = { added: [], modified: [], deleted: [] }
+				const result: FileChanges = { added: [], modified: [], deleted: [], unchangedCount: 0 }
 
 				// 提取当前文件路径集合，用于快速判断删除的文件
 				const currentFilePaths = new Set(files.map((file) => file.path))
@@ -298,6 +370,7 @@ export class BuildStateTracer {
 						result.modified.push(file)
 					} else {
 						// 无变化且已处理成功 → 不处理
+						result.unchangedCount = (result.unchangedCount || 0) + 1
 						continue
 					}
 
@@ -471,34 +544,4 @@ export class BuildStateTracer {
 		return this.currentState?.status === "error"
 	}
 
-	/**
-	 * 启用/禁用知识图谱 - 独立配置文件
-	 */
-	public async enableKnowledgeGraph(enabled: boolean): Promise<void> {
-		try {
-			const config = { enabled }
-			await this.storage.overwrite(CONFIG_FILE, config)
-			this.logger.info(`[BuildStateTracer] 知识图谱启用状态已更新: ${enabled}`)
-		} catch (error) {
-			throw new Error(`更新启用状态失败: ${error instanceof Error ? error.message : String(error)}`)
-		}
-	}
-
-	/**
-	 * 获取知识图谱启用状态
-	 */
-	public async isKnowledgeGraphEnabled(): Promise<boolean> {
-		try {
-			const content = await this.storage.load(CONFIG_FILE)
-			if (!content) {
-				// 默认为禁用状态
-				return false
-			}
-			const config = JSON.parse(content)
-			return config.enabled ?? false
-		} catch (error) {
-			this.logger.warn(`[BuildStateTracer] 获取启用状态失败: ${error instanceof Error ? error.message : String(error)}`)
-			return false
-		}
-	}
 }

@@ -6,6 +6,7 @@ import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
 import { FILE_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
 import { FileSummary, RootInfo, BuildProgress, KnowledgeGraphConfig, FileInfo } from "../types"
+import { LLM_LANGUAGE } from "../constants"
 import { ErrorHandler } from "../errors/ErrorHandler"
 import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
 import { ILogger } from "../../../utils/logger"
@@ -52,8 +53,9 @@ export class FileSummarizer {
 			let batchFiles: Array<{ path: string; content: string }> = []
 			let batchToken = 0
 			let processedCount = 0
-			// 去除非文件内容提示词后的剩余窗口的95%
-			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.95
+			
+			// 去除非文件内容提示词后的剩余窗口的60%
+			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.60
 
 			for (let i = 0; i < filesToAnalyze.length; i++) {
 				// 检查是否应该暂停（在处理每个批次前检查）
@@ -97,6 +99,7 @@ export class FileSummarizer {
 				}
 
 				// 添加当前文件到批次
+				// TODO: batchFiles 可能会占用较大内存，特别是当文件数量多且内容大时。虽然有 token 限制，但仍需注意。
 				batchFiles.push({
 					path: filePath,
 					content,
@@ -131,7 +134,7 @@ export class FileSummarizer {
 		processedCount: number = 0,
 		totalFiles: number = 0,
 	): Promise<void> {
-		this.logger.info(`[FileSummarizer] start to process batch, current batch size: ${batchFiles.length}`)
+		this.logger.info(`[FileSummarizer] start to process batch, batch size: ${batchFiles.length}`)
 		const batchStartTime = Date.now()
 		const prompt = buildPrompt(basePrompt, {
 			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
@@ -186,6 +189,7 @@ export class FileSummarizer {
 		// 返回类型：Pick从基础接口中“拾取”指定字段K，生成只包含这些字段的对象数组
 		// 3. 内部实现思路（示例）：
 		// - 先获取完整的文件摘要数据（包含所有字段）
+		// TODO: 一次性加载所有文件摘要可能会导致内存溢出，建议改为流式读取或分页读取。
 		const content = await this.storage.load(FILE_SUMMARIES_FILE)
 		if (!content) {
 			return undefined
@@ -225,11 +229,11 @@ export class FileSummarizer {
 			{
 				path: "本文件路径",
 				type: "source|test|config",
-				description: "150字左右，突出核心业务逻辑和架构角色（简体中文）",
-				keywords: ["3-5个关键词，按重要性排序（简体中文）"],
-				core_functions: {
-					function_name1: "功能描述，50~100字，突出函数功能、业务价值（简体中文）",
-					funciton_name2: "功能描述，50~100字，突出函数功能、业务价值（简体中文）",
+				description: `150字左右，突出核心业务逻辑和架构角色（${LLM_LANGUAGE}）`,
+				keywords: [`3-5个关键词，按重要性排序（${LLM_LANGUAGE}）`],
+				functions: {
+					function_name1: `功能描述，50~100字，突出函数功能、业务价值（${LLM_LANGUAGE}）`,
+					funciton_name2: `功能描述，50~100字，突出函数功能、业务价值（${LLM_LANGUAGE}）`,
 				},
 				dependencies: ["本文将依赖的项目内依赖文件路径"],
 			},
@@ -247,7 +251,7 @@ export class FileSummarizer {
 			type: this.validateFileType(summary.type),
 			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
-			core_functions: typeof summary.core_functions === "object" ? summary.core_functions : {},
+			functions: typeof summary.functions === "object" ? summary.functions : {},
 			dependencies: Array.isArray(summary.dependencies) ? summary.dependencies : [],
 			timestamp: summary.timestamp || now,
 			size: summary.size || 0,

@@ -4,7 +4,7 @@
  */
 
 import { StorageConfig, IStorage, StorageError } from "./IStorage"
-import { FileStorage } from "./FileStorage"
+import { JsonFileStorage } from "./FileStorage"
 import path from "path"
 import * as os from "os"
 import { createHash } from "crypto"
@@ -18,7 +18,7 @@ interface StorageCreator {
 // 文件存储创建器
 class FileStorageCreator implements StorageCreator {
   create(config: StorageConfig): IStorage {
-    return new FileStorage(config)
+    return new JsonFileStorage(config)
   }
   
   supports(type: string): boolean {

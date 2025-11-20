@@ -7,19 +7,8 @@ import { knowledgeGraphManager } from "./KnowledgeGraphManager"
 import { ILogger } from "../../utils/logger"
 import { createLogger } from "../../utils/logger"
 import { Package } from "../../shared/package"
-
-// 默认状态信息常量
-const DEFAULT_STATUS_INFO = {
-  status: "pending" as const,
-  process: 0,
-  totalFiles: 0,
-  totalSucceed: 0,
-  totalFailed: 0,
-  failedReason: "",
-  failedFiles: [],
-  currentStage: "root_analysis" as const,
-  stageProgress: 0
-}
+import { DEFAULT_BUILD_STATE } from "./constants"
+import { KNOWLEDGE_GRAPH_MESSAGES, API_PROVIDER } from "@roo-code/types"
 
 /**
  * 知识图谱消息处理器
@@ -39,36 +28,36 @@ export class KnowledgeGraphMessageHandler {
    */
   async handleMessage(message: any): Promise<void> {
     try {
-      // 检查 API 提供者是否为 zgsm
+      // 检查 API 提供者是否为 zgsm - 使用常量
       const { apiConfiguration } = await this.clineProvider.getState()
-      if (apiConfiguration?.apiProvider !== "zgsm") {
+      if (apiConfiguration?.apiProvider !== API_PROVIDER.ZGSM) {
         this.logger.warn("[KnowledgeGraphMessageHandler] 仅 CoStrict 提供商支持知识图谱功能")
         this.sendErrorResponse(message.type, "仅 CoStrict 提供商支持知识图谱功能")
         return
       }
 
       switch (message.type) {
-        case "knowledgeGraphEnabled":
+        case KNOWLEDGE_GRAPH_MESSAGES.ENABLED:
           await this.handleEnabledMessage(message)
           break
 
-        case "knowledgeGraphGetStatus":
+        case KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS:
           await this.handleGetStatusMessage()
           break
 
-        case "knowledgeGraphBuild":
-          await this.handleStartBuildMessage(message)
+        case KNOWLEDGE_GRAPH_MESSAGES.BUILD:
+          await this.handleStartBuildMessage()
           break
 
-        case "knowledgeGraphPause":
+        case KNOWLEDGE_GRAPH_MESSAGES.PAUSE:
           await this.handlePauseBuildMessage()
           break
 
-        case "knowledgeGraphResume":
+        case KNOWLEDGE_GRAPH_MESSAGES.RESUME:
           await this.handleResumeBuildMessage()
           break
 
-        case "knowledgeGraphClear":
+        case KNOWLEDGE_GRAPH_MESSAGES.CLEAR:
           await this.handleClearBuildMessage()
           break
         default:
@@ -83,60 +72,22 @@ export class KnowledgeGraphMessageHandler {
   }
 
   /**
-   * 处理启用/禁用消息
+   * 处理启用/禁用消息 - 重构版本，职责简化
    */
   private async handleEnabledMessage(message: any): Promise<void> {
     const isEnabled = message.bool ?? false
     
-    // 从 BuildStateTracer 获取当前状态而不是从 clineProvider
-    const enabled = knowledgeGraphManager.isKnowledgeGraphEnabled()
-    const oldEnabled = enabled ?? false
-    
-    // 检查管理器是否已经正确初始化
-    const isManagerInitialized = knowledgeGraphManager && knowledgeGraphManager.isManagerInitialized()
-    const needsInitialization = isEnabled && !isManagerInitialized
-    
-    if (oldEnabled === isEnabled && !needsInitialization) {
-      // 状态未变化且管理器已初始化，跳过处理
-      this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphEnabled",
-        payload: isEnabled,
-      })
-      return
-    }
-
     try {
-      // 如果启用知识图谱，需要初始化管理器
-      if (isEnabled) {
-         this.logger?.info("启用知识图谱服务")
-        try {
-          // 设置提供者和日志
-          knowledgeGraphManager.setProvider(this.clineProvider)
-          knowledgeGraphManager.setLogger(this.logger)
-          // 初始化知识图谱管理器
-          await knowledgeGraphManager.initialize()
-          
-          // 更新 BuildStateTracer 中的启用状态
-          await knowledgeGraphManager.enableKnowledgeGraph(true)
-        } catch (initError) {
-          this.logger.error(`[KnowledgeGraph] 初始化失败: ${initError instanceof Error ? initError.message : String(initError)}`)
-          throw initError
-        }
-      } else {
-        // 如果禁用知识图谱，停止服务
-        this.logger?.info("停止知识图谱服务")
-        try {
-          // 更新 BuildStateTracer 中的启用状态
-          await knowledgeGraphManager.enableKnowledgeGraph(false)
-          await knowledgeGraphManager.dispose()
-        } catch (stopError) {
-          this.logger.warn(`[KnowledgeGraph] 停止服务警告: ${stopError instanceof Error ? stopError.message : String(stopError)}`)
-        }
-      }
+      // 设置提供者和日志（确保Manager有必要的依赖）
+      knowledgeGraphManager.setProvider(this.clineProvider)
+      knowledgeGraphManager.setLogger(this.logger)
       
-      // 发送响应到 webview
+      // 委托给Manager处理核心业务逻辑
+      await knowledgeGraphManager.setKnowledgeGraphEnabled(isEnabled)
+      
+      // 发送成功响应到 webview
       this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphEnabled",
+        type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
         payload: isEnabled,
       })
       
@@ -144,94 +95,56 @@ export class KnowledgeGraphMessageHandler {
       const errorMessage = error instanceof Error ? error.message : "切换知识图谱状态失败"
       this.logger.error(`[KnowledgeGraphMessageHandler] 状态切换失败: ${errorMessage}`)
       
-      // 发送错误响应
+      // 发送错误响应，并附带错误信息
       this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphEnabled",
+        type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
         payload: false, // 失败时设置为false
+        error: errorMessage // 传递具体错误信息给前端
       })
-      
-      throw error
     }
   }
 
 
   /**
-   * 处理轮询状态消息 - 简化版本，只返回状态信息，轮询控制由前端负责
+   * 处理轮询状态消息 - 简化版本，直接返回后端状态
    */
   private async handleGetStatusMessage(): Promise<void> {
     try {
-      // 默认状态信息
-      const defaultStatusInfo = {
-        ...DEFAULT_STATUS_INFO,
-        processTs: Math.floor(Date.now() / 1000)
-      }
-
       // 获取实时构建状态
       const buildState = knowledgeGraphManager.getBuildStatus()
       
       if (buildState) {
-        // 获取当前阶段信息
-        const currentStage = this.mapStatusToStage(buildState.status, buildState.phase)
-        
-        // 构建符合前端期望的 KnowledgeGraphStatusInfo 格式
-        const buildStatusInfo = {
-          status: this.mapStatusToFrontendFormat(buildState.status),
-          process: Math.max(0, Math.min(100, buildState.progress)), // 确保进度在0-100范围内
-          totalFiles: Math.max(buildState.totalFiles, 0), // 确保不为负数
-          totalSucceed: Math.max(buildState.processedFiles, 0), // 确保不为负数
-          totalFailed: Math.max(buildState.failedFiles || 0, 0),
-          failedReason: buildState.error || "",
-          failedFiles: [],
-          processTs: Math.floor(Date.now() / 1000),
-          currentStage: currentStage,
-          stageProgress: Math.max(0, Math.min(100, buildState.progress))
-        }
-        
-        // 简化响应：只返回状态信息，不包含轮询控制
-        this.clineProvider.postMessageToWebview({
-          type: "knowledgeGraphStatusResponse",
-          payload: {
-            status: buildStatusInfo
-          }
-        })
+        this.sendStatusResponse(buildState)
         return
       }
       
       this.logger.warn(`[KnowledgeGraphMessageHandler] 未获取到知识图谱状态，使用默认状态`)
       
-      // 简化响应：只返回默认状态信息
-      this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphStatusResponse",
-        payload: {
-          status: defaultStatusInfo
-        }
-      })
+      // 返回默认状态
+      this.sendStatusResponse(DEFAULT_BUILD_STATE)
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "获取知识图谱状态失败"
       this.logger.error(`[KnowledgeGraphMessageHandler] 获取知识图谱状态失败: ${errorMessage}`)
-      const errorStatusInfo = {
-        ...DEFAULT_STATUS_INFO,
-        failedReason: errorMessage,
-        processTs: Math.floor(Date.now() / 1000)
+      
+      const errorState = {
+        ...DEFAULT_BUILD_STATE,
+        status: "error" as const,
+        error: errorMessage,
       }
       
-      // 简化响应：只返回错误状态信息
-      this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphStatusResponse",
-        payload: {
-          status: errorStatusInfo
-        }
-      })
+      this.sendStatusResponse(errorState)
     }
   }
 
   /**
    * 处理开始构建消息
    */
-  private async handleStartBuildMessage(message: any): Promise<void> {
+  private async handleStartBuildMessage(): Promise<void> {
     try {
       await knowledgeGraphManager.startBuild()
+      
+      await this.handleGetStatusMessage()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "知识图谱构建失败"
       this.logger.error(`[KnowledgeGraphMessageHandler] 构建失败: ${errorMessage}`)
@@ -245,6 +158,8 @@ export class KnowledgeGraphMessageHandler {
   private async handlePauseBuildMessage(): Promise<void> {
     try {
       await knowledgeGraphManager.pauseBuild()
+      
+      await this.handleGetStatusMessage()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "暂停构建失败"
       this.logger.error(`[KnowledgeGraphMessageHandler] 暂停失败: ${errorMessage}`)
@@ -258,6 +173,8 @@ export class KnowledgeGraphMessageHandler {
   private async handleResumeBuildMessage(): Promise<void> {
     try {
       await knowledgeGraphManager.resumeBuild()
+      
+      await this.handleGetStatusMessage()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "继续构建失败"
       this.logger.error(`[KnowledgeGraphMessageHandler] 继续失败: ${errorMessage}`)
@@ -272,40 +189,22 @@ export class KnowledgeGraphMessageHandler {
     try {
       await knowledgeGraphManager.clearKnowledgeGraph()
       
-      // 构建清空后的状态信息
-      const clearedStatusInfo = {
-        ...DEFAULT_STATUS_INFO,
-        processTs: Math.floor(Date.now() / 1000)
-      }
-      
-      // 简化响应：只发送清空后的状态
-      this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphStatusResponse",
-        payload: {
-          status: clearedStatusInfo
-        }
-      })
+      // 发送清空后的状态 - 使用Manager的真实状态，避免脑裂
+      await this.handleGetStatusMessage()
       
       this.logger.info("[KnowledgeGraphMessageHandler] 已清除")
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "清除失败"
       this.logger.error(`[KnowledgeGraphMessageHandler] 清除失败: ${errorMessage}`)
       
-      // 即使清除失败，也发送一个重置状态
-      const errorStatusInfo = {
-        ...DEFAULT_STATUS_INFO,
-        status: "failed" as const,
-        failedReason: errorMessage,
-        processTs: Math.floor(Date.now() / 1000)
+      // 发送错误状态
+      const errorState = {
+        ...DEFAULT_BUILD_STATE,
+        status: "error" as const,
+        error: errorMessage,
       }
       
-      // 简化响应：只返回错误状态信息
-      this.clineProvider.postMessageToWebview({
-        type: "knowledgeGraphStatusResponse",
-        payload: {
-          status: errorStatusInfo
-        }
-      })
+      this.sendStatusResponse(errorState)
       
       throw error
     }
@@ -313,76 +212,30 @@ export class KnowledgeGraphMessageHandler {
 
 
 
-  /**
-   * 将状态映射到前端格式
-   */
-  private mapStatusToFrontendFormat(status: string): "success" | "failed" | "running" | "pending" | "paused" {
-    switch (status) {
-      case "completed":
-        return "success"
-      case "error":
-        return "failed"
-      case "running":
-        return "running"
-      case "paused":
-        return "paused"
-      default:
-        return "pending"
-    }
-  }
 
   /**
-   * 获取当前阶段
+   * 统一的状态响应发送方法
    */
-  private mapStatusToStage(status: string, phase?: string): "root_analysis" | "file_summary" | "directory_summary" | "dependency_graph" | "completed" {
-    if (status === "completed") {
-      return "completed"
-    }
-    
-    if (phase) {
-      return this.mapPhaseToStage(phase)
-    }
-    
-    // 根据状态推断阶段
-    switch (status) {
-      case "running":
-        return "file_summary"
-      case "paused":
-        return "file_summary"
-      default:
-        return "root_analysis"
-    }
-  }
-
-  /**
-   * 将构建阶段映射到前端阶段
-   */
-  private mapPhaseToStage(phase: string): "root_analysis" | "file_summary" | "directory_summary" | "dependency_graph" | "completed" {
-    switch (phase) {
-      case "root_analysis":
-        return "root_analysis"
-      case "file_analysis":
-        return "file_summary"
-      case "directory_analysis":
-        return "directory_summary"
-      case "completed":
-        return "completed"
-      default:
-        return "root_analysis"
-    }
-  }
-
-  /**
-   * 发送错误响应
-   */
-  private sendErrorResponse(type: string, error: string): void {
+  private sendStatusResponse(status: any): void {
     this.clineProvider.postMessageToWebview({
-      type: "knowledgeGraphStatusResponse",
+      type: KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE,
       payload: {
-        success: false,
-        error: error
+        status: status
       }
     })
+  }
+
+  /**
+   * 发送错误响应 - 统一使用状态结构
+   */
+  private sendErrorResponse(type: string, error: string): void {
+    const errorState = {
+      ...DEFAULT_BUILD_STATE,
+      status: "error" as const,
+      error: error,
+    }
+    
+    this.sendStatusResponse(errorState)
   }
 }
 

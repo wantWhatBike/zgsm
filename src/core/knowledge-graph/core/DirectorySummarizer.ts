@@ -1,6 +1,8 @@
+import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
-import { DIRECTORY_ANALYSIS_PROMPT, buildPrompt } from "../llm/PromptTemplates"
-import { DirectorySummary, FileSummary, BuildProgress, KnowledgeGraphConfig, FileInfo, RootInfo } from "../types"
+import { DIRECTORY_ANALYSIS_PROMPT, buildPrompt, formatFileList } from "../llm/PromptTemplates"
+import { DirectorySummary, FileSummary, BuildProgress, KnowledgeGraphConfig, FileInfo, RootInfo, FileChanges } from "../types"
+import { LLM_LANGUAGE } from "../constants"
 import { ErrorHandler } from "../errors/ErrorHandler"
 import { ILogger } from "../../../utils/logger"
 import { FileSummarizer as FileSummarizer } from "./FileSummarizer"
@@ -8,6 +10,7 @@ import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
 
 const DIRECTORY_SUMMARIES_FILE = "directory_summaries.jsonl"
+const MAX_DIR_DEPTH = 4 // 最大目录深度限制
 
 export class DirectorySummarizer {
 	private llmClient: LLMClient
@@ -46,60 +49,264 @@ export class DirectorySummarizer {
 	}
 
 	/**
-	 * 分析目录 - 支持增量落盘
+	 * 分析目录 - 采用自下而上的迭代方式
 	 */
 	async summarizeDirectories(
 		rootInfo: RootInfo,
 		files: FileInfo[],
 		onProgress?: (progress: BuildProgress) => void,
+		changedFiles?: FileChanges, // 新增参数：文件变更信息
 	): Promise<void> {
 		try {
 			if (files.length === 0) {
 				this.logger.warn(`[DirectorySummarizer] 文件列表为空`)
 				return
 			}
-			const fileSimpleSummaryList = await this.fileAnalyzer.getFileSummaries(["path", "description"])
-			if (!fileSimpleSummaryList) {
-				throw new Error("get file summaries are null, cannot continue.")
+
+			// 1. 获取所有文件摘要
+			const fileSummaries = await this.fileAnalyzer.getFileSummaries(["path", "description"])
+			if (!fileSummaries) {
+				throw new Error("无法获取文件摘要，无法继续目录分析")
 			}
 
-			// 构建提示词
-			const prompt = buildPrompt(DIRECTORY_ANALYSIS_PROMPT, {
-				rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
-				fileSimpleSummaryList: this.concatFileSummaries(fileSimpleSummaryList),
-			})
+			// 2. 提取所有目录并计算深度
+			const dirDepths = new Map<string, number>()
+			const dirFiles = new Map<string, Pick<FileSummary, "path" | "description">[]>()
 
-			// 发送LLM请求
-			const response = await this.llmClient.sendStructuredRequest<DirectorySummary[]>(
-				prompt,
-				this.getDirectorySummarySchema(),
-			)
+			// 遍历文件，归类到目录
+			for (const file of fileSummaries) {
+				const dirPath = path.dirname(file.path)
+				// 忽略根目录 "." 或空路径
+				if (dirPath === "." || dirPath === "") continue
 
-			if (!response.success || !response.data) {
-				this.logger.error(`[DirectorySummarizer] 分析目录失败: ${response.error}`)
-				return
+				if (!dirFiles.has(dirPath)) {
+					dirFiles.set(dirPath, [])
+					// 计算深度：根据路径分隔符数量
+					const depth = dirPath.split(/[\\/]/).length
+					dirDepths.set(dirPath, depth)
+				}
+				dirFiles.get(dirPath)?.push(file)
 			}
 
-			const directorySummaries = response.data.map((summary: DirectorySummary) =>
-				this.validateAndCleanDirectorySummary(summary),
-			)
+			// 补充中间目录
+			const allDirs = Array.from(dirDepths.keys())
+			for (const dir of allDirs) {
+				let current = dir
+				while (true) {
+					const parent = path.dirname(current)
+					if (parent === "." || parent === "" || dirDepths.has(parent)) break
 
-			await this.saveSummaries(directorySummaries)
+					const depth = parent.split(/[\\/]/).length
+					if (depth > 0) {
+						dirDepths.set(parent, depth)
+						if (!dirFiles.has(parent)) {
+							dirFiles.set(parent, [])
+						}
+					}
+					current = parent
+				}
+			}
+
+			// 3. 按深度降序排序（自下而上）
+			const sortedDirs = Array.from(dirDepths.entries())
+				.sort((a, b) => b[1] - a[1]) // 深度大的在前
+				.map(([dir]) => dir)
+
+			// 4. 准备增量更新
+			const dirSummaryMap = new Map<string, DirectorySummary>()
+			let affectedDirs = new Set<string>()
+
+			// 如果有变更文件，计算受影响的目录
+			if (changedFiles) {
+				affectedDirs = this.getAffectedDirectories(changedFiles)
+				this.logger.info(`[DirectorySummarizer] 增量更新: ${affectedDirs.size} 个目录受影响`)
+				
+				// 加载现有的目录摘要到内存，作为基准
+				const existingSummaries = await this.getDirectorySummaries("")
+				if (existingSummaries) {
+					existingSummaries.forEach(s => dirSummaryMap.set(s.path, s))
+				}
+				
+				// 清除受影响目录的旧摘要（可选，因为后面会覆盖，但为了逻辑清晰）
+				// 实际上不需要清除，因为如果生成失败可能还需要旧的？不，生成失败应该报错。
+			} else {
+				// 全量更新，affectedDirs 为空表示全部处理（或者我们可以把所有目录都加进去）
+				// 为了逻辑统一，如果是全量，我们将所有 sortedDirs 视为受影响
+				sortedDirs.forEach(d => affectedDirs.add(d))
+			}
+
+			// 5. 迭代处理
+			const directorySummaries: DirectorySummary[] = []
+			// 准备全量文件列表字符串（仅计算一次）
+			const allFileListStr = formatFileList(files.map((f) => f.path))
+
+			let processedCount = 0
+			// 仅统计需要处理的目录数
+			const dirsToProcess = sortedDirs.filter(d => affectedDirs.has(d) || !changedFiles).length
+			
+			// 如果是增量更新，我们需要先清空存储文件，然后重写所有摘要（包括未变更的）
+			// 或者使用追加模式？目前的 storage.add 是追加。
+			// 为了保证文件内容的整洁（无重复），建议全量重写。
+			// 策略：内存中维护完整的 dirSummaryMap (旧的 + 新生成的)，最后统一保存。
+			
+			for (const dirPath of sortedDirs) {
+				// 检查暂停
+				if (this.shouldPause()) {
+					this.logger.info("[DirectorySummarizer] 分析被暂停")
+					break
+				}
+
+				const depth = dirDepths.get(dirPath) || 0
+
+				if (depth > MAX_DIR_DEPTH) {
+					continue
+				}
+
+				// 检查是否需要更新
+				// 如果是全量更新(changedFiles undefined)，或者该目录在受影响列表中
+				const needsUpdate = !changedFiles || affectedDirs.has(dirPath)
+
+				if (!needsUpdate) {
+					// 不需要更新，直接使用旧摘要（已在 dirSummaryMap 中）
+					const oldSummary = dirSummaryMap.get(dirPath)
+					if (oldSummary) {
+						directorySummaries.push(oldSummary)
+					}
+					continue
+				}
+
+				// 获取直接子文件摘要
+				const subFiles = dirFiles.get(dirPath) || []
+
+				// 获取直接子目录摘要
+				const subDirs: DirectorySummary[] = []
+				for (const [childPath, summary] of dirSummaryMap.entries()) {
+					if (path.dirname(childPath) === dirPath) {
+						subDirs.push(summary)
+					}
+				}
+
+				if (subFiles.length === 0 && subDirs.length === 0) {
+					continue
+				}
+
+				// 生成当前目录摘要
+				const summary = await this.generateDirectorySummary(
+					dirPath,
+					rootInfo,
+					allFileListStr,
+					subFiles,
+					subDirs,
+				)
+
+				if (summary) {
+					directorySummaries.push(summary)
+					dirSummaryMap.set(dirPath, summary)
+				}
+
+				processedCount++
+				onProgress?.({
+					phase: "directory_analysis",
+					message: `正在分析目录: ${dirPath}`,
+					totalFiles: dirsToProcess,
+					filesToProcess: dirsToProcess,
+					totalProcessedFiles: processedCount,
+					batchProcessedFilePaths: [dirPath],
+					batchFailedFiles: 0,
+				})
+			}
+
+			// 6. 保存所有摘要（全量重写，确保一致性）
+			// 先清除旧文件
+			await this.clear()
+			// 写入新数据
+			const finalSummaries = Array.from(dirSummaryMap.values())
+			for (const summary of finalSummaries) {
+				await this.storage!.add(DIRECTORY_SUMMARIES_FILE, summary)
+			}
+
+			this.logger.info(`[DirectorySummarizer] 目录分析完成，共保存 ${finalSummaries.length} 个摘要`)
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "目录分析")
 		}
 	}
 
-	private concatFileSummaries(fileSimpleSummaryList: Pick<FileSummary, "path" | "description">[]): string {
-		// 遍历数组，每个元素转换为 "path: description" 格式，再用换行符拼接
-		return fileSimpleSummaryList.map((item) => `${item.path}: ${item.description}`).join("\n")
+	/**
+	 * 计算受影响的目录
+	 */
+	private getAffectedDirectories(changedFiles: FileChanges): Set<string> {
+		const affectedDirs = new Set<string>()
+		const allChangedPaths = [
+			...changedFiles.added.map((f) => f.path),
+			...changedFiles.modified.map((f) => f.path),
+			...changedFiles.deleted.map((f) => f.path),
+		]
+
+		for (const filePath of allChangedPaths) {
+			let currentDir = path.dirname(filePath)
+			// 向上冒泡直到根目录
+			while (currentDir !== "." && currentDir !== "/" && currentDir !== "") {
+				if (affectedDirs.has(currentDir)) {
+					// 已经标记过，可以停止向上冒泡（假设路径是唯一的）
+					// 但为了安全起见，还是继续，因为可能是从不同子路径汇聚上来的
+				}
+				affectedDirs.add(currentDir)
+				currentDir = path.dirname(currentDir)
+			}
+			// 确保根目录也被标记（如果需要）
+			// affectedDirs.add(".")
+		}
+		return affectedDirs
+	}
+
+	private async generateDirectorySummary(
+		dirPath: string,
+		rootInfo: RootInfo,
+		allFileListStr: string,
+		subFiles: Pick<FileSummary, "path" | "description">[],
+		subDirs: DirectorySummary[]
+	): Promise<DirectorySummary | null> {
+		try {
+			// 格式化输入
+			const subFileSummariesStr = subFiles.map(f => `- ${path.basename(f.path)}: ${f.description}`).join("\n")
+			const subDirSummariesStr = subDirs.map(d => `- ${path.basename(d.path)}/: ${d.description}`).join("\n")
+
+			const prompt = buildPrompt(DIRECTORY_ANALYSIS_PROMPT, {
+				rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
+				allFileList: allFileListStr,
+				dirPath: dirPath,
+				subFileSummaries: subFileSummariesStr || "(无直接子文件)",
+				subDirSummaries: subDirSummariesStr || "(无直接子目录)"
+			})
+
+			const response = await this.llmClient.sendStructuredRequest<DirectorySummary>(
+				prompt,
+				this.getDirectorySummarySchema()
+			)
+
+			if (response.success && response.data) {
+				// 修正返回数据中的 path，确保是全路径
+				const summary = response.data
+				summary.path = dirPath // 强制使用正确路径
+				return this.validateAndCleanDirectorySummary(summary)
+			} else {
+				this.logger.warn(`[DirectorySummarizer] 目录 ${dirPath} 分析失败: ${response.error}`)
+				return null
+			}
+		} catch (error) {
+			this.logger.error(`[DirectorySummarizer] 生成目录摘要异常: ${error}`)
+			return null
+		}
 	}
 
 	private async saveSummaries(summaries: DirectorySummary[]): Promise<void> {
-		// TODO: 增量保存目录摘要
+		// 由于改为逐个追加，此方法可能不再需要，或者用于全量覆盖
+		// 这里保留用于兼容旧逻辑，如果需要全量重写
 		try {
-			await this.storage!.overwrite(DIRECTORY_SUMMARIES_FILE, summaries)
-			this.logger.info(`[DirectorySummarizer] 保存目录摘要: ${summaries.length}个`)
+			// 注意：如果上面已经 add 了，这里 overwrite 会导致重复或覆盖
+			// 建议在 summarizeDirectories 开始时 clear，然后 add
+			// 或者在这里统一 overwrite
+			// 鉴于 summarizeDirectories 中已经使用了 add，这里不再执行 overwrite，除非是想做最终的一致性保存
 		} catch (error) {
 			this.logger.error(`[DirectorySummarizer] 保存摘要失败: ${error}`)
 		}
@@ -160,8 +367,8 @@ export class DirectorySummarizer {
 		return {
 			path: "目录路径",
 			type: "功能模块/工具集/配置",
-			description: "整体定位（150字左右），详细描述目录在项目中的核心功能、架构角色、业务价值和技术特点（简体中文）",
-			keywords: ["2-5个核心关键词（简体中文）"],
+			description: `整体定位（150字左右），详细描述目录在项目中的核心功能、架构角色、业务价值和技术特点（${LLM_LANGUAGE}）`,
+			keywords: [`2-5个核心关键词（${LLM_LANGUAGE}）`],
 			key_files: ["1-5个核心文件路径"],
 		}
 	}

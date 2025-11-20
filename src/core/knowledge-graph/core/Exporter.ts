@@ -272,9 +272,9 @@ export class Exporter {
 				content += `- **关键词**: ${summary.keywords.join(", ")}\n`
 				content += `- **描述**: ${summary.description}\n\n`
 
-				if (Object.keys(summary.core_functions).length > 0) {
+				if (Object.keys(summary.functions).length > 0) {
 					content += "**核心函数**:\n"
-					for (const [funcName, funcDesc] of Object.entries(summary.core_functions)) {
+					for (const [funcName, funcDesc] of Object.entries(summary.functions)) {
 						content += `- ${funcName}: ${funcDesc}\n`
 					}
 					content += "\n"

@@ -7,13 +7,14 @@ import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
 import { ROOT_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
 import { RootInfo, KnowledgeGraphConfig, FileInfo } from "../types"
-import { KEY_FILE_PATTERNS } from "../constants"
+import { KEY_FILE_PATTERNS, LLM_LANGUAGE, IGNORE_PATTERNS } from "../constants"
 import { ErrorHandler } from "../errors/ErrorHandler"
 import { IStorage } from "../storage/IStorage"
 import { ILogger } from "../../../utils/logger"
 import { StorageUtils } from "../storage/StorageUtils"
 
 const ROOT_INFO_FILE = "root_info.json"
+const MAX_DEPTH = 4 // 增加扫描深度，支持 Monorepo 结构
 
 export class RootAnalyzer {
 	private llmClient: LLMClient
@@ -107,6 +108,7 @@ export class RootAnalyzer {
 	 * @returns 关键文件绝对路径数组（数量 ≤ maxKeyFiles）
 	 */
 	private async collectKeyFiles(workspace: string): Promise<string[]> {
+
 		// 2. 大小写不敏感的模式匹配函数
 		const isMatch = (filename: string, patterns: string[]): boolean => {
 			const lowerFilename = filename.toLowerCase()
@@ -127,17 +129,40 @@ export class RootAnalyzer {
 			})
 		}
 
-		// 3. 收集指定目录中符合模式的文件（返回绝对路径）
-		const collectFilesInDir = async (dir: string, patterns: string[]): Promise<string[]> => {
+		// 3. 递归查找文件
+		const findFilesByPatterns = async (dir: string, patterns: string[], depth: number): Promise<string[]> => {
+			if (depth > MAX_DEPTH) return []
+			const found: string[] = []
+
 			try {
 				const entries = await fs.readdir(dir, { withFileTypes: true })
-				return entries
-					.filter((entry) => entry.isFile() && isMatch(entry.name, patterns))
-					.map((entry) => path.resolve(dir, entry.name)) // 确保绝对路径
-			} catch (error) {
-				this.logger.warn(`无法读取目录 ${dir}，已跳过`, error as Error)
-				return []
+
+				for (const entry of entries) {
+					const fullPath = path.join(dir, entry.name)
+
+					// 忽略检查：node_modules, 隐藏文件, 以及 IGNORE_PATTERNS
+					if (
+						entry.name === "node_modules" ||
+						entry.name.startsWith(".") ||
+						IGNORE_PATTERNS.some((p) => entry.name === p.replace(/\/$/, ""))
+					) {
+						continue
+					}
+
+					if (entry.isFile()) {
+						if (isMatch(entry.name, patterns)) {
+							found.push(fullPath)
+						}
+					} else if (entry.isDirectory()) {
+						const subFound = await findFilesByPatterns(fullPath, patterns, depth + 1)
+						found.push(...subFound)
+					}
+				}
+			} catch (e) {
+				// ignore access errors
+				this.logger.warn(`无法读取目录 ${dir}，已跳过`)
 			}
+			return found
 		}
 
 		// 4. 按优先级收集文件（去重+数量控制）
@@ -145,32 +170,15 @@ export class RootAnalyzer {
 		const result: string[] = []
 
 		for (const patterns of KEY_FILE_PATTERNS) {
-			// 先收集根目录文件（根目录优先级高于子目录）
-			const rootFiles = await collectFilesInDir(workspace, patterns)
-			for (const file of rootFiles) {
+			// 使用递归查找
+			const files = await findFilesByPatterns(workspace, patterns, 0)
+
+			for (const file of files) {
 				if (!collectedPaths.has(file)) {
 					collectedPaths.add(file)
 					result.push(file)
 					if (result.length >= this.maxKeyFiles) {
 						return result // 达到最大数量，直接返回
-					}
-				}
-			}
-
-			// 再收集一级子目录文件
-			const subDirs = (await fs.readdir(workspace, { withFileTypes: true }))
-				.filter((entry) => entry.isDirectory())
-				.map((entry) => path.resolve(workspace, entry.name))
-
-			for (const subDir of subDirs) {
-				const subFiles = await collectFilesInDir(subDir, patterns)
-				for (const file of subFiles) {
-					if (!collectedPaths.has(file)) {
-						collectedPaths.add(file)
-						result.push(file)
-						if (result.length >= this.maxKeyFiles) {
-							return result // 达到最大数量，直接返回
-						}
 					}
 				}
 			}
@@ -221,7 +229,7 @@ export class RootAnalyzer {
 	 */
 	private getRootInfoSchema(): any {
 		return {
-			project_description: "项目目标和定位描述（简体中文）",
+			project_description: `项目目标和定位描述（${LLM_LANGUAGE}）`,
 			tech_stack: ["技术1", "技术2", "技术3"],
 			core_modules: ["模块1：路径", "模块2：路径", "模块3：路径"],
 			core_dependencies: ["依赖1", "依赖2", "依赖3"],

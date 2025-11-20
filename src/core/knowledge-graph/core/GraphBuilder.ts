@@ -227,27 +227,57 @@ export class GraphBuilder {
 			return
 		}
 
-		const totalFilesToProcess = incrementalResult.added.length + incrementalResult.modified.length
+		// 修正：totalFilesToProcess 应该是总文件数，以反映整体进度
+		// 增量更新时，processedFiles 从 unchangedCount 开始
+		const totalFilesToProcess = totalFiles
+		const initialProcessedFiles = incrementalResult.unchangedCount || 0
 
 		// 初始化构建
-		this.buildStateTracer.initializeBuildState(workspacePath, totalFiles, totalFilesToProcess)
-
-		// 2. 根目录分析
-		this.progressTracer.start('rootAnalysis')
-		
-		if (!this.rootAnalyzer) {
-			throw new Error("根分析器未初始化")
+		if (!options.resumeFromPrevious) {
+			await this.buildStateTracer.initializeBuildState(workspacePath, totalFiles, totalFilesToProcess, initialProcessedFiles)
+		} else {
+			this.logger.info("[GraphBuilder] 恢复构建，跳过状态初始化")
+			// 更新可能变化的文件统计信息
+			await this.buildStateTracer.updateBuildState({
+				totalFiles: totalFiles,
+				totalFilesToProcess: totalFiles,
+				processedFiles: initialProcessedFiles
+			})
 		}
 
-		const rootInfo = await this.rootAnalyzer.analyzeRoot(workspacePath, allFiles)
-		const rootAnalysisDuration = this.progressTracer.end('rootAnalysis')
+		// 获取当前状态以决定从哪里开始
+		const currentState = this.buildStateTracer.getCurrentState()
+		const currentPhase = currentState?.phase || "root_analysis"
+		const phases = ["root_analysis", "file_analysis", "directory_analysis", "completed"]
+		const currentPhaseIndex = phases.indexOf(currentPhase)
 
-		this.logger.info(`[GraphBuilder] 根目录分析完成，耗时: ${ProgressTracer.formatDuration(rootAnalysisDuration)}`)
-		await this.buildStateTracer.updateBuildState({
-			phase: "root_analysis",
-			failedFiles: totalFilesToProcess,
-			error: "根目录分析完成"
-		})
+		// 2. 根目录分析
+		let rootInfo: any
+		
+		if (!options.resumeFromPrevious || currentPhaseIndex <= phases.indexOf("root_analysis")) {
+			this.progressTracer.start('rootAnalysis')
+			
+			if (!this.rootAnalyzer) {
+				throw new Error("根分析器未初始化")
+			}
+
+			rootInfo = await this.rootAnalyzer.analyzeRoot(workspacePath, allFiles)
+			const rootAnalysisDuration = this.progressTracer.end('rootAnalysis')
+
+			this.logger.info(`[GraphBuilder] 根目录分析完成，耗时: ${ProgressTracer.formatDuration(rootAnalysisDuration)}`)
+			await this.buildStateTracer.updateBuildState({
+				phase: "root_analysis",
+				error: "根目录分析完成"
+			})
+			await this.buildStateTracer.updatePhaseProgress('root_analysis', 1, 1, 'completed')
+		} else {
+			this.logger.info("[GraphBuilder] 跳过根目录分析 (已完成)")
+			rootInfo = await this.rootAnalyzer.getRootInfo()
+			if (!rootInfo) {
+				this.logger.warn("[GraphBuilder] 无法加载根目录信息，重新分析")
+				rootInfo = await this.rootAnalyzer.analyzeRoot(workspacePath, allFiles)
+			}
+		}
 
 		// 文件摘要
 		if (needDoFileSummary) {
@@ -276,19 +306,31 @@ export class GraphBuilder {
 					this.progressTracer.recordBatch('fileSummary', batchSize, batchDuration)
 					
 					this.logger.info(`[GraphBuilder] 文件摘要: 批次大小: ${batchSize}, 耗时: ${ProgressTracer.formatDuration(batchDuration)}，进度：${progress.totalProcessedFiles}/${progress.filesToProcess}`)
+					
+					// 计算累计已处理文件数 (初始已完成 + 本次新增已完成)
+					const currentTotalProcessed = initialProcessedFiles + progress.totalProcessedFiles
+
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
 						phase: "file_analysis",
-						processedFiles: progress.batchProcessedFilePaths?.length,
+						processedFiles: currentTotalProcessed,
 						failedFiles: progress.batchFailedFiles,
 						error: progress.message
 					}, progress.batchProcessedFilePaths, "success")
+
+					// 更新阶段进度
+					await this.buildStateTracer.updatePhaseProgress('file_analysis', currentTotalProcessed, totalFilesToProcess, 'running')
 				},
 			)
+			// 标记文件分析阶段完成
+			await this.buildStateTracer.updatePhaseProgress('file_analysis', totalFilesToProcess, totalFilesToProcess, 'completed')
+			
 			const fileSummaryDuration = this.progressTracer.end('fileSummary')
 			const batchStats = this.progressTracer.getBatchStats('fileSummary')
 			
 			this.logger.info(`[GraphBuilder] 文件摘要完成，总耗时: ${ProgressTracer.formatDuration(fileSummaryDuration)}, 总批次: ${batchStats.totalBatches}, 平均每批次: ${batchStats.averageItemsPerBatch}个文件, 平均批次耗时: ${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
+		} else {
+			this.logger.info("[GraphBuilder] 跳过文件摘要 (无变更)")
 		}
 
 		// 检查暂停状态
@@ -311,6 +353,10 @@ export class GraphBuilder {
 				failedFiles: 0,
 				error: "分析目录结构..."
 			})
+			
+			// 重置目录分析阶段的进度
+			await this.buildStateTracer.updatePhaseProgress('directory_analysis', 0, 0, 'running')
+
 			if (!this.directorySummarizer) {
 				throw new Error("目录分析器未初始化")
 			}
@@ -322,12 +368,23 @@ export class GraphBuilder {
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
 						phase: "directory_analysis",
-						processedFiles: progress.batchProcessedFilePaths?.length,
+						totalFilesToProcess: progress.filesToProcess,
+						processedFiles: progress.totalProcessedFiles,
 						failedFiles: progress.batchFailedFiles,
 						error: progress.message
-					}, progress.batchProcessedFilePaths, "success")
-				}
+					})
+
+					// 更新阶段进度
+					await this.buildStateTracer.updatePhaseProgress('directory_analysis', progress.totalProcessedFiles, progress.filesToProcess, 'running')
+				},
+				incrementalResult // 传递增量变更信息
 			)
+			
+			// 标记目录分析阶段完成
+			const finalState = this.buildStateTracer.getCurrentState()
+			const totalDirs = finalState?.phaseProgress?.directory_analysis?.total || 0
+			await this.buildStateTracer.updatePhaseProgress('directory_analysis', totalDirs, totalDirs, 'completed')
+
 			const directorySummaryDuration = this.progressTracer.end('directorySummary')
 			this.logger.info(`[GraphBuilder] 目录摘要完成，耗时: ${ProgressTracer.formatDuration(directorySummaryDuration)}`)
 		}
