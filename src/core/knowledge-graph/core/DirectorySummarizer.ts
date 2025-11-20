@@ -19,6 +19,7 @@ export class DirectorySummarizer {
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private pauseChecker?: () => boolean
+	private isAborted: boolean = false
 
 	constructor(
 		llmClient: LLMClient,
@@ -39,6 +40,20 @@ export class DirectorySummarizer {
 	 */
 	setPauseChecker(checker: () => boolean): void {
 		this.pauseChecker = checker
+	}
+
+	/**
+	 * 中止当前任务
+	 */
+	public abort(): void {
+		this.isAborted = true
+	}
+
+	/**
+	 * 重置中止状态
+	 */
+	public reset(): void {
+		this.isAborted = false
 	}
 
 	/**
@@ -150,6 +165,12 @@ export class DirectorySummarizer {
 			// 策略：内存中维护完整的 dirSummaryMap (旧的 + 新生成的)，最后统一保存。
 			
 			for (const dirPath of sortedDirs) {
+				// 检查中止状态
+				if (this.isAborted) {
+					this.logger.info("[DirectorySummarizer] 分析被中止")
+					break
+				}
+
 				// 检查暂停
 				if (this.shouldPause()) {
 					this.logger.info("[DirectorySummarizer] 分析被暂停")
@@ -199,6 +220,9 @@ export class DirectorySummarizer {
 					subDirs,
 				)
 
+				// 生成后再次检查中止状态
+				if (this.isAborted) break
+
 				if (summary) {
 					directorySummaries.push(summary)
 					dirSummaryMap.set(dirPath, summary)
@@ -217,15 +241,28 @@ export class DirectorySummarizer {
 			}
 
 			// 6. 保存所有摘要（全量重写，确保一致性）
-			// 先清除旧文件
-			await this.clear()
-			// 写入新数据
-			const finalSummaries = Array.from(dirSummaryMap.values())
-			for (const summary of finalSummaries) {
-				await this.storage!.add(DIRECTORY_SUMMARIES_FILE, summary)
-			}
+			if (!this.isAborted && !this.shouldPause()) {
+				// 先清除旧文件
+				await this.clear()
+				
+				// 写入新数据 - 仅保存当前存在的目录（清理幽灵目录）
+				// dirSummaryMap 可能包含旧的已删除目录，我们需要过滤只保留 sortedDirs 中的目录
+				const finalSummaries: DirectorySummary[] = []
+				const validDirs = new Set(sortedDirs)
+				
+				for (const [path, summary] of dirSummaryMap.entries()) {
+					if (validDirs.has(path)) {
+						finalSummaries.push(summary)
+					}
+				}
 
-			this.logger.info(`[DirectorySummarizer] 目录分析完成，共保存 ${finalSummaries.length} 个摘要`)
+				// 使用批量写入
+				await this.storage!.addBatch(DIRECTORY_SUMMARIES_FILE, finalSummaries)
+
+				this.logger.info(`[DirectorySummarizer] 目录分析完成，共保存 ${finalSummaries.length} 个摘要`)
+			} else if (this.shouldPause()) {
+				this.logger.info(`[DirectorySummarizer] 目录分析被暂停，保留现有数据不做清空重写`)
+			}
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "目录分析")
 		}
@@ -318,7 +355,16 @@ export class DirectorySummarizer {
 			if (!content) {
 				return undefined
 			}
-			return StorageUtils.deserialize<DirectorySummary[]>(content)
+			
+			// 修复：正确解析 JSONL 格式
+			const lines = content.trim().split('\n').filter(line => line.trim())
+			return lines.map(line => {
+				try {
+					return JSON.parse(line) as DirectorySummary
+				} catch {
+					return null
+				}
+			}).filter((s): s is DirectorySummary => s !== null)
 		} catch (error) {
 			this.logger.error(`[DirectorySummarizer] 获取摘要失败: ${error}`)
 			throw new Error(`get directory summaries failed, err: ${error}`)

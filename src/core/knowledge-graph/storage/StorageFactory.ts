@@ -4,7 +4,7 @@
  */
 
 import { StorageConfig, IStorage, StorageError } from "./IStorage"
-import { JsonFileStorage } from "./FileStorage"
+import { JsonFileStorage } from "./JsonFileStorage"
 import path from "path"
 import * as os from "os"
 import { createHash } from "crypto"

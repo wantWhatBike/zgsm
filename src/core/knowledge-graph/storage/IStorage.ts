@@ -44,6 +44,8 @@ export interface IStorage {
   load(table: string): Promise<string | null>
   overwrite(table: string, data:any): Promise<void>
   add(table: string, data:any): Promise<void>
+  addBatch(table: string, data:any[]): Promise<void>
+  deleteItems(table: string, predicate: (item: any) => boolean): Promise<void>
 }
 
 export type { StorageConfig }

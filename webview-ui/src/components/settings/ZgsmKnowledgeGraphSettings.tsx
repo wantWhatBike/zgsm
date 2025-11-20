@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { FileText, AlertCircle, Play, Pause, Trash } from "lucide-react"
+import { FileText, AlertCircle, Play, Pause, Trash, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
@@ -87,6 +87,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		return initialStatus || createDefaultBuildState()
 	})
 	const [toggleError, setToggleError] = useState<string | null>(null)
+	const [isPausing, setIsPausing] = useState(false)
 
 	// 检查是否为支持的API提供者 - 使用共享常量
 	const isZgsmProvider = useMemo(
@@ -191,6 +192,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 	}, [startPolling, sendMessage])
 
 	const handlePauseBuild = useCallback(() => {
+		setIsPausing(true)
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.PAUSE)
 		// 依赖后端推送的新状态来决定是否停止轮询
 	}, [sendMessage])
@@ -201,14 +203,13 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 	}, [sendMessage])
 
 	const handleClearBuild = useCallback(() => {
+		// 清空时停止轮询，避免竞态条件
+		stopPolling()
 		// 立即更新本地状态为pending，避免显示错误状态
 		setKnowledgeGraphStatus(createDefaultBuildState())
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.CLEAR)
 		// 依赖后端推送的新状态
-	}, [sendMessage])
-
-
-
+	}, [sendMessage, stopPolling])
 
 	const getStatusIcon = useCallback((status: string) => {
 		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
@@ -229,18 +230,26 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			if (message.type === KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE && message.payload?.status) {
 				const statusInfo = message.payload.status as KnowledgeGraphBuildState
 				
-				// 根据状态决定是否需要轮询
-				if (shouldStartPolling(statusInfo.status) && !pollingIntervalId.current) {
+				// 处理暂停状态的UI反馈
+				if (statusInfo.status === "paused") {
+					setIsPausing(false)
+				}
+
+				// 原子性处理轮询控制 - 先停止再启动，避免竞态条件
+				const needsPolling = shouldStartPolling(statusInfo.status)
+				const shouldStop = shouldStopPolling(statusInfo.status)
+				
+				// 先处理停止轮询
+				if (shouldStop) {
+					stopPolling()
+				}
+				// 再处理启动轮询，确保没有重复轮询
+				else if (needsPolling && !pollingIntervalId.current) {
 					startPolling()
 				}
 				
-				// 直接使用后端状态，无需映射
+				// 更新状态
 				setKnowledgeGraphStatus(statusInfo)
-
-				// 前端判断是否停止轮询
-				if (shouldStopPolling(statusInfo.status)) {
-					stopPolling()
-				}
 			} else if (message.type === KNOWLEDGE_GRAPH_MESSAGES.ENABLED && setCachedStateField) {
 				// 处理启用/禁用响应
 				if (message.error) {
@@ -389,8 +398,8 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 												variant="outline"
 												size="sm"
 												className="flex items-center gap-1"
-												disabled={shouldDisableAll}>
-												<Pause className="w-3 h-3" />
+												disabled={shouldDisableAll || isPausing}>
+												{isPausing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pause className="w-3 h-3" />}
 												{t("settings:ui.knowledgeGraph.pause")}
 											</Button>
 										)}

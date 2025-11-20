@@ -21,12 +21,27 @@ export class FileSummarizer {
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private logger: ILogger
+	private isAborted: boolean = false
 
 	constructor(llmClient: LLMClient, storage: IStorage, config: KnowledgeGraphConfig, logger: ILogger) {
 		this.llmClient = llmClient
 		this.storage = storage
 		this.config = config
 		this.logger = logger
+	}
+
+	/**
+	 * 中止当前任务
+	 */
+	public abort(): void {
+		this.isAborted = true
+	}
+
+	/**
+	 * 重置中止状态
+	 */
+	public reset(): void {
+		this.isAborted = false
 	}
 
 	/**
@@ -58,6 +73,12 @@ export class FileSummarizer {
 			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.60
 
 			for (let i = 0; i < filesToAnalyze.length; i++) {
+				// 检查中止状态
+				if (this.isAborted) {
+					this.logger.info("[FileSummarizer] 分析被中止")
+					break
+				}
+
 				// 检查是否应该暂停（在处理每个批次前检查）
 				if (this.shouldPause()) {
 					this.logger.info("[FileSummarizer] 分析被暂停")
@@ -91,6 +112,10 @@ export class FileSummarizer {
 						processedCount,
 						filesToAnalyze.length,
 					)
+					
+					// 检查中止状态（在批处理后）
+					if (this.isAborted) break
+
 					processedCount += batchFiles.length
 
 					// 清理批次数据，防止内存泄漏
@@ -108,7 +133,7 @@ export class FileSummarizer {
 			}
 
 			// 处理最后一个批次（如果有剩余文件）
-			if (batchFiles.length > 0) {
+			if (batchFiles.length > 0 && !this.isAborted) {
 				await this.processBatch(
 					batchFiles,
 					basePrompt,
@@ -134,6 +159,8 @@ export class FileSummarizer {
 		processedCount: number = 0,
 		totalFiles: number = 0,
 	): Promise<void> {
+		if (this.isAborted) return
+
 		this.logger.info(`[FileSummarizer] start to process batch, batch size: ${batchFiles.length}`)
 		const batchStartTime = Date.now()
 		const prompt = buildPrompt(basePrompt, {
@@ -143,6 +170,9 @@ export class FileSummarizer {
 
 		// 发送LLM请求
 		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
+
+		// 请求返回后再次检查中止状态，避免写入
+		if (this.isAborted) return
 
 		const batchDuration = Date.now() - batchStartTime
 
@@ -172,13 +202,29 @@ export class FileSummarizer {
 	async saveSummaries(summaries: FileSummary[]): Promise<void> {
 		// 批量保存回调
 		try {
-			// 逐个保存到JSONL文件，确保每个摘要占一行
-			for (const summary of summaries) {
-				await this.storage!.add(FILE_SUMMARIES_FILE, summary)
-			}
+			// 批量写入到JSONL文件
+			await this.storage!.addBatch(FILE_SUMMARIES_FILE, summaries)
 			this.logger.info(`[FileSummarizer] 保存文件摘要: ${summaries.length}个`)
 		} catch (error) {
 			this.logger.error(`[FileSummarizer] 保存摘要失败: ${error}`)
+		}
+	}
+
+	/**
+	 * 移除指定文件的摘要
+	 */
+	async removeSummaries(filePaths: string[]): Promise<void> {
+		if (filePaths.length === 0) return
+
+		try {
+			const pathsToRemove = new Set(filePaths)
+			await this.storage.deleteItems(FILE_SUMMARIES_FILE, (item: any) => {
+				return pathsToRemove.has(item.path)
+			})
+			this.logger.info(`[FileSummarizer] 已移除 ${filePaths.length} 个文件的摘要`)
+		} catch (error) {
+			this.logger.error(`[FileSummarizer] 移除摘要失败: ${error}`)
+			throw error
 		}
 	}
 
@@ -194,21 +240,39 @@ export class FileSummarizer {
 		if (!content) {
 			return undefined
 		}
-		const fullSummaries = StorageUtils.deserialize<FileSummary[]>(content)
-		if (!fields) {
-			return fullSummaries
+		
+		// 修复：正确解析 JSONL 格式
+		const lines = content.trim().split('\n').filter(line => line.trim())
+		
+		// 优化：在 map 过程中直接提取字段，减少中间对象的内存占用
+		const results: Array<Pick<FileSummary, K>> = []
+		
+		for (const line of lines) {
+			try {
+				const summary = JSON.parse(line) as FileSummary
+				
+				// 如果没有指定字段，返回完整对象
+				if (!fields) {
+					results.push(summary as unknown as Pick<FileSummary, K>)
+					continue
+				}
+
+				// 提取指定字段
+				const picked: Partial<FileSummary> = {}
+				fields.forEach((field) => {
+					picked[field] = summary[field]
+				})
+				results.push(picked as Pick<FileSummary, K>)
+			} catch {
+				// 忽略解析错误
+				continue
+			}
 		}
 
-		// - 根据fields过滤，只保留指定字段
-		return fullSummaries.map((summary) => {
-			const picked: Partial<FileSummary> = {}
-			fields.forEach((field) => {
-				picked[field] = summary[field]
-			})
-			return picked as Pick<FileSummary, K>
-		})
+		return results
 	}
 
+	
 	public async clear(): Promise<void> {
 		try {
 			await this.storage.clear(FILE_SUMMARIES_FILE)

@@ -50,6 +50,54 @@ export class JsonFileStorage implements IStorage {
 		return await this.appendToJsonl(nodePath.join(this.basePath, fileName), data)
 	}
 
+	public async addBatch(fileName: string, data: any[]): Promise<void> {
+		await this.ensureStoragePath()
+		if (data.length === 0) return
+
+		const filePath = nodePath.join(this.basePath, fileName)
+		try {
+			const content = data.map((item) => JSON.stringify(item)).join("\n") + "\n"
+			await fs.appendFile(filePath, content, "utf-8")
+		} catch (error) {
+			throw new StorageError(
+				`批量追加JSONL文件失败: ${error instanceof Error ? error.message : String(error)}`,
+				"JSONL_APPEND_ERROR",
+				true,
+			)
+		}
+	}
+
+	public async deleteItems(fileName: string, predicate: (item: any) => boolean): Promise<void> {
+		await this.ensureStoragePath()
+		const filePath = nodePath.join(this.basePath, fileName)
+		
+		// 如果文件不存在，直接返回
+		if (!(await pathExists(filePath))) {
+			return
+		}
+
+		try {
+			// 读取所有数据
+			const items = await this.readJsonl<any>(filePath)
+			
+			// 过滤掉需要删除的项（保留 predicate 返回 false 的项）
+			// predicate 返回 true 表示要删除
+			const remainingItems = items.filter(item => !predicate(item))
+			
+			// 如果数量有变化，则重写文件
+			if (remainingItems.length !== items.length) {
+				await this.writeJsonl(filePath, remainingItems)
+				this.logger.info(`[JsonFileStorage] 已从 ${fileName} 删除 ${items.length - remainingItems.length} 条记录`)
+			}
+		} catch (error) {
+			throw new StorageError(
+				`删除记录失败: ${error instanceof Error ? error.message : String(error)}`,
+				"DELETE_ITEMS_ERROR",
+				true
+			)
+		}
+	}
+
 	/**
 	 * 追加到JSONL文件
 	 */

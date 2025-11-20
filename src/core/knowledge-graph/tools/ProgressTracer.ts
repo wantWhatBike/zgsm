@@ -173,7 +173,7 @@ export class ProgressTracer {
 				// 如果该阶段有批次统计，则显示批次信息
 				if (this.hasBatchStats(phase)) {
 					const batchStats = this.getBatchStats(phase)
-					logs.push(`    批次统计: ${batchStats.totalBatches}个批次, 平均${batchStats.averageItemsPerBatch}个项目/批次, 平均耗时${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
+					logs.push(`    批次统计: ${batchStats.totalBatches}个批次, 平均${batchStats.averageItemsPerBatch}个文件/批次, 平均耗时${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
 				}
 			}
 		}
