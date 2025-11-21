@@ -2,6 +2,7 @@ import type { KnowledgeGraphBuildState, BuildProgress, FileInfo, FileChanges } f
 import { ILogger } from "../../../utils/logger"
 import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
+import { KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE } from "@roo-code/types"
 
 /**
  * 简单的互斥锁实现
@@ -64,8 +65,8 @@ export class BuildStateTracer {
 				processedFiles: 0,
 				failedFiles: 0,
 				currentFile: "",
-				status: "pending" as const,
-				phase: "root_analysis",
+				status: KNOWLEDGE_GRAPH_STATUS.PENDING,
+				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
 				totalDuration: 0,
 				lastUpdateTime: new Date().toISOString(),
 			} as KnowledgeGraphBuildState)
@@ -99,21 +100,21 @@ export class BuildStateTracer {
 
 			let taskState: KnowledgeGraphBuildState = {
 				taskId,
-				phase: "root_analysis",
+				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
 				progress: 0,
 				startTime,
 				lastUpdateTime: startTime,
 				totalDuration: 0,
-				status: "running",
+				status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
 				totalFiles,
 				processedFiles: initialProcessedFiles,
 				failedFiles: 0,
 				currentFile: "",
 				totalFilesToProcess: totalFilesToProcess,
 				phaseProgress: {
-					root_analysis: { processed: 0, total: 1, status: 'pending' },
-					file_analysis: { processed: 0, total: totalFilesToProcess, status: 'pending' },
-					directory_analysis: { processed: 0, total: 0, status: 'pending' }
+					root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+					file_analysis: { processed: 0, total: totalFilesToProcess, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+					directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING }
 				},
 				llmStatistics: {
 					totalInputTokens: 0,
@@ -188,12 +189,12 @@ export class BuildStateTracer {
 			try {
 				const newState: KnowledgeGraphBuildState = {
 					taskId: state.taskId,
-					phase: state.phase || "root_analysis",
+					phase: state.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
 					progress: 0,
 					startTime: state.startTime || new Date().toISOString(),
 					lastUpdateTime: new Date().toISOString(),
 					totalDuration: state.totalDuration || 0,
-					status: state.status || "pending",
+					status: state.status || KNOWLEDGE_GRAPH_STATUS.PENDING,
 					totalFiles: state.totalFiles || 0,
 					processedFiles: state.processedFiles || 0,
 					failedFiles: state.failedFiles || 0,
@@ -236,11 +237,11 @@ export class BuildStateTracer {
 
 		// 阶段权重配置
 		const phaseWeights = {
-			root_analysis: 0.05,
-			file_analysis: 0.85,
-			directory_analysis: 0.1,
-			dependency_analysis: 0.0,
-			completed: 0.0,
+			[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS]: 0.05,
+			[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS]: 0.85,
+			[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS]: 0.1,
+			[KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS]: 0.0,
+			[KNOWLEDGE_GRAPH_PHASE.COMPLETED]: 0.0,
 		}
 
 		// 如果有详细的阶段进度，优先使用
@@ -251,28 +252,28 @@ export class BuildStateTracer {
 			if (state.phaseProgress.root_analysis) {
 				const { processed, total, status } = state.phaseProgress.root_analysis
 				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
-				totalProgress += progress * phaseWeights.root_analysis * 100
+				totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS] * 100
 			}
 
 			// 文件分析
 			if (state.phaseProgress.file_analysis) {
 				const { processed, total, status } = state.phaseProgress.file_analysis
 				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
-				totalProgress += progress * phaseWeights.file_analysis * 100
+				totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS] * 100
 			}
 
 			// 目录分析
 			if (state.phaseProgress.directory_analysis) {
 				const { processed, total, status } = state.phaseProgress.directory_analysis
 				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
-				totalProgress += progress * phaseWeights.directory_analysis * 100
+				totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS] * 100
 			}
 
 			return Math.max(0, Math.min(100, totalProgress))
 		}
 
 		// 回退到基于当前阶段的简单计算逻辑
-		const phases = ["root_analysis", "file_analysis", "directory_analysis", "dependency_analysis", "completed"]
+		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.COMPLETED]
 		const currentPhaseIndex = phases.indexOf(state.phase)
 
 		if (currentPhaseIndex === -1) {
@@ -287,7 +288,7 @@ export class BuildStateTracer {
 
 		// 当前阶段的进度
 		let currentPhaseProgress = 0
-		if ((state.phase === "file_analysis" || state.phase === "directory_analysis") && state.totalFilesToProcess > 0) {
+		if ((state.phase === KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS || state.phase === KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS) && state.totalFilesToProcess > 0) {
 			currentPhaseProgress = (state.processedFiles / state.totalFilesToProcess) * 100
 		} else if (currentPhaseIndex > 0) {
 			// 对于非计数型阶段（如root_analysis），如果已经进入下一个阶段，则认为已完成；
@@ -319,15 +320,15 @@ export class BuildStateTracer {
 			// 确保 phaseProgress 存在
 			if (!this.currentState.phaseProgress) {
 				this.currentState.phaseProgress = {
-					root_analysis: { processed: 0, total: 1, status: 'pending' },
-					file_analysis: { processed: 0, total: this.currentState.totalFilesToProcess, status: 'pending' },
-					directory_analysis: { processed: 0, total: 0, status: 'pending' }
+					root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+					file_analysis: { processed: 0, total: this.currentState.totalFilesToProcess, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+					directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING }
 				}
 			}
 
 			// 更新指定阶段的进度
-			const currentPhaseProgress = this.currentState.phaseProgress[phase]
-			this.currentState.phaseProgress[phase] = {
+			const currentPhaseProgress = this.currentState.phaseProgress[phase as keyof typeof this.currentState.phaseProgress]
+			this.currentState.phaseProgress[phase as keyof typeof this.currentState.phaseProgress] = {
 				processed,
 				total: total !== undefined ? total : currentPhaseProgress.total,
 				status: status || currentPhaseProgress.status
@@ -359,7 +360,7 @@ export class BuildStateTracer {
 					const newRecord = {
 						timestamp: file.lastModified,
 						hash: file.hash,
-						status: "pending" as const, // 明确类型为字符串字面量
+						status: KNOWLEDGE_GRAPH_STATUS.PENDING, // 明确类型为字符串字面量
 					}
 
 					if (!existingRecord) {
@@ -520,28 +521,28 @@ export class BuildStateTracer {
 	 * 检查是否正在运行 - 增强状态检查
 	 */
 	public isRunning(): boolean {
-		return this.currentState?.status === "running"
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
 	}
 
 	/**
 	 * 检查是否已暂停 - 增强状态检查
 	 */
 	public isPaused(): boolean {
-		return this.currentState?.status === "paused"
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED
 	}
 
 	/**
 	 * 检查是否已完成 - 增强状态检查
 	 */
 	public isCompleted(): boolean {
-		return this.currentState?.status === "completed"
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED
 	}
 
 	/**
 	 * 检查是否有错误 - 增强状态检查
 	 */
 	public hasError(): boolean {
-		return this.currentState?.status === "error"
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.ERROR
 	}
 
 	/**
@@ -549,21 +550,21 @@ export class BuildStateTracer {
 	 */
 	public canStartBuild(): boolean {
 		const status = this.currentState?.status
-		return !status || status === "pending" || status === "completed" || status === "error"
+		return !status || status === KNOWLEDGE_GRAPH_STATUS.PENDING || status === KNOWLEDGE_GRAPH_STATUS.COMPLETED || status === KNOWLEDGE_GRAPH_STATUS.ERROR
 	}
 
 	/**
 	 * 检查状态是否允许暂停
 	 */
 	public canPause(): boolean {
-		return this.currentState?.status === "running"
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
 	}
 
 	/**
 	 * 检查状态是否允许恢复
 	 */
 	public canResume(): boolean {
-		return this.currentState?.status === "paused"
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED
 	}
 
 	/**
@@ -571,7 +572,7 @@ export class BuildStateTracer {
 	 */
 	public canClear(): boolean {
 		const status = this.currentState?.status
-		return !status || status !== "running"
+		return !status || status !== KNOWLEDGE_GRAPH_STATUS.RUNNING
 	}
 
 }

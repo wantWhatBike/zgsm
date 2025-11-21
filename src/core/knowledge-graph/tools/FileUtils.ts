@@ -89,30 +89,65 @@ export class FileFilter {
 
 
   /**
-   * 检查文件是否匹配模式
+   * 检查文件是否匹配模式 - 增强版，支持更标准的 glob 模式
    */
   private matchesPattern(filePath: string, pattern: string): boolean {
-    // 简单的模式匹配实现
-    const normalizedPath = path.normalize(filePath)
-    
-    // 处理通配符
-    if (pattern.includes('*')) {
-      const regexPattern = pattern
-        .replace(/\./g, '\\.')
-        .replace(/\*/g, '.*')
-        .replace(/\?/g, '.')
-      
-      const regex = new RegExp(regexPattern, 'i')
-      return regex.test(normalizedPath)
-    }
-    
-    // 处理目录模式
-    if (pattern.endsWith('/')) {
-      return normalizedPath.includes(pattern.slice(0, -1))
-    }
-    
-    // 精确匹配
-    return normalizedPath.includes(pattern)
+  	const normalizedPath = filePath.replace(/\\/g, '/')
+  	let normalizedPattern = pattern.replace(/\\/g, '/')
+ 
+  	// 处理目录模式：如果模式以 / 结尾，匹配该目录下的所有文件
+  	if (normalizedPattern.endsWith('/')) {
+  		return normalizedPath.includes(normalizedPattern) || normalizedPath === normalizedPattern.slice(0, -1)
+  	}
+ 
+  	// 将 glob 模式转换为正则表达式
+  	// 1. 转义特殊字符 (除了 * 和 ?)
+  	let regexString = normalizedPattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  	
+  	// 2. 处理 ** (匹配任意目录深度)
+  	regexString = regexString.replace(/\*\*/g, '.*')
+  	
+  	// 3. 处理 * (匹配文件名中的字符，不跨目录)
+  	// 注意：如果已经替换了 **，这里需要避免重复替换。
+  	// 上面的 ** 替换为 .* 后，* 已经被处理了。
+  	// 但标准的 * 是不匹配 / 的。
+  	// 简易实现：
+  	// 如果模式中包含 **，则 * 视为 .*
+  	// 否则 * 视为 [^/]*
+  	
+  	if (!pattern.includes('**')) {
+  		regexString = regexString.replace(/\*/g, '[^/]*')
+  	}
+ 
+  	// 4. 处理 ? (匹配单个字符)
+  	regexString = regexString.replace(/\?/g, '.')
+ 
+  	// 添加首尾锚点，确保全匹配
+  	// 注意：如果是目录匹配（如 node_modules/），通常是部分匹配
+  	// 这里我们假设 pattern 是相对于根目录的路径模式
+  	
+  	// 如果模式不包含 /，则匹配文件名（任意深度）
+  	if (!pattern.includes('/')) {
+  		regexString = `(?:^|/)${regexString}$`
+  	} else {
+  		// 包含路径，则从头匹配
+  		// 处理开头的 /
+  		if (regexString.startsWith('/')) {
+  			regexString = `^${regexString.slice(1)}`
+  		} else {
+  			// 相对路径，可能匹配中间的目录？通常 .gitignore 是相对于根的
+  			// 这里简化为：如果是相对路径，匹配开头
+  			regexString = `^${regexString}`
+  		}
+  	}
+ 
+  	try {
+  		const regex = new RegExp(regexString, 'i')
+  		return regex.test(normalizedPath)
+  	} catch (e) {
+  		// 正则转换失败，回退到简单包含
+  		return normalizedPath.includes(normalizedPattern)
+  	}
   }
 
   
@@ -157,6 +192,7 @@ export class FileFilter {
 
 /**
  * 安全读取文件
+ * @returns 文件内容，如果文件过大或读取失败则返回 null
  */
 export async function safeReadFile(filePath: string, maxSize: number = 5 * 1024 * 1024): Promise<string | null> {
   try {
@@ -164,11 +200,13 @@ export async function safeReadFile(filePath: string, maxSize: number = 5 * 1024 
     
     // 检查文件大小
     if (stats.size > maxSize) {
+      // console.warn(`[FileUtils] 文件过大跳过: ${filePath} (${stats.size} bytes)`)
       return null
     }
     
     return await fs.readFile(filePath, 'utf8')
   } catch (error) {
+    // console.error(`[FileUtils] 读取文件失败: ${filePath}`, error)
     return null
   }
 }

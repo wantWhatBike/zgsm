@@ -2,7 +2,7 @@
  * 文件列表服务
  */
 
-import { FileFilter, getFileHash } from "./FileUtils"
+import { FileFilter, getFileHash } from "../tools/FileUtils"
 import * as path from "path"
 import * as fs from "fs/promises"
 import { createLogger, ILogger } from '../../../utils/logger'
@@ -18,11 +18,26 @@ export class FileService {
   private fileFilter: FileFilter
   private logger: ILogger
   private hashCache = new Map<string, HashCacheEntry>()
-  private readonly CACHE_TTL = 24 * 60 * 60 * 1000 // 24小时
+  private readonly CACHE_TTL = 2 * 60 * 60 * 1000 // 2小时
+  private pauseChecker?: () => boolean
 
   constructor(fileFilter?: FileFilter, logger?: ILogger) {
     this.fileFilter = fileFilter || new FileFilter()
     this.logger = logger || createLogger('FileService')
+  }
+
+  /**
+   * 设置暂停检查器
+   */
+  setPauseChecker(checker: () => boolean): void {
+    this.pauseChecker = checker
+  }
+
+  /**
+   * 检查是否应该停止处理（统一的终止控制）
+   */
+  private shouldPause(): boolean {
+    return this.pauseChecker?.() || false
   }
 
   /**
@@ -33,13 +48,26 @@ export class FileService {
     
     // 1. 收集所有文件路径
     const filePaths = await this.collectFilePaths(workspacePath)
+    if (this.shouldPause()) {
+      this.logger.info("[FileService] 文件收集被暂停")
+      return []
+    }
+    
     this.logger.info(`[FileService] 收集到文件：${filePaths.length}个`)
     
     // 2. 将路径封装为FileInfo（不计算hash）
     const fileInfos = await this.createFileInfos(filePaths, workspacePath)
+    if (this.shouldPause()) {
+      this.logger.info("[FileService] 文件信息创建被暂停")
+      return []
+    }
     
     // 3. 过滤文件
     const filteredFiles = await this.fileFilter.filterFiles(fileInfos, workspacePath)
+    if (this.shouldPause()) {
+      this.logger.info("[FileService] 文件过滤被暂停")
+      return []
+    }
     
     // 4. 只对过滤后的文件计算hash
     const filesWithHash = await this.calculateHashForFiles(filteredFiles, workspacePath)
@@ -55,6 +83,12 @@ export class FileService {
     const stack = [dirPath]
 
     while (stack.length > 0) {
+      // 检查终止状态
+      if (this.shouldPause()) {
+        this.logger.info("[FileService] 文件路径收集被暂停")
+        break
+      }
+      
       const currentDir = stack.pop()!
       
       try {
@@ -86,6 +120,12 @@ export class FileService {
     const fileInfos: FileInfo[] = []
     
     for (const filePath of filePaths) {
+      // 检查终止状态
+      if (this.shouldPause()) {
+        this.logger.info("[FileService] 文件信息创建被暂停")
+        break
+      }
+      
       try {
         const fileStats = await fs.stat(filePath)
         const relativePath = path.relative(workspacePath, filePath)
@@ -113,6 +153,12 @@ export class FileService {
     const concurrency = 4 // 固定4个并发，适合低配置环境
     
     for (let i = 0; i < files.length; i += concurrency) {
+      // 检查终止状态
+      if (this.shouldPause()) {
+        this.logger.info("[FileService] Hash计算被暂停")
+        break
+      }
+      
       const batch = files.slice(i, i + concurrency)
       const batchResults = await Promise.all(
         batch.map(async (file) => {

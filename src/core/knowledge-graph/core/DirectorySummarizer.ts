@@ -19,7 +19,6 @@ export class DirectorySummarizer {
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private pauseChecker?: () => boolean
-	private isAborted: boolean = false
 
 	constructor(
 		llmClient: LLMClient,
@@ -43,21 +42,7 @@ export class DirectorySummarizer {
 	}
 
 	/**
-	 * 中止当前任务
-	 */
-	public abort(): void {
-		this.isAborted = true
-	}
-
-	/**
-	 * 重置中止状态
-	 */
-	public reset(): void {
-		this.isAborted = false
-	}
-
-	/**
-	 * 检查是否应该中止分析（用于暂停功能）
+	 * 检查是否应该停止分析（统一的终止控制）
 	 */
 	private shouldPause(): boolean {
 		return this.pauseChecker?.() || false
@@ -78,15 +63,15 @@ export class DirectorySummarizer {
 				return
 			}
 
-			// 1. 获取所有文件摘要
-			const fileSummaries = await this.fileAnalyzer.getFileSummaries(["path", "description"])
+			// 1. 获取所有文件摘要 - 增加 lastModified 用于增量更新判断
+			const fileSummaries = await this.fileAnalyzer.getFileSummaries(["path", "description", "lastModified"])
 			if (!fileSummaries) {
 				throw new Error("无法获取文件摘要，无法继续目录分析")
 			}
 
 			// 2. 提取所有目录并计算深度
 			const dirDepths = new Map<string, number>()
-			const dirFiles = new Map<string, Pick<FileSummary, "path" | "description">[]>()
+			const dirFiles = new Map<string, Pick<FileSummary, "path" | "description" | "lastModified">[]>()
 
 			// 遍历文件，归类到目录
 			for (const file of fileSummaries) {
@@ -127,88 +112,103 @@ export class DirectorySummarizer {
 				.sort((a, b) => b[1] - a[1]) // 深度大的在前
 				.map(([dir]) => dir)
 
-			// 4. 准备增量更新
+			// 4. 准备增量更新 - 加载现有摘要
 			const dirSummaryMap = new Map<string, DirectorySummary>()
-			let affectedDirs = new Set<string>()
-
-			// 如果有变更文件，计算受影响的目录
-			if (changedFiles) {
-				affectedDirs = this.getAffectedDirectories(changedFiles)
-				this.logger.info(`[DirectorySummarizer] 增量更新: ${affectedDirs.size} 个目录受影响`)
-				
-				// 加载现有的目录摘要到内存，作为基准
-				const existingSummaries = await this.getDirectorySummaries("")
-				if (existingSummaries) {
-					existingSummaries.forEach(s => dirSummaryMap.set(s.path, s))
-				}
-				
-				// 清除受影响目录的旧摘要（可选，因为后面会覆盖，但为了逻辑清晰）
-				// 实际上不需要清除，因为如果生成失败可能还需要旧的？不，生成失败应该报错。
-			} else {
-				// 全量更新，affectedDirs 为空表示全部处理（或者我们可以把所有目录都加进去）
-				// 为了逻辑统一，如果是全量，我们将所有 sortedDirs 视为受影响
-				sortedDirs.forEach(d => affectedDirs.add(d))
+			const existingSummaries = await this.getDirectorySummaries("")
+			if (existingSummaries) {
+				existingSummaries.forEach(s => dirSummaryMap.set(s.path, s))
 			}
 
-			// 5. 迭代处理
-			const directorySummaries: DirectorySummary[] = []
+			// 5. 识别需要更新的目录
+			// 使用 Set 存储需要更新的目录路径
+			const dirsToUpdate = new Set<string>()
+			
+			// 策略：基于时间戳和依赖关系判断是否需要更新
+			// 由于是自下而上处理，如果子目录更新了，父目录也需要更新
+			// 我们在遍历过程中动态判断
+			
 			// 准备全量文件列表字符串（仅计算一次）
 			const allFileListStr = formatFileList(files.map((f) => f.path))
 
 			let processedCount = 0
-			// 仅统计需要处理的目录数
-			const dirsToProcess = sortedDirs.filter(d => affectedDirs.has(d) || !changedFiles).length
 			
-			// 如果是增量更新，我们需要先清空存储文件，然后重写所有摘要（包括未变更的）
-			// 或者使用追加模式？目前的 storage.add 是追加。
-			// 为了保证文件内容的整洁（无重复），建议全量重写。
-			// 策略：内存中维护完整的 dirSummaryMap (旧的 + 新生成的)，最后统一保存。
+			// 预先计算总任务数（估算）
+			// 为了准确进度条，我们需要先遍历一遍判断哪些需要更新
+			// 但为了性能，我们可以在遍历时动态判断，进度条可能不是 100% 准确，但可以接受
+			// 或者我们可以先快速扫描一遍
 			
 			for (const dirPath of sortedDirs) {
-				// 检查中止状态
-				if (this.isAborted) {
-					this.logger.info("[DirectorySummarizer] 分析被中止")
-					break
-				}
-
-				// 检查暂停
-				if (this.shouldPause()) {
-					this.logger.info("[DirectorySummarizer] 分析被暂停")
-					break
-				}
-
 				const depth = dirDepths.get(dirPath) || 0
-
-				if (depth > MAX_DIR_DEPTH) {
-					continue
-				}
-
-				// 检查是否需要更新
-				// 如果是全量更新(changedFiles undefined)，或者该目录在受影响列表中
-				const needsUpdate = !changedFiles || affectedDirs.has(dirPath)
-
-				if (!needsUpdate) {
-					// 不需要更新，直接使用旧摘要（已在 dirSummaryMap 中）
-					const oldSummary = dirSummaryMap.get(dirPath)
-					if (oldSummary) {
-						directorySummaries.push(oldSummary)
-					}
-					continue
-				}
+				if (depth > MAX_DIR_DEPTH) continue
 
 				// 获取直接子文件摘要
 				const subFiles = dirFiles.get(dirPath) || []
-
-				// 获取直接子目录摘要
+				
+				// 获取直接子目录摘要（从内存 Map 中获取，包含新生成的和旧的）
 				const subDirs: DirectorySummary[] = []
+				let hasUpdatedSubDir = false
+				
+				// 查找子目录
+				// 注意：sortedDirs 是按深度降序排列的（深层在前），所以处理当前目录时，子目录应该已经处理过了
+				// 我们需要遍历 dirSummaryMap 来找子目录，或者优化查找结构
+				// 由于 dirSummaryMap key 是 path，我们可以构造子目录路径来查找？不，子目录名未知
+				// 只能遍历 dirSummaryMap 或者预先建立父子索引。
+				// 简单起见，遍历 dirSummaryMap (内存操作，速度尚可)
+				// 优化：使用预先构建的目录树结构？
+				// 这里使用简单的遍历，假设目录数不会特别巨大
 				for (const [childPath, summary] of dirSummaryMap.entries()) {
 					if (path.dirname(childPath) === dirPath) {
 						subDirs.push(summary)
+						// 检查子目录是否在本次被更新过
+						if (dirsToUpdate.has(childPath)) {
+							hasUpdatedSubDir = true
+						}
 					}
 				}
 
 				if (subFiles.length === 0 && subDirs.length === 0) {
 					continue
+				}
+
+				// 判断是否需要更新
+				let needsUpdate = false
+				const oldSummary = dirSummaryMap.get(dirPath)
+
+				if (!oldSummary) {
+					// 没有旧摘要，必须更新
+					needsUpdate = true
+				} else if (hasUpdatedSubDir) {
+					// 子目录有更新，父目录必须更新
+					needsUpdate = true
+				} else {
+					// 检查子文件是否有更新（通过时间戳对比）
+					// oldSummary.timestamp 是 ISO 字符串
+					const oldTime = new Date(oldSummary.timestamp).getTime()
+					
+					// 检查是否有任何子文件的时间戳晚于目录摘要时间戳
+					const hasNewerFile = subFiles.some(f => {
+						// 注意：FileSummary 中的 timestamp 是 ISO 字符串
+						// 但我们需要的是文件修改时间。FileSummary 包含 lastModified (number)
+						return f.lastModified > oldTime
+					})
+					
+					if (hasNewerFile) {
+						needsUpdate = true
+					}
+				}
+
+				// 如果不需要更新，跳过
+				if (!needsUpdate) {
+					continue
+				}
+
+				// 标记该目录为已更新
+				dirsToUpdate.add(dirPath)
+
+				// 检查终止状态
+				if (this.shouldPause()) {
+					this.logger.info("[DirectorySummarizer] 分析被暂停")
+					break
 				}
 
 				// 生成当前目录摘要
@@ -220,32 +220,30 @@ export class DirectorySummarizer {
 					subDirs,
 				)
 
-				// 生成后再次检查中止状态
-				if (this.isAborted) break
+				// 生成后再次检查终止状态
+				if (this.shouldPause()) break
 
 				if (summary) {
-					directorySummaries.push(summary)
 					dirSummaryMap.set(dirPath, summary)
 				}
 
 				processedCount++
 				
-				// 增加详细的进度日志打印，参考文件摘要的进度打印方式
-				this.logger.info(`[DirectorySummarizer] 目录摘要进度: ${processedCount}/${dirsToProcess} - 正在分析目录: ${dirPath}`)
+				this.logger.info(`[DirectorySummarizer] 目录摘要生成: ${dirPath}`)
 				
 				onProgress?.({
 					phase: "directory_analysis",
-					message: '',
-					totalFiles: dirsToProcess,
-					filesToProcess: dirsToProcess,
-					totalProcessedFiles: processedCount,
+					message: `正在分析目录: ${dirPath}`,
+					totalFiles: sortedDirs.length, // 使用总目录数作为分母，虽然不准确但能反映整体进度
+					filesToProcess: sortedDirs.length,
+					totalProcessedFiles: processedCount, // 这里其实是已更新的数量
 					batchProcessedFilePaths: [dirPath],
 					batchFailedFiles: 0,
 				})
 			}
 
 			// 6. 保存所有摘要（全量重写，确保一致性）
-			if (!this.isAborted && !this.shouldPause()) {
+			if (!this.shouldPause()) {
 				// 先清除旧文件
 				await this.clear()
 				
@@ -304,7 +302,7 @@ export class DirectorySummarizer {
 		dirPath: string,
 		rootInfo: RootInfo,
 		allFileListStr: string,
-		subFiles: Pick<FileSummary, "path" | "description">[],
+		subFiles: Pick<FileSummary, "path" | "description" | "lastModified">[],
 		subDirs: DirectorySummary[]
 	): Promise<DirectorySummary | null> {
 		try {

@@ -39,8 +39,37 @@ export const KNOWLEDGE_GRAPH_MESSAGES = {
 } as const
 
 /**
- * KnowledgeGraphConfig
+	* Knowledge Graph Status Constants
+	*/
+export const KNOWLEDGE_GRAPH_STATUS = {
+	PENDING: "pending",
+	RUNNING: "running",
+	PAUSED: "paused",
+	COMPLETED: "completed",
+	ERROR: "error",
+} as const
+
+/**
+ * Knowledge Graph Phase Constants
  */
+export const KNOWLEDGE_GRAPH_PHASE = {
+	ROOT_ANALYSIS: 'root_analysis',
+	FILE_ANALYSIS: 'file_analysis',
+	DIRECTORY_ANALYSIS: 'directory_analysis',
+	DEPENDENCY_ANALYSIS: 'dependency_analysis',
+	COMPLETED: 'completed',
+} as const
+
+/**
+ * Knowledge Graph Field Names (for state management)
+ */
+export const KNOWLEDGE_GRAPH_FIELDS = {
+	ENABLED: "knowledgeGraphEnabled",
+} as const
+
+/**
+	* KnowledgeGraphConfig
+	*/
 export const knowledgeGraphConfigSchema = z.object({
 	knowledgeGraphEnabled: z.boolean().optional(),
 	knowledgeGraphModel: z.string().optional(),
@@ -83,7 +112,7 @@ export const knowledgeGraphStatusSchema = z.object({
 	totalFiles: z.number(),
 	processedFiles: z.number(),
 	currentFile: z.string(),
-	status: z.enum(["pending", "running", "paused", "completed", "error"]),
+	status: z.enum([KNOWLEDGE_GRAPH_STATUS.PENDING, KNOWLEDGE_GRAPH_STATUS.RUNNING, KNOWLEDGE_GRAPH_STATUS.PAUSED, KNOWLEDGE_GRAPH_STATUS.COMPLETED, KNOWLEDGE_GRAPH_STATUS.ERROR]),
 	error: z.string().optional(),
 	lastUpdated: z.string().optional(),
 })

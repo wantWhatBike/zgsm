@@ -1,8 +1,9 @@
 import { KnowledgeGraphConfig, BuildOptions, KnowledgeGraphBuildState, BuildProgress } from "../types"
+import { KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE } from "@roo-code/types"
 import { RootAnalyzer } from "./RootAnalyzer"
 import { FileSummarizer } from "./FileSummarizer"
 import { DirectorySummarizer } from "./DirectorySummarizer"
-import { FileService } from "../tools/FileService"
+import { FileService } from "./FileService"
 import { ILogger } from "../../../utils/logger"
 import { BuildStateTracer } from "./BuildStateTracer"
 import { ProgressTracer } from "../tools/ProgressTracer"
@@ -42,6 +43,8 @@ export class GraphBuilder {
 	private currentBuildPromise: Promise<void> | null = null
 	// 状态控制：防止在清除过程中启动构建
 	private isClearing: boolean = false
+	// 中止控制器：用于在暂停/清除时中断耗时操作
+	private abortController: AbortController | null = null
 
 	constructor(config: KnowledgeGraphConfig, dependencies: GraphBuilderDependencies) {
 		this.config = config
@@ -76,7 +79,13 @@ export class GraphBuilder {
 		// 检查状态是否允许启动构建
 		if (!this.buildStateTracer.canStartBuild()) {
 			const currentStatus = this.buildStateTracer.getCurrentState()?.status
-			throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
+			
+			// 如果强制重建，则忽略状态检查（除了正在清除）
+			if (options.forceRebuild) {
+				this.logger.info(`[GraphBuilder] 强制重建，忽略当前状态: ${currentStatus}`)
+			} else {
+				throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
+			}
 		}
 		
 		// 如果已有任务在执行，直接返回该任务
@@ -84,16 +93,32 @@ export class GraphBuilder {
 			this.logger.info("构建任务已在进行中，等待完成")
 			return this.currentBuildPromise
 		}
+
+		// 初始化中止控制器
+		if (this.abortController) {
+			this.abortController.abort()
+		}
+		this.abortController = new AbortController()
+		
+		// 设置各组件的统一终止检查器
+		const stopChecker = () => {
+			return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
+		}
+		this.rootAnalyzer.setPauseChecker(stopChecker)
+		this.fileSummarizer.setPauseChecker(stopChecker)
+		this.directorySummarizer.setPauseChecker(stopChecker)
 		
 		// 创建新的构建任务
 		this.currentBuildPromise = this.executeBuild(workspacePath, options)
 			.catch(async (error) => {
 				await this.handleBuildError(error)
+				// 必须抛出错误，以便上层（如MessageHandler）知道任务失败了
 				throw error
 			})
 			.finally(() => {
 				// 任务完成后清理
 				this.currentBuildPromise = null
+				this.abortController = null
 			})
 
 		return this.currentBuildPromise
@@ -114,9 +139,15 @@ export class GraphBuilder {
 			return
 		}
 
+		// 中断当前正在进行的耗时操作
+		if (this.abortController) {
+			this.abortController.abort()
+			this.abortController = null
+		}
+
 		// 原子性更新状态，避免竞态条件
 		await this.buildStateTracer.updateBuildState({
-			status: "paused",
+			status: KNOWLEDGE_GRAPH_STATUS.PAUSED,
 		})
 
 		this.logger.info("[GraphBuilder] 构建已暂停")
@@ -142,9 +173,23 @@ export class GraphBuilder {
 			return this.currentBuildPromise
 		}
 
+		// 初始化中止控制器
+		if (this.abortController) {
+			this.abortController.abort()
+		}
+		this.abortController = new AbortController()
+
+		// 设置各组件的统一终止检查器
+		const stopChecker = () => {
+			return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
+		}
+		this.rootAnalyzer.setPauseChecker(stopChecker)
+		this.fileSummarizer.setPauseChecker(stopChecker)
+		this.directorySummarizer.setPauseChecker(stopChecker)
+
 		// 1. 先更新状态为 running
 		await this.buildStateTracer.updateBuildState({
-			status: "running",
+			status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
 		})
 		this.logger.info(`[GraphBuilder] 构建状态已更新为 running`)
 
@@ -157,6 +202,7 @@ export class GraphBuilder {
 			})
 			.finally(() => {
 				this.currentBuildPromise = null
+				this.abortController = null
 			})
 
 		return this.currentBuildPromise
@@ -184,6 +230,12 @@ export class GraphBuilder {
 		this.isClearing = true
 		
 		try {
+			// 中断当前正在进行的耗时操作
+			if (this.abortController) {
+				this.abortController.abort()
+				this.abortController = null
+			}
+
 			// 如果有暂停的任务，先取消它
 			if (this.currentBuildPromise) {
 				this.logger.info("[GraphBuilder] 取消暂停的构建任务")
@@ -216,11 +268,20 @@ export class GraphBuilder {
 		// 重置性能跟踪器
 		this.progressTracer.reset()
 
+		// 检查是否已中止
+		if (this.abortController?.signal.aborted) return
+
 		// 获取项目文件 - 文件收集阶段
 		this.progressTracer.start('fileCollection')
 		const allFiles = await this.fileService.getProjectFilteredFiles(workspacePath)
 		const fileCollectionDuration = this.progressTracer.end('fileCollection')
 		
+		// 检查暂停/中止状态
+		if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
+			this.logger.info("[GraphBuilder] 构建已暂停/中止 (文件收集后)")
+			return
+		}
+
 		const totalFiles = allFiles.length
 		this.logger.info(`[GraphBuilder] 项目源码文件数量: ${totalFiles}, 文件收集耗时: ${ProgressTracer.formatDuration(fileCollectionDuration)}`)
 
@@ -228,29 +289,51 @@ export class GraphBuilder {
 		const incrementalResult = await this.buildStateTracer.resolveFileList(allFiles)
 		this.logger.info(`[GraphBuilder] 本轮文件变更: 新增${incrementalResult.added.length}, 修改${incrementalResult.modified.length}, 删除${incrementalResult.deleted.length}`)
 
-		// 处理已删除的文件：从摘要库中移除
-		if (incrementalResult.deleted.length > 0) {
-			const deletedPaths = incrementalResult.deleted.map(f => f.path)
-			await this.fileSummarizer.removeSummaries(deletedPaths)
-			this.logger.info(`[GraphBuilder] 已清理 ${deletedPaths.length} 个已删除文件的摘要`)
+		// 检查暂停/中止状态
+		if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
+			this.logger.info("[GraphBuilder] 构建已暂停/中止 (文件变更分析后)")
+			return
 		}
 
-		// 根据文件摘要（路径+核心功能关键词(或者核心导出函数)），重新全量生成目录摘要。TODO 增量
+		// 处理已删除或修改的文件：从摘要库中移除旧摘要
+		// 注意：修改的文件也需要先移除旧摘要，否则追加写入会导致重复
+		const pathsToRemove = [
+			...incrementalResult.deleted.map(f => f.path),
+			...incrementalResult.modified.map(f => f.path)
+		]
+		
+		if (pathsToRemove.length > 0) {
+			await this.fileSummarizer.removeSummaries(pathsToRemove)
+			this.logger.info(`[GraphBuilder] 已清理 ${pathsToRemove.length} 个待更新/已删除文件的旧摘要`)
+		}
+
+		// 根据文件摘要（路径+核心功能关键词(或者核心导出函数)），重新全量生成目录摘要。
 
 		let needDoFileSummary = true
 		let needDoDirectorySummary = true
 
-		if (incrementalResult.added.length == 0 && incrementalResult.modified.length == 0) {
+		// 检查是否有文件变更
+		const hasFileChanges = incrementalResult.added.length > 0 || incrementalResult.modified.length > 0
+		const hasDeletions = incrementalResult.deleted.length > 0
+
+		if (!hasFileChanges) {
 			needDoFileSummary = false
-			if (incrementalResult.deleted.length == 0) {
+			if (!hasDeletions) {
 				needDoDirectorySummary = false
 			}
 		}
-		if (!needDoDirectorySummary && !needDoFileSummary) {
+
+		// 如果强制重建，则必须执行
+		if (options.forceRebuild) {
+			needDoFileSummary = true
+			needDoDirectorySummary = true
+		}
+
+		if (!needDoDirectorySummary && !needDoFileSummary && !options.forceRebuild) {
 			this.logger.info("[GraphBuilder] 无需更新，构建完成")
 			await this.buildStateTracer.updateBuildState({
 				phase: "completed",
-				status: "completed",
+				status: KNOWLEDGE_GRAPH_STATUS.COMPLETED,
 				failedFiles: 0,
 				error: ""
 			})
@@ -277,14 +360,14 @@ export class GraphBuilder {
 
 		// 获取当前状态以决定从哪里开始
 		const currentState = this.buildStateTracer.getCurrentState()
-		const currentPhase = currentState?.phase || "root_analysis"
-		const phases = ["root_analysis", "file_analysis", "directory_analysis", "completed"]
+		const currentPhase = currentState?.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS
+		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.COMPLETED]
 		const currentPhaseIndex = phases.indexOf(currentPhase)
 
 		// 2. 根目录分析
 		let rootInfo: any
 		
-		if (!options.resumeFromPrevious || currentPhaseIndex <= phases.indexOf("root_analysis")) {
+		if (!options.resumeFromPrevious || currentPhaseIndex <= phases.indexOf(KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS)) {
 			this.progressTracer.start('rootAnalysis')
 			
 			if (!this.rootAnalyzer) {
@@ -296,10 +379,10 @@ export class GraphBuilder {
 
 			this.logger.info(`[GraphBuilder] 根目录分析完成，耗时: ${ProgressTracer.formatDuration(rootAnalysisDuration)}`)
 			await this.buildStateTracer.updateBuildState({
-				phase: "root_analysis",
+				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
 				error: "根目录分析完成"
 			})
-			await this.buildStateTracer.updatePhaseProgress('root_analysis', 1, 1, 'completed')
+			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, 1, 1, 'completed')
 		} else {
 			this.logger.info("[GraphBuilder] 跳过根目录分析 (已完成)")
 			rootInfo = await this.rootAnalyzer.getRootInfo()
@@ -309,10 +392,16 @@ export class GraphBuilder {
 			}
 		}
 
+		// 检查暂停/中止状态
+		if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
+			this.logger.info("[GraphBuilder] 构建已暂停/中止 (根目录分析后)")
+			return
+		}
+
 		// 文件摘要
 		if (needDoFileSummary) {
 			// 检查暂停状态或清除状态
-			if (this.buildStateTracer.isPaused()) {
+			if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
 				this.logger.info("[GraphBuilder] 构建已暂停，停止文件摘要")
 				return
 			}
@@ -345,25 +434,25 @@ export class GraphBuilder {
 
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
-						phase: "file_analysis",
+						phase: KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS,
 						processedFiles: currentTotalProcessed,
 						failedFiles: progress.batchFailedFiles,
 						error: progress.message
 					}, progress.batchProcessedFilePaths, "success")
 
 					// 更新阶段进度
-					await this.buildStateTracer.updatePhaseProgress('file_analysis', currentTotalProcessed, totalFilesToProcess, 'running')
+					await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, currentTotalProcessed, totalFilesToProcess, 'running')
 				},
 			)
 			
 			// 检查是否因暂停或清除而中断
-			if (this.buildStateTracer.isPaused()) {
+			if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
 				this.logger.info("[GraphBuilder] 文件摘要阶段被暂停")
 				return
 			}
 			
 			// 标记文件分析阶段完成
-			await this.buildStateTracer.updatePhaseProgress('file_analysis', totalFilesToProcess, totalFilesToProcess, 'completed')
+			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, totalFilesToProcess, totalFilesToProcess, 'completed')
 			
 			const fileSummaryDuration = this.progressTracer.end('fileSummary')
 			const batchStats = this.progressTracer.getBatchStats('fileSummary')
@@ -374,7 +463,7 @@ export class GraphBuilder {
 		}
 
 		// 检查暂停状态
-		if (this.buildStateTracer.isPaused() ) {
+		if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
 			this.logger.info("[GraphBuilder] 构建已暂停")
 			return
 		}
@@ -382,20 +471,20 @@ export class GraphBuilder {
 		// 目录摘要
 		if (needDoDirectorySummary) {
 			// 检查暂停状态
-			if (this.buildStateTracer.isPaused()) {
+			if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
 				this.logger.info("[GraphBuilder] 构建已暂停，停止目录摘要")
 				return
 			}
 			
 			this.progressTracer.start('directorySummary')
 			await this.buildStateTracer.updateBuildState({
-				phase: "directory_analysis",
+				phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS,
 				failedFiles: 0,
 				error: "分析目录结构..."
 			})
 			
 			// 重置目录分析阶段的进度
-			await this.buildStateTracer.updatePhaseProgress('directory_analysis', 0, 0, 'running')
+			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, 0, 0, 'running')
 
 			if (!this.directorySummarizer) {
 				throw new Error("目录分析器未初始化")
@@ -406,7 +495,7 @@ export class GraphBuilder {
 				async (progress: BuildProgress) => {
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
-						phase: "directory_analysis",
+						phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS,
 						totalFilesToProcess: progress.filesToProcess,
 						processedFiles: progress.totalProcessedFiles,
 						failedFiles: progress.batchFailedFiles,
@@ -414,13 +503,13 @@ export class GraphBuilder {
 					})
 
 					// 更新阶段进度
-					await this.buildStateTracer.updatePhaseProgress('directory_analysis', progress.totalProcessedFiles, progress.filesToProcess, 'running')
+					await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, progress.totalProcessedFiles, progress.filesToProcess, 'running')
 				},
 				incrementalResult // 传递增量变更信息
 			)
 			
 			// 检查是否因暂停而中断
-			if (this.buildStateTracer.isPaused()) {
+			if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
 				this.logger.info("[GraphBuilder] 目录摘要阶段被暂停")
 				return
 			}
@@ -428,22 +517,22 @@ export class GraphBuilder {
 			// 标记目录分析阶段完成
 			const finalState = this.buildStateTracer.getCurrentState()
 			const totalDirs = finalState?.phaseProgress?.directory_analysis?.total || 0
-			await this.buildStateTracer.updatePhaseProgress('directory_analysis', totalDirs, totalDirs, 'completed')
+			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, totalDirs, totalDirs, 'completed')
 
 			const directorySummaryDuration = this.progressTracer.end('directorySummary')
 			this.logger.info(`[GraphBuilder] 目录摘要完成，耗时: ${ProgressTracer.formatDuration(directorySummaryDuration)}`)
 		}
 		
 		// 最终检查是否因暂停而中断
-		if (this.buildStateTracer.isPaused()) {
+		if (this.buildStateTracer.isPaused() || this.abortController?.signal.aborted) {
 			this.logger.info("[GraphBuilder] 构建在最终阶段被暂停")
 			return
 		}
 		
 		// 完成构建
 		await this.buildStateTracer.updateBuildState({
-			phase: "completed",
-			status: "completed",
+			phase: KNOWLEDGE_GRAPH_PHASE.COMPLETED,
+			status: KNOWLEDGE_GRAPH_STATUS.COMPLETED,
 			failedFiles: 0,
 			error: "构建完成"
 		})
@@ -464,7 +553,7 @@ export class GraphBuilder {
 		
 		// 清理状态
 		await this.buildStateTracer.updateBuildState({
-			status: "error",
+			status: KNOWLEDGE_GRAPH_STATUS.ERROR,
 			error: errorMessage
 		})
 	}
@@ -494,7 +583,7 @@ export class GraphBuilder {
 					
 					// 将状态修复为paused，用户可以选择继续或清空
 					await this.buildStateTracer.updateBuildState({
-						status: "paused",
+						status: KNOWLEDGE_GRAPH_STATUS.PAUSED,
 						error: "检测到异常中断，已自动修复状态"
 					})
 					

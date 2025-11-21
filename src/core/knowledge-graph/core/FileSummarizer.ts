@@ -12,7 +12,6 @@ import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
 import { ILogger } from "../../../utils/logger"
 import { countTokens } from "../../../utils/countTokens"
 import { IStorage } from "../storage/IStorage"
-import { StorageUtils } from "../storage/StorageUtils"
 
 const FILE_SUMMARIES_FILE = "file_summaries.jsonl"
 
@@ -30,19 +29,6 @@ export class FileSummarizer {
 		this.logger = logger
 	}
 
-	/**
-	 * 中止当前任务
-	 */
-	public abort(): void {
-		this.isAborted = true
-	}
-
-	/**
-	 * 重置中止状态
-	 */
-	public reset(): void {
-		this.isAborted = false
-	}
 
 	/**
 	 * 分析项目文件
@@ -65,7 +51,8 @@ export class FileSummarizer {
 			const basePromptToken = await countTokens(stringToContentBlocks(basePrompt))
 			// 2. 分批分析文件
 
-			let batchFiles: Array<{ path: string; content: string }> = []
+			// 优化内存占用：延迟读取文件内容，串行处理批次
+			let batchFilePaths: string[] = []
 			let batchToken = 0
 			let processedCount = 0
 			
@@ -73,39 +60,44 @@ export class FileSummarizer {
 			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.60
 
 			for (let i = 0; i < filesToAnalyze.length; i++) {
-				// 检查中止状态
-				if (this.isAborted) {
-					this.logger.info("[FileSummarizer] 分析被中止")
-					break
-				}
-
-				// 检查是否应该暂停（在处理每个批次前检查）
+				// 检查终止状态
 				if (this.shouldPause()) {
-					this.logger.info("[FileSummarizer] 分析被暂停")
+					this.logger.info("[FileSummarizer] 分析被停止")
 					break
 				}
 
-				// 根据上下文窗口大小，动态拼接文件内容
 				const filePath = filesToAnalyze[i].path
 				const fullPath = path.join(workspacePath, filePath)
-				const content = await safeReadFile(fullPath, this.config.fileSizeLimit)
-				if (content == null) {
-					this.logger.warn(`[FileSummarizer] 文件内容为空: ${filePath}`)
-					continue
-				}
-
-				const currentToken = await countTokens(stringToContentBlocks(content))
-
-				// 检查单个文件是否超过窗口限制
-				if (currentToken > fileContentsWindow) {
-					this.logger.warn(`[FileSummarizer] 文件过大跳过: ${filePath} (${currentToken} tokens)`)
+				
+				// 延迟读取：先检查文件大小和token数，避免无效读取
+				let content: string | null = null
+				let currentToken = 0
+				
+				try {
+					content = await safeReadFile(fullPath, this.config.fileSizeLimit)
+					if (content == null) {
+						this.logger.warn(`[FileSummarizer] 文件内容为空: ${filePath}`)
+						continue
+					}
+					
+					currentToken = await countTokens(stringToContentBlocks(content))
+					
+					// 检查单个文件是否超过窗口限制
+					if (currentToken > fileContentsWindow) {
+						this.logger.warn(`[FileSummarizer] 文件过大跳过: ${filePath} (${currentToken} tokens)`)
+						continue
+					}
+				} catch (error) {
+					this.logger.warn(`[FileSummarizer] 读取文件失败: ${filePath}`, error)
 					continue
 				}
 
 				// 如果当前批次加上新文件会超过限制，先处理当前批次
-				if (batchFiles.length > 0 && batchToken + currentToken > fileContentsWindow) {
-					await this.processBatch(
-						batchFiles,
+				if (batchFilePaths.length > 0 && batchToken + currentToken > fileContentsWindow) {
+					// 串行处理批次：读取内容并处理
+					await this.processBatchByPaths(
+						batchFilePaths,
+						workspacePath,
 						basePrompt,
 						rootInfo,
 						onProgress,
@@ -113,29 +105,26 @@ export class FileSummarizer {
 						filesToAnalyze.length,
 					)
 					
-					// 检查中止状态（在批处理后）
-					if (this.isAborted) break
+					// 检查终止状态（在批处理后）
+					if (this.shouldPause()) break
 
-					processedCount += batchFiles.length
+					processedCount += batchFilePaths.length
 
 					// 清理批次数据，防止内存泄漏
-					batchFiles = []
+					batchFilePaths = []
 					batchToken = 0
 				}
 
-				// 添加当前文件到批次
-				// TODO: batchFiles 可能会占用较大内存，特别是当文件数量多且内容大时。虽然有 token 限制，但仍需注意。
-				batchFiles.push({
-					path: filePath,
-					content,
-				})
+				// 添加当前文件路径到批次（只存储路径，不存储内容）
+				batchFilePaths.push(filePath)
 				batchToken += currentToken
 			}
 
 			// 处理最后一个批次（如果有剩余文件）
-			if (batchFiles.length > 0 && !this.isAborted) {
-				await this.processBatch(
-					batchFiles,
+			if (batchFilePaths.length > 0 && !this.shouldPause()) {
+				await this.processBatchByPaths(
+					batchFilePaths,
+					workspacePath,
 					basePrompt,
 					rootInfo,
 					onProgress,
@@ -149,7 +138,94 @@ export class FileSummarizer {
 	}
 
 	/**
-	 * 处理文件批次
+	 * 处理文件批次 - 优化内存版本：延迟读取文件内容
+	 */
+	private async processBatchByPaths(
+		batchFilePaths: string[],
+		workspacePath: string,
+		basePrompt: string,
+		rootInfo: RootInfo,
+		onProgress?: (progress: BuildProgress) => void,
+		processedCount: number = 0,
+		totalFiles: number = 0,
+	): Promise<void> {
+		if (this.shouldPause()) return
+
+		this.logger.info(`[FileSummarizer] 开始处理批次，批次大小: ${batchFilePaths.length}`)
+		const batchStartTime = Date.now()
+		
+		// 延迟读取：只在需要时读取文件内容
+		const batchFiles: Array<{ path: string; content: string }> = []
+		
+		for (const filePath of batchFilePaths) {
+			// 检查终止状态
+			if (this.shouldPause()) {
+				this.logger.info("[FileSummarizer] 批次处理被停止")
+				return
+			}
+			
+			try {
+				const fullPath = path.join(workspacePath, filePath)
+				const content = await safeReadFile(fullPath, this.config.fileSizeLimit)
+				
+				if (content != null) {
+					batchFiles.push({ path: filePath, content })
+				} else {
+					this.logger.warn(`[FileSummarizer] 批次处理时文件内容为空: ${filePath}`)
+				}
+			} catch (error) {
+				this.logger.warn(`[FileSummarizer] 批次处理时读取文件失败: ${filePath}`, error)
+			}
+		}
+		
+		// 如果没有有效文件，直接返回
+		if (batchFiles.length === 0) {
+			this.logger.warn("[FileSummarizer] 批次中没有有效文件")
+			return
+		}
+
+		const prompt = buildPrompt(basePrompt, {
+			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
+			fileContents: formatFileContents(batchFiles),
+		})
+
+		// 发送LLM请求
+		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
+
+		// 请求返回后再次检查终止状态，避免写入
+		if (this.shouldPause()) return
+
+		const batchDuration = Date.now() - batchStartTime
+
+		if (response.success && response.data) {
+			// 验证和清理数据
+			let batchSummaries = response.data.map((summary: FileSummary) => this.validateAndCleanFileSummary(summary))
+
+			await this.saveSummaries(batchSummaries)
+
+			const progress: BuildProgress = {
+				phase: "file_analysis" as const,
+				batchProcessedFilePaths: batchSummaries.map((s) => s.path),
+				totalProcessedFiles: processedCount + batchFiles.length,
+				totalFiles: totalFiles,
+				message: "",
+				filesToProcess: totalFiles,
+				batchFailedFiles: 0,
+				batchDuration: batchDuration,
+			}
+
+			onProgress?.(progress)
+		} else {
+			this.logger.error(`[FileSummarizer] 批量分析失败: ${response.error}`)
+		}
+		
+		// 显式清理内存
+		batchFiles.length = 0
+	}
+
+	/**
+	 * 处理文件批次 - 保留原方法以兼容其他调用
+	 * @deprecated 建议使用 processBatchByPaths 以优化内存占用
 	 */
 	private async processBatch(
 		batchFiles: Array<{ path: string; content: string }>,
@@ -159,7 +235,7 @@ export class FileSummarizer {
 		processedCount: number = 0,
 		totalFiles: number = 0,
 	): Promise<void> {
-		if (this.isAborted) return
+		if (this.shouldPause()) return
 
 		this.logger.info(`[FileSummarizer] start to process batch, batch size: ${batchFiles.length}`)
 		const batchStartTime = Date.now()
@@ -171,8 +247,8 @@ export class FileSummarizer {
 		// 发送LLM请求
 		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
 
-		// 请求返回后再次检查中止状态，避免写入
-		if (this.isAborted) return
+		// 请求返回后再次检查终止状态，避免写入
+		if (this.shouldPause()) return
 
 		const batchDuration = Date.now() - batchStartTime
 
@@ -233,9 +309,10 @@ export class FileSummarizer {
 		fields: K[] | undefined = undefined, // 参数：指定需要返回的字段（动态个数）
 	): Promise<Array<Pick<FileSummary, K>> | undefined> {
 		// 返回类型：Pick从基础接口中“拾取”指定字段K，生成只包含这些字段的对象数组
-		// 3. 内部实现思路（示例）：
+		// 3. 内部实现思路：
 		// - 先获取完整的文件摘要数据（包含所有字段）
-		// TODO: 一次性加载所有文件摘要可能会导致内存溢出，建议改为流式读取或分页读取。
+		// 优化：虽然这里仍然是一次性加载，但在解析时直接提取字段，减少中间对象的内存占用
+		// TODO: 对于超大文件，建议后续改为流式读取
 		const content = await this.storage.load(FILE_SUMMARIES_FILE)
 		if (!content) {
 			return undefined

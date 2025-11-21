@@ -17,7 +17,7 @@ import {
 import { DEFAULT_CONFIG } from "./constants"
 import { API_PROVIDER } from "@roo-code/types"
 import { ILogger } from "../../utils/logger"
-import { FileService } from "./tools/FileService"
+import { FileService } from "./core/FileService"
 import { createLogger } from "../../utils/logger"
 import { Package } from "../../shared/package"
 import { FileFilter } from "./tools/FileUtils"
@@ -115,48 +115,82 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 初始化知识图谱服务
+	 * 初始化知识图谱服务 - 重构版本，简化逻辑
 	 * @param forceInit 强制初始化，跳过状态检查
 	 */
 	public async initialize(forceInit: boolean = false): Promise<void> {
-		if (this.isInitialized) {
+		if (this.isInitialized && !forceInit) {
 			this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已经初始化，跳过")
 			return
 		}
 
-		// 基础依赖检查
-		if (!this.clineProvider) {
-			throw ErrorHandler.wrapError(new Error("ClineProvider not set"), "初始化知识图谱服务")
-		}
-
-		const workspacePath = this.getWorkspacePath()
-		if (!workspacePath) {
-			throw ErrorHandler.wrapError(new Error("workspace path is empty"), "初始化知识图谱服务")
-		}
-
 		try {
-			// 只有在非强制模式下才检查启用状态，避免脑裂
+			// 1. 验证前置条件
+			this.validatePrerequisites()
+
+			// 2. 检查启用状态（非强制模式）
 			if (!forceInit && !(await this.isKnowledgeGraphEnabled())) {
 				this.logger?.info("[KnowledgeGraphManager] 知识图谱功能未启用")
 				return
 			}
 
-			// 加载用户配置
+			// 3. 加载配置
 			await this.loadUserConfig()
 
-			// 初始化核心组件
+			// 4. 初始化组件
+			const workspacePath = this.getWorkspacePath()!
 			await this.initializeComponents(workspacePath)
 
-			// 状态修复：委托给GraphBuilder处理
-			await this.graphBuilder?.repairBuildState()
+			// 5. 修复构建状态
+			await this.repairBuildStateIfNeeded()
 
 			this.isInitialized = true
 			this.logger?.info("[KnowledgeGraphManager] 知识图谱服务初始化完成")
 		} catch (error) {
-			const wrappedError = ErrorHandler.wrapError(error, "初始化知识图谱服务")
-			this.logger?.error(`[KnowledgeGraphManager] 初始化失败: ${ErrorHandler.formatError(wrappedError)}`)
-			throw wrappedError
+			await this.handleInitializationError(error)
+			throw error
 		}
+	}
+
+	/**
+	 * 验证初始化前置条件
+	 */
+	private validatePrerequisites(): void {
+		if (!this.clineProvider) {
+			throw ErrorHandler.wrapError(new Error("ClineProvider not set"), "验证前置条件")
+		}
+
+		const workspacePath = this.getWorkspacePath()
+		if (!workspacePath) {
+			this.logger?.warn("[KnowledgeGraphManager] workspace path is empty, skipping initialization")
+			throw ErrorHandler.wrapError(new Error("Workspace path is empty"), "验证前置条件")
+		}
+	}
+
+	/**
+	 * 修复构建状态（如果需要）
+	 */
+	private async repairBuildStateIfNeeded(): Promise<void> {
+		if (this.graphBuilder) {
+			try {
+				await this.graphBuilder.repairBuildState()
+			} catch (error) {
+				this.logger?.warn(`[KnowledgeGraphManager] 构建状态修复失败: ${ErrorHandler.formatError(error)}`)
+				// 状态修复失败不应该阻止初始化
+			}
+		}
+	}
+
+	/**
+	 * 处理初始化错误
+	 */
+	private async handleInitializationError(error: any): Promise<void> {
+		const wrappedError = ErrorHandler.wrapError(error, "初始化知识图谱服务")
+		this.logger?.error(`[KnowledgeGraphManager] 初始化失败: ${ErrorHandler.formatError(wrappedError)}`)
+		
+		// 重置状态并清理组件
+		this.isInitialized = false
+		await this.cleanupComponents()
 	}
 
 	/**
@@ -192,10 +226,42 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 初始化核心组件 - 提取为独立方法
+	 * 初始化核心组件 - 重构版本，模块化组件创建
 	 */
 	private async initializeComponents(workspacePath: string): Promise<void> {
-		// 使用优化后的组件初始化服务，统一传入logger和ProgressTracer
+		try {
+			// 1. 创建基础服务
+			const { storage, fileService, llmClient, progressTracer } = await this.createBaseServices(workspacePath)
+
+			// 2. 创建分析器
+			const { rootAnalyzer, fileSummarizer, directorySummarizer } = this.createAnalyzers(llmClient, storage)
+
+			// 3. 创建状态跟踪器
+			const stateTracer = await this.createStateTracer(storage)
+
+			// 4. 创建图构建器
+			this.graphBuilder = this.createGraphBuilder(stateTracer, {
+				rootAnalyzer,
+				fileSummarizer,
+				directorySummarizer,
+				fileService,
+			})
+
+			// 5. 创建检索和导出器
+			this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer)
+			this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
+
+			// 6. 设置统一的暂停检查器
+			this.setupPauseCheckers(stateTracer, { rootAnalyzer, fileSummarizer, directorySummarizer, fileService })
+		} catch (error) {
+			throw ErrorHandler.wrapError(error, "初始化核心组件")
+		}
+	}
+
+	/**
+	 * 创建基础服务
+	 */
+	private async createBaseServices(workspacePath: string) {
 		const progressTracer = new ProgressTracer()
 		const fileFilter = new FileFilter(
 			undefined,
@@ -209,12 +275,16 @@ export class KnowledgeGraphManager {
 			type: this.config.storageType,
 			path: StorageFactory.getWorkspaceStoragePath(workspacePath),
 		})
-
 		const llmClient = new LLMClient(this.config.model, progressTracer, undefined, this.logger!)
 
-		// 初始化分析器
+		return { storage, fileService, llmClient, progressTracer }
+	}
+
+	/**
+	 * 创建分析器
+	 */
+	private createAnalyzers(llmClient: LLMClient, storage: any) {
 		const rootAnalyzer = new RootAnalyzer(llmClient, storage, this.config, this.logger!)
-		// TODO: 文件、目录摘要改为sqlite存储，便于增量更新、全文检索
 		const fileSummarizer = new FileSummarizer(llmClient, storage, this.config, this.logger!)
 		const directorySummarizer = new DirectorySummarizer(
 			llmClient,
@@ -223,28 +293,44 @@ export class KnowledgeGraphManager {
 			this.config,
 			this.logger!,
 		)
+
+		return { rootAnalyzer, fileSummarizer, directorySummarizer }
+	}
+
+	/**
+	 * 创建状态跟踪器
+	 */
+	private async createStateTracer(storage: any): Promise<BuildStateTracer> {
 		const stateTracer = new BuildStateTracer(storage, this.logger!)
 		await stateTracer.init()
 		this.stateTracer = stateTracer
+		return stateTracer
+	}
 
-		this.graphBuilder = new GraphBuilder(this.config, {
-			rootAnalyzer: rootAnalyzer,
-			fileAnalyzer: fileSummarizer,
-			directoryAnalyzer: directorySummarizer,
-			fileService: fileService,
+	/**
+	 * 创建图构建器
+	 */
+	private createGraphBuilder(stateTracer: BuildStateTracer, components: any): GraphBuilder {
+		return new GraphBuilder(this.config, {
+			rootAnalyzer: components.rootAnalyzer,
+			fileAnalyzer: components.fileSummarizer,
+			directoryAnalyzer: components.directorySummarizer,
+			fileService: components.fileService,
 			buildStateKeeper: stateTracer,
 			logger: this.logger!,
 		})
+	}
 
-		// 初始化搜索引擎和导出器
-		this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer)
-		this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
-
-		// 设置暂停检查器
+	/**
+	 * 设置统一的暂停检查器
+	 */
+	private setupPauseCheckers(stateTracer: BuildStateTracer, components: any): void {
 		const pauseChecker = () => stateTracer.isPaused() ?? false
-		rootAnalyzer.setPauseChecker(pauseChecker)
-		fileSummarizer.setPauseChecker(pauseChecker)
-		directorySummarizer.setPauseChecker(pauseChecker)
+		
+		components.rootAnalyzer.setPauseChecker(pauseChecker)
+		components.fileSummarizer.setPauseChecker(pauseChecker)
+		components.directorySummarizer.setPauseChecker(pauseChecker)
+		components.fileService.setPauseChecker(pauseChecker)
 	}
 
 	/**
@@ -317,16 +403,28 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 清理组件
+	 * 清理组件 - 异步版本，确保资源正确释放
 	 */
-	private cleanupComponents(): void {
-		// 释放 clineProvider 引用，避免内存泄漏
-		this.clineProvider = undefined
-		this.graphBuilder = undefined
-		this.graphRetriever = undefined
-		this.exporter = undefined
-		// 重置配置为默认值而不是 undefined
-		this.config = { ...DEFAULT_CONFIG }
+	private async cleanupComponents(): Promise<void> {
+		try {
+			// 清理存储资源
+			if (this.stateTracer) {
+				// BuildStateTracer 可能需要清理资源
+				this.stateTracer = undefined
+			}
+
+			// 清理其他组件
+			this.graphBuilder = undefined
+			this.graphRetriever = undefined
+			this.exporter = undefined
+
+			// 重置配置为默认值
+			this.config = { ...DEFAULT_CONFIG }
+
+			this.logger?.debug("[KnowledgeGraphManager] 组件清理完成")
+		} catch (error) {
+			this.logger?.warn(`[KnowledgeGraphManager] 组件清理时发生错误: ${ErrorHandler.formatError(error)}`)
+		}
 	}
 
 	/**
@@ -431,27 +529,16 @@ export class KnowledgeGraphManager {
 			}
 		}
 
-		// 检查管理器是否已经正确初始化
-		const isManagerInitialized = this.isManagerInitialized()
-		const needsInitialization = isEnabled && !isManagerInitialized
-
-		// 如果状态未变化且不需要初始化，直接返回
-		const currentEnabled = await this.isKnowledgeGraphEnabled()
-		if (currentEnabled === isEnabled && !needsInitialization) {
-			this.logger?.info(`[KnowledgeGraphManager] 知识图谱状态未变化: ${isEnabled}`)
-			return
-		}
-
 		try {
 			if (isEnabled) {
 				// 启用知识图谱
 				this.logger?.info("[KnowledgeGraphManager] 启用知识图谱服务")
 
-				// 强制初始化，跳过状态检查（避免脑裂）
-				await this.initialize(true)
-
-				// 初始化成功后再更新启用状态到 ClineProvider
+				// 先更新配置，确保 initialize 中的检查能通过（虽然这里用了 forceInit=true，但保持一致性更好）
 				await this.clineProvider.setValue("knowledgeGraphEnabled", true)
+
+				// 强制初始化
+				await this.initialize(true)
 			} else {
 				// 禁用知识图谱
 				this.logger?.info("[KnowledgeGraphManager] 停止知识图谱服务")
@@ -459,14 +546,18 @@ export class KnowledgeGraphManager {
 				// 先停止服务
 				await this.dispose()
 
-				// 停止成功后再更新配置
+				// 更新配置
 				await this.clineProvider.setValue("knowledgeGraphEnabled", false)
 			}
 
 			this.logger?.info(`[KnowledgeGraphManager] 知识图谱状态设置成功: ${isEnabled}`)
 		} catch (error) {
-			// 发生错误时，确保配置保持为 false
-			await this.clineProvider.setValue("knowledgeGraphEnabled", false)
+			// 发生错误时，如果是启用失败，回滚配置
+			if (isEnabled) {
+				await this.clineProvider.setValue("knowledgeGraphEnabled", false)
+				// 确保清理
+				await this.dispose()
+			}
 
 			const errorMessage = error instanceof Error ? error.message : "设置知识图谱状态失败"
 			this.logger?.error(`[KnowledgeGraphManager] 状态设置失败: ${errorMessage}`)

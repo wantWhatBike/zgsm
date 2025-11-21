@@ -3,7 +3,7 @@
  */
 
 import type { KnowledgeGraphConfig } from './types'
-import { KNOWLEDGE_GRAPH_DEFAULTS, KnowledgeGraphBuildState } from "@roo-code/types"
+import { KNOWLEDGE_GRAPH_DEFAULTS, KnowledgeGraphBuildState, KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE } from "@roo-code/types"
 
 // 基础配置常量 - 统一管理所有配置值
 export const BASE_CONFIG = {
@@ -308,13 +308,13 @@ export const DEFAULT_BUILD_STATE: KnowledgeGraphBuildState = {
   processedFiles: 0,
   failedFiles: 0,
   currentFile: "",
-  status: "pending",
+  status: KNOWLEDGE_GRAPH_STATUS.PENDING,
   phase: "root_analysis",
   lastUpdateTime: new Date().toISOString(),
   totalDuration: 0,
   phaseProgress: {
-    root_analysis: { total: 0, processed: 0, status: 'pending' },
-    file_analysis: { total: 0, processed: 0, status: 'pending' },
-    directory_analysis: { total: 0, processed: 0, status: 'pending' }
+    root_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+    file_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+    directory_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING }
   }
 }
