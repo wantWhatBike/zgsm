@@ -1,6 +1,8 @@
 import { ILogger } from "../../../utils/logger"
 import { SearchResult, SearchQuery } from "../types"
 import { RootInfo } from "../types"
+import { DirectorySummarizer } from "./DirectorySummarizer"
+import { FileSummarizer } from "./FileSummarizer"
 import { RootAnalyzer } from "./RootAnalyzer"
 
 /**
@@ -10,10 +12,14 @@ import { RootAnalyzer } from "./RootAnalyzer"
 export class GraphRetriever {
 	private logger: ILogger
     private rootAnalyzer: RootAnalyzer
+	private fileSummrizer: FileSummarizer
+	private directorySummarizer: DirectorySummarizer
 
-	constructor(logger: ILogger, rootAnalyzer: RootAnalyzer) {
+	constructor(logger: ILogger, rootAnalyzer: RootAnalyzer, fileSummrizer: FileSummarizer, directorySummarizer: DirectorySummarizer) {
 		this.logger = logger
         this.rootAnalyzer = rootAnalyzer
+		this.directorySummarizer = directorySummarizer
+		this.fileSummrizer = fileSummrizer
 	}
 
 	/**

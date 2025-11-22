@@ -248,7 +248,7 @@ export class KnowledgeGraphManager {
 			})
 
 			// 5. 创建检索和导出器
-			this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer)
+			this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer,fileSummarizer, directorySummarizer)
 			this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
 
 			// 6. 设置统一的暂停检查器
