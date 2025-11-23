@@ -73,30 +73,30 @@ export const ControlPanel = ({
 		<div
 			style={{
 				position: "fixed",
-				top: "80px",
-				right: "20px",
+				top: "0.5rem",
+				right: "0.5rem",
 				background: "var(--vscode-sideBar-background, rgba(20, 20, 20, 0.95))",
 				border: "1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.2))",
-				borderRadius: "8px",
+				borderRadius: "6px",
 				color: "var(--vscode-foreground, #fff)",
-				width: "280px",
+				width: "220px",
 				backdropFilter: "blur(10px)",
 				boxShadow: "0 4px 12px rgba(0, 0, 0, 0.5)",
 				zIndex: 999,
 			}}
 		>
 			{/* 搜索框 */}
-			<div style={{ padding: "16px", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
+			<div style={{ padding: "10px", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
 				<div style={{ position: "relative" }}>
 					<Search 
 						style={{
 							position: "absolute",
-							left: "12px",
+							left: "8px",
 							top: "50%",
 							transform: "translateY(-50%)",
 							color: "#888",
-							width: "16px",
-							height: "16px"
+							width: "13px",
+							height: "13px"
 						}}
 					/>
 					<input
@@ -106,12 +106,12 @@ export const ControlPanel = ({
 						onChange={(e) => setSearchTerm(e.target.value)}
 						style={{
 							width: "100%",
-							padding: "8px 12px 8px 36px",
+							padding: "6px 8px 6px 28px",
 							background: "rgba(255, 255, 255, 0.1)",
 							border: "1px solid rgba(255, 255, 255, 0.2)",
-							borderRadius: "6px",
+							borderRadius: "4px",
 							color: "#fff",
-							fontSize: "13px",
+							fontSize: "11px",
 							outline: "none",
 						}}
 					/>
@@ -121,12 +121,12 @@ export const ControlPanel = ({
 				{searchResults.length > 0 && (
 					<div
 						style={{
-							marginTop: "8px",
-							maxHeight: "200px",
+							marginTop: "6px",
+							maxHeight: "150px",
 							overflowY: "auto",
 							background: "rgba(0, 0, 0, 0.3)",
-							borderRadius: "4px",
-							padding: "4px",
+							borderRadius: "3px",
+							padding: "3px",
 						}}
 					>
 						{searchResults.map((node) => (
@@ -137,10 +137,10 @@ export const ControlPanel = ({
 									setSearchTerm("")
 								}}
 								style={{
-									padding: "8px 10px",
+									padding: "5px 7px",
 									cursor: "pointer",
-									borderRadius: "4px",
-									fontSize: "12px",
+									borderRadius: "3px",
+									fontSize: "10px",
 									marginBottom: "2px",
 									background: "transparent",
 									transition: "background 0.2s",
@@ -153,7 +153,7 @@ export const ControlPanel = ({
 								}}
 							>
 								<div style={{ fontWeight: "500" }}>{node.label}</div>
-								<div style={{ color: "#888", fontSize: "11px", marginTop: "2px" }}>
+								<div style={{ color: "#888", fontSize: "9px", marginTop: "2px" }}>
 									{node.type === 'directory' ? '📁' : '📄'} {node.id}
 								</div>
 							</div>
@@ -163,40 +163,40 @@ export const ControlPanel = ({
 			</div>
 			
 			{/* 缩放控制 */}
-			<div style={{ padding: "16px", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
+			<div style={{ padding: "10px", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
 				<div style={{ 
-					fontSize: "12px", 
+					fontSize: "9px", 
 					color: "#888", 
-					marginBottom: "8px",
+					marginBottom: "5px",
 					textTransform: "uppercase",
 					letterSpacing: "0.5px"
 				}}>
 					缩放控制
 				</div>
-				<div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+				<div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
 					<ControlButton onClick={handleZoomOut} title="缩小">
-						<ZoomOut className="w-4 h-4" />
+						<ZoomOut style={{ width: "13px", height: "13px" }} />
 					</ControlButton>
 					<div style={{ 
 						flex: 1, 
 						textAlign: "center", 
-						fontSize: "13px",
+						fontSize: "11px",
 						fontFamily: "monospace",
 						color: "#fff"
 					}}>
 						{(zoom * 100).toFixed(0)}%
 					</div>
 					<ControlButton onClick={handleZoomIn} title="放大">
-						<ZoomIn className="w-4 h-4" />
+						<ZoomIn style={{ width: "13px", height: "13px" }} />
 					</ControlButton>
 					<ControlButton onClick={onResetView} title="重置视图">
-						<RotateCcw className="w-4 h-4" />
+						<RotateCcw style={{ width: "13px", height: "13px" }} />
 					</ControlButton>
 				</div>
 			</div>
 			
 			{/* 过滤器 */}
-			<div style={{ padding: "16px" }}>
+			<div style={{ padding: "10px" }}>
 				<div 
 					onClick={() => setIsFilterOpen(!isFilterOpen)}
 					style={{ 
@@ -204,26 +204,26 @@ export const ControlPanel = ({
 						alignItems: "center",
 						justifyContent: "space-between",
 						cursor: "pointer",
-						marginBottom: isFilterOpen ? "12px" : 0
+						marginBottom: isFilterOpen ? "8px" : 0
 					}}
 				>
 					<div style={{ 
-						fontSize: "12px", 
+						fontSize: "9px", 
 						color: "#888",
 						textTransform: "uppercase",
 						letterSpacing: "0.5px",
 						display: "flex",
 						alignItems: "center",
-						gap: "6px"
+						gap: "4px"
 					}}>
-						<Filter className="w-4 h-4" />
+						<Filter style={{ width: "13px", height: "13px" }} />
 						过滤器
 					</div>
-					{isFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+					{isFilterOpen ? <ChevronUp style={{ width: "13px", height: "13px" }} /> : <ChevronDown style={{ width: "13px", height: "13px" }} />}
 				</div>
 				
 				{isFilterOpen && (
-					<div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+					<div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
 						<FilterCheckbox
 							label="显示目录"
 							checked={filter.showDirectories}
@@ -235,10 +235,10 @@ export const ControlPanel = ({
 							onChange={(checked) => handleFilterChange('showFiles', checked)}
 						/>
 						<div style={{ 
-							marginLeft: "20px", 
+							marginLeft: "15px", 
 							display: "flex", 
 							flexDirection: "column", 
-							gap: "6px",
+							gap: "4px",
 							opacity: filter.showFiles ? 1 : 0.5
 						}}>
 							<FilterCheckbox
@@ -281,10 +281,10 @@ const ControlButton = ({
 		onClick={onClick}
 		title={title}
 		style={{
-			padding: "8px",
+			padding: "5px",
 			background: "rgba(255, 255, 255, 0.1)",
 			border: "1px solid rgba(255, 255, 255, 0.2)",
-			borderRadius: "6px",
+			borderRadius: "4px",
 			color: "#fff",
 			cursor: "pointer",
 			display: "flex",
@@ -320,8 +320,8 @@ const FilterCheckbox = ({
 		style={{
 			display: "flex",
 			alignItems: "center",
-			gap: "8px",
-			fontSize: "13px",
+			gap: "5px",
+			fontSize: "10px",
 			cursor: disabled ? "not-allowed" : "pointer",
 			opacity: disabled ? 0.5 : 1
 		}}
@@ -332,8 +332,8 @@ const FilterCheckbox = ({
 			onChange={(e) => onChange(e.target.checked)}
 			disabled={disabled}
 			style={{
-				width: "16px",
-				height: "16px",
+				width: "12px",
+				height: "12px",
 				cursor: disabled ? "not-allowed" : "pointer"
 			}}
 		/>

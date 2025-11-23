@@ -30,6 +30,7 @@ export const GraphVisualizer = () => {
 	
 	// 视图控制状态（阶段6）
 	const [zoom, setZoom] = useState(1)
+	const [resetTrigger, setResetTrigger] = useState(0)
 	// const [targetNodeForFly, setTargetNodeForFly] = useState<GraphNode | null>(null) // TODO: 实现平滑飞行动画
 	
 	// 目录展开/折叠状态（阶段7）
@@ -165,6 +166,7 @@ export const GraphVisualizer = () => {
 	const handleResetView = useCallback(() => {
 		setZoom(1)
 		setSelectedNode(null)
+		setResetTrigger(prev => prev + 1) // 触发子组件重置
 		// setTargetNodeForFly(null) // TODO: 实现平滑飞行动画
 	}, [])
 	
@@ -302,6 +304,7 @@ export const GraphVisualizer = () => {
 				height={window.innerHeight}
 				zoom={zoom}
 				onZoomChange={handleZoomChange}
+				resetTrigger={resetTrigger}
 				onNodeClick={handleNodeClick}
 				onNodeHover={handleNodeHover}
 				onNodeDoubleClick={handleNodeDoubleClick}
@@ -311,21 +314,18 @@ export const GraphVisualizer = () => {
 			<div
 				style={{
 					position: "absolute",
-					top: "1rem",
-					left: "1rem",
+					top: "0.5rem",
+					left: "0.5rem",
 					background: "var(--vscode-panel-background, rgba(0, 0, 0, 0.7))",
-					padding: "0.5rem 1rem",
-					borderRadius: "4px",
+					padding: "0.35rem 0.65rem",
+					borderRadius: "3px",
 					color: "var(--vscode-foreground, #fff)",
-					fontSize: "0.875rem",
+					fontSize: "0.7rem",
 					border: "1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.2))",
+					fontFamily: "monospace",
 				}}
 			>
-				<div>总节点: {graphData.nodes.length} | 显示: {displayData.nodes.length}</div>
-				<div>边 (依赖): {displayData.links.length} | 已展开: {expandedDirectories.size} 目录</div>
-				<div style={{ fontSize: "0.75rem", color: "#999", marginTop: "0.25rem" }}>
-					{useWorker ? "🔥 Worker模式" : "⚡ 普通模式"} | 💡 双击目录可折叠 | 📊 默认全部展开
-				</div>
+				<div>节点: {displayData.nodes.length}/{graphData.nodes.length} | 边: {displayData.links.length} | 缩放: {(zoom * 100).toFixed(0)}%</div>
 			</div>
 			
 			{/* Tooltip（阶段5） */}

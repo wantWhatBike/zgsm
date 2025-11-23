@@ -62,6 +62,7 @@ interface ForceGraphWorkerProps {
 	height?: number
 	zoom?: number
 	onZoomChange?: (zoom: number) => void
+	resetTrigger?: number
 	onNodeClick?: (node: GraphNode | null) => void
 	onNodeHover?: (node: GraphNode | null) => void
 	onNodeDoubleClick?: (node: GraphNode) => void
@@ -73,6 +74,7 @@ export const ForceGraphWorker = ({
 	height = 600,
 	zoom: externalZoom = 1,
 	onZoomChange,
+	resetTrigger = 0,
 	onNodeClick,
 	onNodeHover,
 	onNodeDoubleClick,
@@ -105,6 +107,16 @@ export const ForceGraphWorker = ({
 			cache.clear()
 		}
 	}, [])
+	
+	// 监听重置触发器
+	useEffect(() => {
+		if (resetTrigger > 0) {
+			setPanX(0)
+			setPanY(0)
+			setSelectedNodeId(null)
+			console.log("[ForceGraphWorker] 视图已重置")
+		}
+	}, [resetTrigger])
 	
 	// 渲染函数（带视锥剔除和LOD优化）
 	const render = useCallback(() => {
@@ -253,18 +265,6 @@ export const ForceGraphWorker = ({
 		
 		ctx.restore()
 		
-		// 性能统计
-		ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
-		ctx.fillRect(width - 180, 10, 170, 85)
-		ctx.fillStyle = "#fff"
-		ctx.font = "11px monospace"
-		ctx.fillText(`总节点: ${nodes.length}`, width - 170, 25)
-		ctx.fillText(`可见节点: ${visibleNodes.length}`, width - 170, 40)
-		ctx.fillText(`渲染节点: ${renderedCount}`, width - 170, 55)
-		ctx.fillText(`缩放: ${zoom.toFixed(2)}x`, width - 170, 70)
-		if (alpha > 0.01) {
-			ctx.fillText(`Alpha: ${alpha.toFixed(3)}`, width - 170, 85)
-		}
 	}, [width, height, data.links, alpha])
 	
 	// 初始化Worker和数据
