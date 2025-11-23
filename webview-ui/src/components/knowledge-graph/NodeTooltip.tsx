@@ -13,9 +13,10 @@ interface NodeTooltipProps {
 export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 	const [isHoveringTooltip, setIsHoveringTooltip] = useState(false)
 	const [displayNode, setDisplayNode] = useState<GraphNode | null>(node)
+	const [fixedPosition, setFixedPosition] = useState({ x: 0, y: 0 })
 	const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 	
-	// 当 node 变化时更新显示节点
+	// 当 node 变化时更新显示节点和固定位置
 	useEffect(() => {
 		if (node) {
 			// 有新节点时，清除隐藏定时器并显示新节点
@@ -24,6 +25,8 @@ export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 				hideTimeoutRef.current = null
 			}
 			setDisplayNode(node)
+			// 固定 tooltip 位置，不再跟随鼠标移动
+			setFixedPosition({ x, y })
 		} else if (!isHoveringTooltip) {
 			// node 为 null 且鼠标不在 tooltip 上时，延迟隐藏
 			hideTimeoutRef.current = setTimeout(() => {
@@ -36,7 +39,7 @@ export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 				clearTimeout(hideTimeoutRef.current)
 			}
 		}
-	}, [node, isHoveringTooltip])
+	}, [node, x, y, isHoveringTooltip])
 	
 	// 鼠标进入 tooltip
 	const handleMouseEnter = () => {
@@ -67,9 +70,9 @@ export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 		return '📄 文件'
 	}
 	
-	// 调整位置避免超出屏幕
-	const adjustedX = Math.min(x + 15, window.innerWidth - 300)
-	const adjustedY = Math.min(y + 15, window.innerHeight - 200)
+	// 调整位置避免超出屏幕（使用固定位置）
+	const adjustedX = Math.min(fixedPosition.x + 15, window.innerWidth - 300)
+	const adjustedY = Math.min(fixedPosition.y + 15, window.innerHeight - 200)
 	
 	return (
 		<div

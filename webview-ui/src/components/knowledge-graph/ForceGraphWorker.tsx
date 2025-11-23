@@ -9,7 +9,7 @@ import type { GraphData, GraphNode } from "@roo-code/types"
 import type { GraphNodeWithPosition, WorkerMessage } from "./types"
 
 /**
- * 绘制箭头
+ * 绘制实心箭头
  */
 function drawArrow(
 	ctx: CanvasRenderingContext2D,
@@ -17,24 +17,24 @@ function drawArrow(
 	fromY: number,
 	toX: number,
 	toY: number,
-	arrowSize: number = 8
+	arrowSize: number = 10
 ) {
 	const angle = Math.atan2(toY - fromY, toX - fromX)
-	
-	// 箭头的两个边
 	const arrowAngle = Math.PI / 6 // 30度
+	
+	// 绘制实心三角形箭头
 	ctx.beginPath()
 	ctx.moveTo(toX, toY)
 	ctx.lineTo(
 		toX - arrowSize * Math.cos(angle - arrowAngle),
 		toY - arrowSize * Math.sin(angle - arrowAngle)
 	)
-	ctx.moveTo(toX, toY)
 	ctx.lineTo(
 		toX - arrowSize * Math.cos(angle + arrowAngle),
 		toY - arrowSize * Math.sin(angle + arrowAngle)
 	)
-	ctx.stroke()
+	ctx.closePath()
+	ctx.fill() // 使用填充而不是描边
 }
 
 /**
