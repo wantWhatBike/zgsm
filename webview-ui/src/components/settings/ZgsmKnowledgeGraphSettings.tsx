@@ -20,20 +20,25 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { SetCachedStateField } from "./types"
 import { useEvent } from "react-use"
-import { KnowledgeGraphBuildState, KNOWLEDGE_GRAPH_MESSAGES, API_PROVIDER, KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE, KNOWLEDGE_GRAPH_FIELDS } from "@roo-code/types"
+import { 
+	KnowledgeGraphBuildState, 
+	KNOWLEDGE_GRAPH_MESSAGES, 
+	API_PROVIDER, 
+	KNOWLEDGE_GRAPH_STATUS, 
+	KNOWLEDGE_GRAPH_PHASE, 
+	KNOWLEDGE_GRAPH_FIELDS,
+	KNOWLEDGE_GRAPH_UI_CONFIG
+} from "@roo-code/types"
 
-// 前端UI常量 - 智能轮询策略
+// 前端UI常量 - 使用统一配置
 const POLLING_INTERVALS = {
-	[KNOWLEDGE_GRAPH_STATUS.RUNNING]: 1500,    // 运行时快速轮询
-	[KNOWLEDGE_GRAPH_STATUS.PAUSED]: 5000,     // 暂停时慢速轮询
-	default: 10000,   // 其他状态很慢轮询
+	[KNOWLEDGE_GRAPH_STATUS.RUNNING]: KNOWLEDGE_GRAPH_UI_CONFIG.POLLING_INTERVAL_RUNNING,
+	[KNOWLEDGE_GRAPH_STATUS.PAUSED]: KNOWLEDGE_GRAPH_UI_CONFIG.POLLING_INTERVAL_PAUSED,
+	default: KNOWLEDGE_GRAPH_UI_CONFIG.POLLING_INTERVAL_DEFAULT,
 } as const
 
-// 防抖延迟时间
-const DEBOUNCE_DELAY = 300
-
-// 操作超时时间 - 防止 isOperating 卡死
-const OPERATION_TIMEOUT = 10000
+const DEBOUNCE_DELAY = KNOWLEDGE_GRAPH_UI_CONFIG.DEBOUNCE_DELAY
+const OPERATION_TIMEOUT = KNOWLEDGE_GRAPH_UI_CONFIG.OPERATION_TIMEOUT
 
 // 状态机定义
 type UIState = {

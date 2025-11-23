@@ -13,6 +13,8 @@ import { KNOWLEDGE_GRAPH_MESSAGES, API_PROVIDER, KNOWLEDGE_GRAPH_STATUS, GraphDa
 import { getWorkspacePath } from "../../utils/path"
 import { getNonce } from "../webview/getNonce"
 import { getUri } from "../webview/getUri"
+import { isKnowledgeGraphSupported } from "./utils"
+import { ErrorHandler } from "./errors/ErrorHandler"
 
 /**
  * 知识图谱消息处理器
@@ -22,6 +24,7 @@ export class KnowledgeGraphMessageHandler {
   private logger: ILogger
   private clineProvider: ClineProvider
   private graphViewPanel: vscode.WebviewPanel | undefined
+  private graphViewPanelDisposables: vscode.Disposable[] = []
 
   constructor(clineProvider: ClineProvider) {
     this.clineProvider = clineProvider
@@ -32,17 +35,14 @@ export class KnowledgeGraphMessageHandler {
    * 处理知识图谱消息
    */
   async handleMessage(message: any): Promise<void> {
-    this.logger.info(`[KnowledgeGraphMessageHandler] 收到消息: ${message.type}`, JSON.stringify(message))
     try {
-      // 检查 API 提供者是否为 zgsm - 使用常量
-      const { apiConfiguration } = await this.clineProvider.getState()
-      if (apiConfiguration?.apiProvider !== API_PROVIDER.ZGSM) {
+      // 检查 API 提供者是否支持知识图谱
+      const isSupported = await isKnowledgeGraphSupported(this.clineProvider)
+      if (!isSupported) {
         this.logger.warn("[KnowledgeGraphMessageHandler] 仅 CoStrict 提供商支持知识图谱功能")
         this.sendErrorResponse(message.type, "仅 CoStrict 提供商支持知识图谱功能")
         return
       }
-
-      this.logger.info(`[KnowledgeGraphMessageHandler] 开始处理消息: ${message.type}`)
       switch (message.type) {
         case KNOWLEDGE_GRAPH_MESSAGES.ENABLED:
           await this.handleEnabledMessage(message)
@@ -85,9 +85,11 @@ export class KnowledgeGraphMessageHandler {
           this.sendErrorResponse(message.type, `未知消息类型: ${message.type}`)
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "处理消息时发生未知错误"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 处理消息失败: ${message.type || 'unknown'}: ${errorMessage}`)
-      this.sendErrorResponse(message.type || 'unknown', errorMessage)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, `处理消息: ${message.type || 'unknown'}`)
+      const errorMessage = ErrorHandler.formatError(wrappedError)
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${errorMessage}`)
+      this.sendErrorResponse(message.type || 'unknown', wrappedError.message)
     }
   }
 
@@ -112,8 +114,9 @@ export class KnowledgeGraphMessageHandler {
   		})
   		
   	} catch (error) {
-  		const errorMessage = error instanceof Error ? error.message : "切换知识图谱状态失败"
-  		this.logger.error(`[KnowledgeGraphMessageHandler] 状态切换失败: ${errorMessage}`)
+  		// 修复 #7: 统一错误处理
+  		const wrappedError = ErrorHandler.wrapError(error, "切换知识图谱状态")
+  		this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
   		
   		// 获取当前实际状态（可能回滚了）
   		const currentEnabled = await knowledgeGraphManager.isKnowledgeGraphEnabled()
@@ -121,8 +124,8 @@ export class KnowledgeGraphMessageHandler {
   		// 发送错误响应，并附带错误信息和当前实际状态
   		this.clineProvider.postMessageToWebview({
   			type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
-  			payload: currentEnabled, // 返回实际状态
-  			error: errorMessage // 传递具体错误信息给前端
+  			payload: currentEnabled,
+  			error: wrappedError.message
   		})
   	}
   }
@@ -147,13 +150,14 @@ export class KnowledgeGraphMessageHandler {
       this.sendStatusResponse(DEFAULT_BUILD_STATE)
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "获取知识图谱状态失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 获取知识图谱状态失败: ${errorMessage}`)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "获取知识图谱状态")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
       
       const errorState = {
         ...DEFAULT_BUILD_STATE,
         status: KNOWLEDGE_GRAPH_STATUS.ERROR,
-        error: errorMessage,
+        error: wrappedError.message,
       }
       
       this.sendStatusResponse(errorState)
@@ -169,10 +173,10 @@ export class KnowledgeGraphMessageHandler {
       // 操作成功后立即获取最新状态
       await this.handleGetStatusMessage()
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "知识图谱构建失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 构建失败: ${errorMessage}`)
-      // 不再抛出错误，而是发送错误状态给前端，保持通信闭环
-      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.BUILD, errorMessage)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "知识图谱构建")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
+      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.BUILD, wrappedError.message)
     }
   }
 
@@ -184,9 +188,10 @@ export class KnowledgeGraphMessageHandler {
       await knowledgeGraphManager.pauseBuild()
       await this.handleGetStatusMessage()
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "暂停构建失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 暂停失败: ${errorMessage}`)
-      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.PAUSE, errorMessage)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "暂停构建")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
+      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.PAUSE, wrappedError.message)
     }
   }
 
@@ -198,9 +203,10 @@ export class KnowledgeGraphMessageHandler {
       await knowledgeGraphManager.resumeBuild()
       await this.handleGetStatusMessage()
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "继续构建失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 继续失败: ${errorMessage}`)
-      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.RESUME, errorMessage)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "继续构建")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
+      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.RESUME, wrappedError.message)
     }
   }
 
@@ -216,9 +222,10 @@ export class KnowledgeGraphMessageHandler {
       
       this.logger.info("[KnowledgeGraphMessageHandler] 已清除")
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "清除失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 清除失败: ${errorMessage}`)
-      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.CLEAR, errorMessage)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "清除知识图谱")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
+      this.sendErrorResponse(KNOWLEDGE_GRAPH_MESSAGES.CLEAR, wrappedError.message)
     }
   }
 
@@ -254,16 +261,12 @@ export class KnowledgeGraphMessageHandler {
    * 处理打开图谱视图消息
    */
   private async handleOpenGraphViewMessage(): Promise<void> {
-    this.logger.info("[KnowledgeGraphMessageHandler] 收到打开图谱视图请求")
     try {
       // 如果面板已存在，直接显示
       if (this.graphViewPanel) {
-        this.logger.info("[KnowledgeGraphMessageHandler] 图谱视图面板已存在，直接显示")
         this.graphViewPanel.reveal()
         return
       }
-
-      this.logger.info("[KnowledgeGraphMessageHandler] 创建新的图谱视图面板")
       // 创建新的 Webview Panel
       const panel = vscode.window.createWebviewPanel(
         'knowledgeGraphView',
@@ -281,39 +284,32 @@ export class KnowledgeGraphMessageHandler {
       // 设置 Webview HTML 内容
       panel.webview.html = this.getWebviewContent(panel.webview)
 
-      // 处理来自 Webview 的消息
-      panel.webview.onDidReceiveMessage(
+      // 修复 #13: 处理来自 Webview 的消息 - 使用disposable管理
+      const messageDisposable = panel.webview.onDidReceiveMessage(
         async (message) => {
-          this.logger.info(`[KnowledgeGraphMessageHandler] 图谱视图面板收到消息: ${message.type}`)
           switch (message.type) {
             case KNOWLEDGE_GRAPH_MESSAGES.GET_GRAPH_DATA:
-              this.logger.info("[KnowledgeGraphMessageHandler] 处理图谱视图面板的数据请求")
               await this.handleGetGraphDataMessageForPanel(panel.webview)
               break
             case KNOWLEDGE_GRAPH_MESSAGES.OPEN_FILE:
-              this.logger.info(`[KnowledgeGraphMessageHandler] 处理打开文件请求: ${message.filePath}`)
               await this.handleOpenFileMessage(message)
               break
           }
-        },
-        null,
-        []
+        }
       )
+      this.graphViewPanelDisposables.push(messageDisposable)
 
-      // 面板关闭时清理
-      panel.onDidDispose(
-        () => {
-          this.graphViewPanel = undefined
-        },
-        null,
-        []
-      )
-
-      this.logger.info("[KnowledgeGraphMessageHandler] 知识图谱可视化面板已打开")
+      // 修复 #13: 面板关闭时清理所有资源
+      const disposeListener = panel.onDidDispose(() => {
+        this.cleanupGraphViewPanel()
+      })
+      this.graphViewPanelDisposables.push(disposeListener)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "打开图谱视图失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 打开图谱视图失败: ${errorMessage}`)
-      vscode.window.showErrorMessage(`打开知识图谱可视化失败: ${errorMessage}`)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "打开图谱视图")
+      const errorMessage = ErrorHandler.formatError(wrappedError)
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${errorMessage}`)
+      vscode.window.showErrorMessage(`打开知识图谱可视化失败: ${wrappedError.message}`)
     }
   }
 
@@ -340,11 +336,12 @@ export class KnowledgeGraphMessageHandler {
         payload: graphData,
       })
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "获取图谱数据失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 获取图谱数据失败: ${errorMessage}`)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "获取图谱数据")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
       this.clineProvider.postMessageToWebview({
         type: KNOWLEDGE_GRAPH_MESSAGES.GRAPH_DATA_RESPONSE,
-        error: errorMessage,
+        error: wrappedError.message,
       })
     }
   }
@@ -354,35 +351,30 @@ export class KnowledgeGraphMessageHandler {
    */
   private async handleGetGraphDataMessageForPanel(webview: vscode.Webview): Promise<void> {
     try {
-      this.logger.info("[KnowledgeGraphMessageHandler] 开始获取图谱数据（图谱视图面板）")
       const workspacePath = getWorkspacePath()
       if (!workspacePath) {
         throw new Error("未找到工作区路径")
       }
-      this.logger.info(`[KnowledgeGraphMessageHandler] 工作区路径: ${workspacePath}`)
 
       const graphRetriever = knowledgeGraphManager.getGraphRetriever()
       if (!graphRetriever) {
         throw new Error("图谱检索器未初始化")
       }
 
-      this.logger.info("[KnowledgeGraphMessageHandler] 调用 GraphRetriever.getGraphData")
       const graphData = await graphRetriever.getGraphData(workspacePath)
-      this.logger.info(`[KnowledgeGraphMessageHandler] 图谱数据获取成功: ${graphData.nodes.length} 个节点, ${graphData.links.length} 条边`)
 
       // 发送到图谱视图面板
-      this.logger.info("[KnowledgeGraphMessageHandler] 发送图谱数据到视图面板")
       webview.postMessage({
         type: KNOWLEDGE_GRAPH_MESSAGES.GRAPH_DATA_RESPONSE,
         payload: graphData,
       })
-      this.logger.info("[KnowledgeGraphMessageHandler] 图谱数据已发送到视图面板")
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "获取图谱数据失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 获取图谱数据失败: ${errorMessage}`)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "获取图谱数据（视图面板）")
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
       webview.postMessage({
         type: KNOWLEDGE_GRAPH_MESSAGES.GRAPH_DATA_RESPONSE,
-        error: errorMessage,
+        error: wrappedError.message,
       })
     }
   }
@@ -405,12 +397,12 @@ export class KnowledgeGraphMessageHandler {
       const fullPath = vscode.Uri.file(filePath.startsWith(workspacePath) ? filePath : `${workspacePath}/${filePath}`)
       const document = await vscode.workspace.openTextDocument(fullPath)
       await vscode.window.showTextDocument(document)
-
-      this.logger.info(`[KnowledgeGraphMessageHandler] 已打开文件: ${filePath}`)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "打开文件失败"
-      this.logger.error(`[KnowledgeGraphMessageHandler] 打开文件失败: ${errorMessage}`)
-      vscode.window.showErrorMessage(`打开文件失败: ${errorMessage}`)
+      // 修复 #7: 统一错误处理
+      const wrappedError = ErrorHandler.wrapError(error, "打开文件")
+      const errorMessage = ErrorHandler.formatError(wrappedError)
+      this.logger.error(`[KnowledgeGraphMessageHandler] ${errorMessage}`)
+      vscode.window.showErrorMessage(`打开文件失败: ${wrappedError.message}`)
     }
   }
 
@@ -442,10 +434,7 @@ export class KnowledgeGraphMessageHandler {
     const openRouterBaseUrl = "https://openrouter.ai"
     const openRouterDomain = openRouterBaseUrl.match(/^(https?:\/\/[^\/]+)/)?.[1] || "https://openrouter.ai"
 
-    this.logger.info(`[KnowledgeGraphMessageHandler] Script URI: ${scriptUri}`)
-    this.logger.info(`[KnowledgeGraphMessageHandler] Styles URI: ${stylesUri}`)
-
-    // 生成 HTML，包含完整的 CSP 和模块支持
+    // 修复 #14: 生成 HTML，包含完整的 CSP 和模块支持
     return /*html*/ `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -471,51 +460,70 @@ export class KnowledgeGraphMessageHandler {
 </body>
 </html>`
   }
+
+  /**
+   * 清理图谱视图面板资源
+   * 修复 #13: 确保所有资源被正确释放
+   */
+  private cleanupGraphViewPanel(): void {
+    // 清理所有disposables
+    this.graphViewPanelDisposables.forEach(d => d.dispose())
+    this.graphViewPanelDisposables = []
+    
+    // 清理面板引用
+    this.graphViewPanel = undefined
+  }
 }
 
 /**
  * 知识图谱消息处理器单例管理
+ * 修复：简化单例模式，确保类型安全
  */
 class KnowledgeGraphMessageHandlerSingleton {
-  private static instance: KnowledgeGraphMessageHandler | null = null
+  private static instance: KnowledgeGraphMessageHandler | undefined
 
   /**
-   * 初始化知识图谱消息处理器
+   * 获取或创建实例
+   * @param clineProvider 如果实例不存在，需要提供 provider 来创建
    */
-  public static initialize(clineProvider: ClineProvider): KnowledgeGraphMessageHandler {
+  public static getInstance(clineProvider?: ClineProvider): KnowledgeGraphMessageHandler {
     if (!this.instance) {
+      if (!clineProvider) {
+        throw new Error("KnowledgeGraphMessageHandler not initialized. Call with clineProvider first.")
+      }
       this.instance = new KnowledgeGraphMessageHandler(clineProvider)
     }
     return this.instance
   }
 
   /**
-   * 获取知识图谱消息处理器
+   * 检查实例是否已初始化
    */
-  public static getInstance(): KnowledgeGraphMessageHandler | null {
-    return this.instance
+  public static isInitialized(): boolean {
+    return this.instance !== undefined
   }
 
   /**
-   * 销毁知识图谱消息处理器
+   * 销毁实例
    */
   public static dispose(): void {
-    this.instance = null
+    this.instance = undefined
   }
 }
 
 /**
- * 初始化知识图谱消息处理器
+ * 初始化或获取知识图谱消息处理器
+ * 修复：统一的函数，避免null问题
  */
-export function initializeKnowledgeGraphMessageHandler(clineProvider: ClineProvider): KnowledgeGraphMessageHandler {
-  return KnowledgeGraphMessageHandlerSingleton.initialize(clineProvider)
+export function getKnowledgeGraphMessageHandler(clineProvider?: ClineProvider): KnowledgeGraphMessageHandler {
+  return KnowledgeGraphMessageHandlerSingleton.getInstance(clineProvider)
 }
 
 /**
- * 获取知识图谱消息处理器
+ * 检查处理器是否已初始化
  */
-export function getKnowledgeGraphMessageHandler(): KnowledgeGraphMessageHandler | null {
-  return KnowledgeGraphMessageHandlerSingleton.getInstance()
+export function isKnowledgeGraphMessageHandlerInitialized(): boolean {
+  return KnowledgeGraphMessageHandlerSingleton.isInitialized()
 }
 
 /**
@@ -524,6 +532,3 @@ export function getKnowledgeGraphMessageHandler(): KnowledgeGraphMessageHandler 
 export function disposeKnowledgeGraphMessageHandler(): void {
   KnowledgeGraphMessageHandlerSingleton.dispose()
 }
-
-// 保持向后兼容的导出
-export const knowledgeGraphMessageHandler = KnowledgeGraphMessageHandlerSingleton.getInstance()

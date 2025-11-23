@@ -73,8 +73,8 @@ import { ErrorCodeManager } from "../costrict/error-code"
 import { writeCostrictAccessToken } from "../costrict/codebase-index/utils"
 import { workspaceEventMonitor } from "../costrict/codebase-index/workspace-event-monitor"
 import { fetchZgsmQuotaInfo, fetchZgsmInviteCode } from "../../api/providers/fetchers/zgsm"
-import { getKnowledgeGraphMessageHandler } from "../knowledge-graph/knowledgeGraphMessageHandler"
-import { initializeKnowledgeGraphMessageHandler } from "../knowledge-graph/knowledgeGraphMessageHandler"
+import { getKnowledgeGraphMessageHandler, isKnowledgeGraphMessageHandlerInitialized } from "../knowledge-graph/knowledgeGraphMessageHandler"
+import { KNOWLEDGE_GRAPH_MESSAGES } from "@roo-code/types"
 
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
@@ -3609,38 +3609,28 @@ export const webviewMessageHandler = async (
 			}
 			break
 		}
-		case "knowledgeGraphEnabled":
-		case "knowledgeGraphGetStatus":
-		case "knowledgeGraphBuild":
-		case "knowledgeGraphPause":
-		case "knowledgeGraphResume":
-		case "knowledgeGraphClear":
-		case "knowledgeGraphOpenGraphView":
-		case "knowledgeGraphGetGraphData":
-		case "knowledgeGraphOpenFile": {
+		case KNOWLEDGE_GRAPH_MESSAGES.ENABLED:
+		case KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS:
+		case KNOWLEDGE_GRAPH_MESSAGES.BUILD:
+		case KNOWLEDGE_GRAPH_MESSAGES.PAUSE:
+		case KNOWLEDGE_GRAPH_MESSAGES.RESUME:
+		case KNOWLEDGE_GRAPH_MESSAGES.CLEAR:
+		// 修复 #3: 使用常量而不是字符串字面量
+		case KNOWLEDGE_GRAPH_MESSAGES.OPEN_GRAPH_VIEW:
+		case KNOWLEDGE_GRAPH_MESSAGES.GET_GRAPH_DATA:
+		case KNOWLEDGE_GRAPH_MESSAGES.OPEN_FILE: {
 			// 使用知识图谱消息处理器处理所有知识图谱相关消息
 			try {
-				const handler = getKnowledgeGraphMessageHandler()
-				
-				if (!handler) {
-					// 如果处理器未初始化，先初始化它
-					initializeKnowledgeGraphMessageHandler(provider)
-					const newHandler = getKnowledgeGraphMessageHandler()
-					if (newHandler) {
-						await newHandler.handleMessage(message)
-					} else {
-						throw new Error("无法初始化知识图谱消息处理器")
-					}
-				} else {
-					await handler.handleMessage(message)
-				}
+				// 修复 #2: 使用改进的单例模式，自动初始化
+				const handler = getKnowledgeGraphMessageHandler(provider)
+				await handler.handleMessage(message)
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : "处理知识图谱消息失败"
 				// provider.log(errorMessage, "error", "KnowledgeGraphMessageHandler")
 				
 				// 发送错误响应
 				await provider.postMessageToWebview({
-					type: "knowledgeGraphStatusResponse",
+					type: KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE,
 					payload: {
 						success: false,
 						error: errorMessage,

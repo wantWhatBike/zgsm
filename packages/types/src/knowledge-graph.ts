@@ -19,6 +19,39 @@ export const KNOWLEDGE_GRAPH_DEFAULTS = {
 } as const
 
 /**
+ * UI Configuration (for frontend)
+ */
+export const KNOWLEDGE_GRAPH_UI_CONFIG = {
+	// 轮询间隔（毫秒）
+	POLLING_INTERVAL_RUNNING: 1500,
+	POLLING_INTERVAL_PAUSED: 5000,
+	POLLING_INTERVAL_DEFAULT: 10000,
+	// 操作超时（毫秒）
+	OPERATION_TIMEOUT: 10000,
+	// 防抖延迟（毫秒）
+	DEBOUNCE_DELAY: 300,
+} as const
+
+/**
+ * Visualization Configuration (for frontend)
+ */
+export const KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG = {
+	// Worker 阈值：节点数超过此值使用 Web Worker
+	WORKER_THRESHOLD: 1000,
+	// 力导向图参数
+	FORCE_LINK_DISTANCE: 100,
+	FORCE_LINK_STRENGTH: 0.5,
+	FORCE_CHARGE_STRENGTH: -300,
+	FORCE_CHARGE_DISTANCE: 200,
+	FORCE_COLLISION_RADIUS_BASE: 30,
+	// 渲染参数
+	NODE_RADIUS_BASE: 6,
+	LABEL_FONT_SIZE: 10,
+	TOOLTIP_DELAY_MS: 1000,
+	TOOLTIP_HIDE_DELAY_MS: 200,
+} as const
+
+/**
  * API Provider Constants
  */
 export const API_PROVIDER = {

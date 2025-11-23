@@ -27,6 +27,7 @@ import { BuildStateTracer } from "./core/BuildStateTracer"
 import { StorageFactory } from "./storage/StorageFactory"
 import { ErrorHandler } from "./errors/ErrorHandler"
 import { ProgressTracer } from "./tools/ProgressTracer"
+import { isKnowledgeGraphSupported, getKnowledgeGraphEnabledState } from "./utils"
 
 /**
  * 激活知识图谱功能
@@ -195,17 +196,24 @@ export class KnowledgeGraphManager {
 
 	/**
 	 * 加载用户配置 - 简化版本，使用配置映射表
+	 * 修复 #8: 使用类型安全的方式处理配置映射
 	 */
 	private async loadUserConfig(): Promise<void> {
-		const state = await this.clineProvider!.getState()
+		const provider = this.clineProvider
+		if (!provider) return
+		
+		const state = await provider.getState()
 		if (!state.knowledgeGraphConfig) {
 			return
 		}
 
 		const userConfig = state.knowledgeGraphConfig
 
-		// 配置映射表 - 消除重复代码
-		const configMapping: Record<string, keyof KnowledgeGraphConfig> = {
+		// 类型安全的配置映射
+		type UserConfigKey = keyof typeof userConfig
+		type InternalConfigKey = keyof KnowledgeGraphConfig
+		
+		const configMapping: Record<string, InternalConfigKey> = {
 			knowledgeGraphModel: "model",
 			knowledgeGraphMaxConcurrency: "maxConcurrency",
 			knowledgeGraphBatchSize: "batchSize",
@@ -213,12 +221,13 @@ export class KnowledgeGraphManager {
 			knowledgeGraphFileSizeLimit: "fileSizeLimit",
 		}
 
-		// 动态映射配置，避免重复代码
+		// 安全地映射配置
 		this.config = { ...DEFAULT_CONFIG }
 		for (const [userKey, internalKey] of Object.entries(configMapping)) {
-			const userValue = (userConfig as any)[userKey]
+			const userValue = userConfig[userKey as UserConfigKey]
 			if (userValue !== undefined) {
-				;(this.config as any)[internalKey] = userValue
+				// 类型安全的赋值
+				(this.config[internalKey] as typeof userValue) = userValue
 			}
 		}
 
@@ -334,38 +343,25 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 检查知识图谱是否启用 - 添加API提供者常量
+	 * 检查知识图谱是否启用
+	 * 使用共享工具函数，避免重复代码
 	 */
-	public async isKnowledgeGraphEnabled(): Promise<boolean | undefined> {
+	public async isKnowledgeGraphEnabled(): Promise<boolean> {
 		if (!this.clineProvider) {
 			return false
 		}
-		try {
-			const state = await this.clineProvider.getState()
-			// 检查API提供者是否为zgsm - 使用常量
-			if (state.apiConfiguration?.apiProvider !== API_PROVIDER.ZGSM) {
-				return false
-			}
-			// 检查是否启用了知识图谱
-			return state.knowledgeGraphEnabled ?? false
-		} catch {
-			return false
-		}
+		return await getKnowledgeGraphEnabledState(this.clineProvider)
 	}
 
 	/**
 	 * 检查API提供者是否支持知识图谱
+	 * 使用共享工具函数，避免重复代码
 	 */
 	public async isApiProviderSupported(): Promise<boolean> {
 		if (!this.clineProvider) {
 			return false
 		}
-		try {
-			const state = await this.clineProvider.getState()
-			return state.apiConfiguration?.apiProvider === API_PROVIDER.ZGSM
-		} catch {
-			return false
-		}
+		return await isKnowledgeGraphSupported(this.clineProvider)
 	}
 
 	/**
