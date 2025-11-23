@@ -117,12 +117,10 @@ export const GraphVisualizer = () => {
 		vscode.postMessage(message)
 	}, [])
 
-	// 处理节点点击（阶段5）
+	// 处理节点点击（不再显示详情面板）
 	const handleNodeClick = useCallback((node: GraphNode | null) => {
-		if (node) {
-			console.log("[GraphVisualizer] 节点点击:", node.id)
-			setSelectedNode(node)
-		}
+		// 单击不做任何操作
+		console.log("[GraphVisualizer] 节点点击:", node?.id)
 	}, [])
 	
 	// 处理节点悬浮（阶段5）
@@ -349,7 +347,7 @@ export const GraphVisualizer = () => {
 			</div>
 			
 			{/* Tooltip（阶段5） */}
-			<NodeTooltip node={hoveredNode} x={mousePos.x} y={mousePos.y} />
+			<NodeTooltip node={hoveredNode} graphData={graphData} x={mousePos.x} y={mousePos.y} />
 			
 			{/* SidePanel（阶段5） */}
 			<SidePanel
