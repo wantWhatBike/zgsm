@@ -1,7 +1,7 @@
 /**
  * 节点悬浮提示组件
  */
-import { useMemo } from "react"
+import { useMemo, useState, useRef, useEffect } from "react"
 import type { GraphNode } from "@roo-code/types"
 
 interface NodeTooltipProps {
@@ -11,16 +11,59 @@ interface NodeTooltipProps {
 }
 
 export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
-	const isVisible = useMemo(() => node !== null, [node])
+	const [isHoveringTooltip, setIsHoveringTooltip] = useState(false)
+	const [displayNode, setDisplayNode] = useState<GraphNode | null>(node)
+	const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 	
-	if (!isVisible || !node) return null
+	// 当 node 变化时更新显示节点
+	useEffect(() => {
+		if (node) {
+			// 有新节点时，清除隐藏定时器并显示新节点
+			if (hideTimeoutRef.current) {
+				clearTimeout(hideTimeoutRef.current)
+				hideTimeoutRef.current = null
+			}
+			setDisplayNode(node)
+		} else if (!isHoveringTooltip) {
+			// node 为 null 且鼠标不在 tooltip 上时，延迟隐藏
+			hideTimeoutRef.current = setTimeout(() => {
+				setDisplayNode(null)
+			}, 200) // 200ms 延迟
+		}
+		
+		return () => {
+			if (hideTimeoutRef.current) {
+				clearTimeout(hideTimeoutRef.current)
+			}
+		}
+	}, [node, isHoveringTooltip])
+	
+	// 鼠标进入 tooltip
+	const handleMouseEnter = () => {
+		setIsHoveringTooltip(true)
+		if (hideTimeoutRef.current) {
+			clearTimeout(hideTimeoutRef.current)
+			hideTimeoutRef.current = null
+		}
+	}
+	
+	// 鼠标离开 tooltip
+	const handleMouseLeave = () => {
+		setIsHoveringTooltip(false)
+		// 延迟隐藏
+		hideTimeoutRef.current = setTimeout(() => {
+			setDisplayNode(null)
+		}, 200)
+	}
+	
+	if (!displayNode) return null
 	
 	// 节点类型标签
 	const getTypeLabel = () => {
-		if (node.type === 'directory') return '📁 目录'
-		if (node.fileType === 'source') return '📄 源代码'
-		if (node.fileType === 'test') return '🧪 测试文件'
-		if (node.fileType === 'config') return '⚙️ 配置文件'
+		if (displayNode.type === 'directory') return '📁 目录'
+		if (displayNode.fileType === 'source') return '📄 源代码'
+		if (displayNode.fileType === 'test') return '🧪 测试文件'
+		if (displayNode.fileType === 'config') return '⚙️ 配置文件'
 		return '📄 文件'
 	}
 	
@@ -30,6 +73,8 @@ export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 	
 	return (
 		<div
+			onMouseEnter={handleMouseEnter}
+			onMouseLeave={handleMouseLeave}
 			style={{
 				position: "fixed",
 				left: `${adjustedX}px`,
@@ -42,20 +87,20 @@ export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 				fontSize: "13px",
 				maxWidth: "280px",
 				boxShadow: "0 4px 12px rgba(0, 0, 0, 0.5)",
-				pointerEvents: "none",
+				pointerEvents: "auto", // 允许鼠标交互，支持滚动
 				zIndex: 10000,
 				backdropFilter: "blur(8px)",
 			}}
 		>
 			<div style={{ fontWeight: "600", marginBottom: "8px", fontSize: "14px" }}>
-				{node.label}
+				{displayNode.label}
 			</div>
 			
 			<div style={{ display: "flex", alignItems: "center", marginBottom: "6px", color: "#aaa" }}>
 				<span>{getTypeLabel()}</span>
 			</div>
 			
-			{node.description && (
+			{displayNode.description && (
 				<div style={{ 
 					marginTop: "8px", 
 					paddingTop: "8px", 
@@ -65,17 +110,17 @@ export const NodeTooltip = ({ node, x, y }: NodeTooltipProps) => {
 					maxHeight: "100px",
 					overflow: "auto"
 				}}>
-					{node.description}
+					{displayNode.description}
 				</div>
 			)}
 			
-			{node.parentId && (
+			{displayNode.parentId && (
 				<div style={{ 
 					marginTop: "6px", 
 					color: "#888",
 					fontSize: "11px"
 				}}>
-					父目录: {node.parentId}
+					父目录: {displayNode.parentId}
 				</div>
 			)}
 		</div>

@@ -43,6 +43,35 @@ function createGlowSprite(color: string, radius: number): HTMLCanvasElement {
 }
 
 /**
+ * 绘制箭头
+ */
+function drawArrow(
+	ctx: CanvasRenderingContext2D,
+	fromX: number,
+	fromY: number,
+	toX: number,
+	toY: number,
+	arrowSize: number = 8
+) {
+	const angle = Math.atan2(toY - fromY, toX - fromX)
+	
+	// 箭头的两个边
+	const arrowAngle = Math.PI / 6 // 30度
+	ctx.beginPath()
+	ctx.moveTo(toX, toY)
+	ctx.lineTo(
+		toX - arrowSize * Math.cos(angle - arrowAngle),
+		toY - arrowSize * Math.sin(angle - arrowAngle)
+	)
+	ctx.moveTo(toX, toY)
+	ctx.lineTo(
+		toX - arrowSize * Math.cos(angle + arrowAngle),
+		toY - arrowSize * Math.sin(angle + arrowAngle)
+	)
+	ctx.stroke()
+}
+
+/**
  * Sprite缓存管理
  */
 class SpriteCache {
@@ -159,10 +188,10 @@ export const ForceGraph = ({
 		
 		// LOD策略：根据缩放级别调整渲染细节
 		const showLinks = zoom >= 0.2  // 缩放<0.2时隐藏连线
-		const showLabels = zoom >= 0.5  // 缩放<0.5时隐藏标签
+		const showAllLabels = zoom >= 1.5  // 缩放>=1.5时显示所有标签
 		const showSmallNodes = zoom >= 0.2  // 缩放<0.2时只显示目录节点
 		
-		// 绘制边（LOD优化）
+		// 绘制边（LOD优化 + 箭头）
 		if (showLinks) {
 			ctx.strokeStyle = "rgba(150, 150, 150, 0.3)"
 			ctx.lineWidth = 1 / zoom // 根据缩放调整线宽
@@ -178,10 +207,18 @@ export const ForceGraph = ({
 				// 视锥剔除：跳过不可见的边
 				if (!visibleNodeIds.has(source.id) && !visibleNodeIds.has(target.id)) return
 				
+				// 绘制连线
 				ctx.beginPath()
 				ctx.moveTo(source.x, source.y)
 				ctx.lineTo(target.x, target.y)
 				ctx.stroke()
+				
+				// 绘制箭头（从target指向source，表示source依赖target）
+				if (zoom >= 0.5) { // 只在缩放足够大时显示箭头
+					const arrowSize = Math.max(6, 8 / zoom)
+					// 箭头方向：target -> source（被依赖方指向依赖方）
+					drawArrow(ctx, target.x, target.y, source.x, source.y, arrowSize)
+				}
 			})
 		}
 		
@@ -257,8 +294,9 @@ export const ForceGraph = ({
 				}
 			}
 			
-			// 绘制标签（LOD优化）
-			if (showLabels && (isSelected || isHovered || zoom >= 1.0)) {
+			// 绘制标签（LOD优化：只在高缩放或选中/悬浮时显示，避免重叠）
+			const shouldShowLabel = showAllLabels || isSelected || isHovered
+			if (shouldShowLabel) {
 				ctx.fillStyle = "#fff"
 				ctx.strokeStyle = "#000"
 				ctx.lineWidth = 3
@@ -330,13 +368,20 @@ export const ForceGraph = ({
 				d3
 					.forceLink<GraphNodeWithPosition, GraphLinkWithNodes>(links)
 					.id((d) => d.id)
-					.distance(50)
-					.strength(0.5) // 降低连接强度，提高性能
+					.distance(80) // 增加连接距离，让节点更分散
+					.strength(0.3) // 降低连接强度
 			)
-			.force("charge", d3.forceManyBody().strength(-300).distanceMax(200)) // 限制作用距离
+			.force("charge", d3.forceManyBody().strength(-400).distanceMax(300)) // 增强排斥力
 			.force("center", d3.forceCenter(width / 2, height / 2))
-			.force("collision", d3.forceCollide().radius(10))
-			.alphaDecay(0.02) // 加快衰减，更快稳定
+			.force("collision", d3.forceCollide<GraphNodeWithPosition>().radius((d) => {
+				// 根据节点类型和标签长度动态设置碰撞半径
+				const baseRadius = d.type === "directory" ? 8 : 6
+				const labelLength = d.label.length
+				// 考虑标签宽度，假设每个字符约6像素
+				const labelRadius = Math.min(labelLength * 3, 60) // 最大60像素
+				return Math.max(baseRadius, labelRadius)
+			}).strength(1)) // 碰撞力强度设为1，确保不重叠
+			.alphaDecay(0.015) // 减慢衰减，让布局更充分
 			.velocityDecay(0.4) // 增加阻尼
 		
 		simulationRef.current = simulation

@@ -37,14 +37,34 @@ export const GraphVisualizer = () => {
 	// 注意：初始值会在收到图谱数据后更新为所有目录
 	const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(() => new Set(['/']))
 	
-	// 过滤后的图谱数据（阶段7）
+	// 过滤器状态（阶段6）
+	const [filter, setFilter] = useState<NodeFilter>({
+		showDirectories: true,
+		showFiles: true,
+		showSource: true,
+		showTest: true,
+		showConfig: true,
+	})
+	
+	// 过滤后的图谱数据（阶段7 + 过滤器）
 	const filteredGraphData = useMemo(() => {
 		if (!graphData) return null
 		
-		// 过滤节点：显示所有目录 + 展开目录下的文件
+		// 应用过滤器 + 展开状态
 		const visibleNodes = graphData.nodes.filter(node => {
-			// 目录总是显示
-			if (node.type === 'directory') return true
+			// 1. 应用类型过滤
+			if (node.type === 'directory' && !filter.showDirectories) return false
+			if (node.type === 'file' && !filter.showFiles) return false
+			
+			// 2. 应用文件类型过滤（只对文件生效）
+			if (node.type === 'file') {
+				if (node.fileType === 'source' && !filter.showSource) return false
+				if (node.fileType === 'test' && !filter.showTest) return false
+				if (node.fileType === 'config' && !filter.showConfig) return false
+			}
+			
+			// 3. 应用展开状态过滤
+			if (node.type === 'directory') return true // 目录总是显示（如果通过类型过滤）
 			
 			// 文件：只有当其父目录被展开时才显示
 			const parentId = node.parentId || '/'
@@ -66,7 +86,7 @@ export const GraphVisualizer = () => {
 			nodes: visibleNodes,
 			links: visibleLinks,
 		}
-	}, [graphData, expandedDirectories])
+	}, [graphData, expandedDirectories, filter])
 	
 	// 根据节点数量自动选择使用Worker还是普通版本（必须在所有 early returns 之前）
 	const useWorker = useMemo(() => {
@@ -170,10 +190,10 @@ export const GraphVisualizer = () => {
 		// setTargetNodeForFly(null) // TODO: 实现平滑飞行动画
 	}, [])
 	
-	// 处理过滤变化（阶段6 - 预留接口）
-	const handleFilterChange = useCallback((filter: NodeFilter) => {
-		console.log("[GraphVisualizer] 过滤器变化:", filter)
-		// TODO: 实现节点过滤逻辑
+	// 处理过滤变化（阶段6）
+	const handleFilterChange = useCallback((newFilter: NodeFilter) => {
+		console.log("[GraphVisualizer] 过滤器变化:", newFilter)
+		setFilter(newFilter)
 	}, [])
 
 	// 监听来自后端的消息
@@ -325,7 +345,7 @@ export const GraphVisualizer = () => {
 					fontFamily: "monospace",
 				}}
 			>
-				<div>节点: {displayData.nodes.length}/{graphData.nodes.length} | 边: {displayData.links.length} | 缩放: {(zoom * 100).toFixed(0)}%</div>
+				<div>节点: {displayData.nodes.length}/{graphData.nodes.length} | 边: {displayData.links.length}</div>
 			</div>
 			
 			{/* Tooltip（阶段5） */}

@@ -107,10 +107,10 @@ export const ControlPanel = ({
 						style={{
 							width: "100%",
 							padding: "6px 8px 6px 28px",
-							background: "rgba(255, 255, 255, 0.1)",
-							border: "1px solid rgba(255, 255, 255, 0.2)",
+							background: "var(--vscode-input-background)",
+							border: "1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.2))",
 							borderRadius: "4px",
-							color: "#fff",
+							color: "var(--vscode-input-foreground)",
 							fontSize: "11px",
 							outline: "none",
 						}}
@@ -153,7 +153,7 @@ export const ControlPanel = ({
 								}}
 							>
 								<div style={{ fontWeight: "500" }}>{node.label}</div>
-								<div style={{ color: "#888", fontSize: "9px", marginTop: "2px" }}>
+								<div style={{ color: "var(--vscode-descriptionForeground, #888)", fontSize: "9px", marginTop: "2px" }}>
 									{node.type === 'directory' ? '📁' : '📄'} {node.id}
 								</div>
 							</div>
@@ -166,7 +166,7 @@ export const ControlPanel = ({
 			<div style={{ padding: "10px", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
 				<div style={{ 
 					fontSize: "9px", 
-					color: "#888", 
+					color: "var(--vscode-descriptionForeground, #888)", 
 					marginBottom: "5px",
 					textTransform: "uppercase",
 					letterSpacing: "0.5px"
@@ -182,7 +182,7 @@ export const ControlPanel = ({
 						textAlign: "center", 
 						fontSize: "11px",
 						fontFamily: "monospace",
-						color: "#fff"
+						color: "var(--vscode-foreground)"
 					}}>
 						{(zoom * 100).toFixed(0)}%
 					</div>
@@ -209,7 +209,7 @@ export const ControlPanel = ({
 				>
 					<div style={{ 
 						fontSize: "9px", 
-						color: "#888",
+						color: "var(--vscode-descriptionForeground, #888)",
 						textTransform: "uppercase",
 						letterSpacing: "0.5px",
 						display: "flex",
@@ -282,10 +282,10 @@ const ControlButton = ({
 		title={title}
 		style={{
 			padding: "5px",
-			background: "rgba(255, 255, 255, 0.1)",
-			border: "1px solid rgba(255, 255, 255, 0.2)",
+			background: "var(--vscode-button-secondaryBackground)",
+			border: "1px solid var(--vscode-button-border, transparent)",
 			borderRadius: "4px",
-			color: "#fff",
+			color: "var(--vscode-button-secondaryForeground)",
 			cursor: "pointer",
 			display: "flex",
 			alignItems: "center",
@@ -293,11 +293,11 @@ const ControlButton = ({
 			transition: "all 0.2s",
 		}}
 		onMouseEnter={(e) => {
-			e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)"
+			e.currentTarget.style.background = "var(--vscode-button-secondaryHoverBackground)"
 			e.currentTarget.style.transform = "scale(1.05)"
 		}}
 		onMouseLeave={(e) => {
-			e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"
+			e.currentTarget.style.background = "var(--vscode-button-secondaryBackground)"
 			e.currentTarget.style.transform = "scale(1)"
 		}}
 	>

@@ -6,6 +6,7 @@ import * as d3 from "d3"
 
 interface WorkerNode {
 	id: string
+	label: string
 	x: number
 	y: number
 	vx?: number
@@ -36,6 +37,7 @@ self.onmessage = (e: MessageEvent) => {
 			// 初始化节点
 			nodes = inputNodes.map((node: any) => ({
 				id: node.id,
+				label: node.label,
 				x: node.x || Math.random() * width,
 				y: node.y || Math.random() * height,
 				vx: 0,
@@ -58,13 +60,20 @@ self.onmessage = (e: MessageEvent) => {
 					d3
 						.forceLink<WorkerNode, WorkerLink>(links)
 						.id((d) => d.id)
-						.distance(50)
-						.strength(0.5)
+						.distance(80) // 增加连接距离
+						.strength(0.3) // 降低连接强度
 				)
-				.force('charge', d3.forceManyBody().strength(-300).distanceMax(200))
+				.force('charge', d3.forceManyBody().strength(-400).distanceMax(300)) // 增强排斥力
 				.force('center', d3.forceCenter(width / 2, height / 2))
-				.force('collision', d3.forceCollide().radius(10))
-				.alphaDecay(0.02)
+				.force('collision', d3.forceCollide<WorkerNode>().radius((d) => {
+					// 根据节点类型和标签长度动态设置碰撞半径
+					const baseRadius = d.type === 'directory' ? 8 : 6
+					const labelLength = d.label.length
+					// 考虑标签宽度
+					const labelRadius = Math.min(labelLength * 3, 60)
+					return Math.max(baseRadius, labelRadius)
+				}).strength(1)) // 碰撞力强度设为1
+				.alphaDecay(0.015) // 减慢衰减
 				.velocityDecay(0.4)
 				.on('tick', () => {
 					tickCount++

@@ -9,6 +9,35 @@ import type { GraphData, GraphNode } from "@roo-code/types"
 import type { GraphNodeWithPosition, WorkerMessage } from "./types"
 
 /**
+ * 绘制箭头
+ */
+function drawArrow(
+	ctx: CanvasRenderingContext2D,
+	fromX: number,
+	fromY: number,
+	toX: number,
+	toY: number,
+	arrowSize: number = 8
+) {
+	const angle = Math.atan2(toY - fromY, toX - fromX)
+	
+	// 箭头的两个边
+	const arrowAngle = Math.PI / 6 // 30度
+	ctx.beginPath()
+	ctx.moveTo(toX, toY)
+	ctx.lineTo(
+		toX - arrowSize * Math.cos(angle - arrowAngle),
+		toY - arrowSize * Math.sin(angle - arrowAngle)
+	)
+	ctx.moveTo(toX, toY)
+	ctx.lineTo(
+		toX - arrowSize * Math.cos(angle + arrowAngle),
+		toY - arrowSize * Math.sin(angle + arrowAngle)
+	)
+	ctx.stroke()
+}
+
+/**
  * 预渲染发光Sprite
  */
 function createGlowSprite(color: string, radius: number): HTMLCanvasElement {
@@ -147,10 +176,10 @@ export const ForceGraphWorker = ({
 		
 		// LOD策略
 		const showLinks = zoom >= 0.2
-		const showLabels = zoom >= 0.5
+		const showAllLabels = zoom >= 1.5  // 缩放>=1.5时显示所有标签
 		const showSmallNodes = zoom >= 0.2
 		
-		// 绘制边
+		// 绘制边（带箭头）
 		if (showLinks) {
 			ctx.strokeStyle = "rgba(150, 150, 150, 0.3)"
 			ctx.lineWidth = 1 / zoom
@@ -165,10 +194,18 @@ export const ForceGraphWorker = ({
 				
 				if (!visibleNodeIds.has(source.id) && !visibleNodeIds.has(target.id)) return
 				
+				// 绘制连线
 				ctx.beginPath()
 				ctx.moveTo(source.x, source.y)
 				ctx.lineTo(target.x, target.y)
 				ctx.stroke()
+				
+				// 绘制箭头（从target指向source，表示source依赖target）
+				if (zoom >= 0.5) { // 只在缩放足够大时显示箭头
+					const arrowSize = Math.max(6, 8 / zoom)
+					// 箭头方向：target -> source（被依赖方指向依赖方）
+					drawArrow(ctx, target.x, target.y, source.x, source.y, arrowSize)
+				}
 			})
 		}
 		
@@ -240,8 +277,9 @@ export const ForceGraphWorker = ({
 				}
 			}
 			
-			// 绘制标签
-			if (showLabels && (isSelected || isHovered || zoom >= 1.0)) {
+			// 绘制标签（LOD优化：只在高缩放或选中/悬浮时显示，避免重叠）
+			const shouldShowLabel = showAllLabels || isSelected || isHovered
+			if (shouldShowLabel) {
 				ctx.fillStyle = "#fff"
 				ctx.strokeStyle = "#000"
 				ctx.lineWidth = 3
