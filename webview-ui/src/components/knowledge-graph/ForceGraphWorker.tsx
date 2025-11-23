@@ -1,16 +1,15 @@
 /**
- * 力导向图 Canvas 渲染组件（完整优化版本）
- * 阶段1: 修复useEffect依赖问题，实现画布平移功能
- * 阶段3: 视锥剔除 + LOD
- * 阶段4: 发光效果 + 文字标签
+ * 使用 Web Worker 的力导向图组件
+ * 用于大规模节点（>1000）的性能优化
+ * 包含发光效果和LOD优化
  */
-import { useEffect, useRef, useState, useCallback, useMemo } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import * as d3 from "d3"
 import type { GraphData, GraphNode } from "@roo-code/types"
-import type { GraphNodeWithPosition, GraphLinkWithNodes } from "./types"
+import type { GraphNodeWithPosition, WorkerMessage } from "./types"
 
 /**
- * 预渲染发光Sprite（性能优化：避免使用shadowBlur）
+ * 预渲染发光Sprite
  */
 function createGlowSprite(color: string, radius: number): HTMLCanvasElement {
 	const size = radius * 6
@@ -24,12 +23,11 @@ function createGlowSprite(color: string, radius: number): HTMLCanvasElement {
 	// 将颜色转换为 d3 RGB 对象，以便统一处理
 	const colorRgb = d3.rgb(color)
 	if (!colorRgb || isNaN(colorRgb.r)) {
-		// 如果颜色无效，使用默认颜色
 		console.warn('[createGlowSprite] Invalid color:', color)
 		return offscreen
 	}
 	
-	// 使用径向渐变模拟发光效果（使用 rgba 格式确保兼容性）
+	// 使用 rgba 格式确保兼容性
 	const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius * 2.5)
 	gradient.addColorStop(0, colorRgb.toString())
 	gradient.addColorStop(0.3, `rgba(${colorRgb.r}, ${colorRgb.g}, ${colorRgb.b}, 0.8)`)
@@ -42,9 +40,6 @@ function createGlowSprite(color: string, radius: number): HTMLCanvasElement {
 	return offscreen
 }
 
-/**
- * Sprite缓存管理
- */
 class SpriteCache {
 	private cache = new Map<string, HTMLCanvasElement>()
 	
@@ -61,7 +56,7 @@ class SpriteCache {
 	}
 }
 
-interface ForceGraphProps {
+interface ForceGraphWorkerProps {
 	data: GraphData
 	width?: number
 	height?: number
@@ -70,31 +65,28 @@ interface ForceGraphProps {
 	onNodeDoubleClick?: (node: GraphNode) => void
 }
 
-export const ForceGraph = ({
+export const ForceGraphWorker = ({
 	data,
 	width = 800,
 	height = 600,
 	onNodeClick,
 	onNodeHover,
 	onNodeDoubleClick,
-}: ForceGraphProps) => {
+}: ForceGraphWorkerProps) => {
 	const canvasRef = useRef<HTMLCanvasElement>(null)
-	const simulationRef = useRef<d3.Simulation<GraphNodeWithPosition, GraphLinkWithNodes> | null>(null)
+	const workerRef = useRef<Worker | null>(null)
 	const nodesRef = useRef<GraphNodeWithPosition[]>([])
-	const linksRef = useRef<GraphLinkWithNodes[]>([])
 	const nodeMapRef = useRef<Map<string, GraphNodeWithPosition>>(new Map())
-	
-	// Sprite缓存（阶段4：发光效果）
 	const spriteCacheRef = useRef(new SpriteCache())
 	
-	// 分离viewState为独立状态，避免过度重渲染
+	// 视图状态
 	const [zoom, setZoom] = useState(1)
 	const [panX, setPanX] = useState(0)
 	const [panY, setPanY] = useState(0)
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 	const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+	const [alpha, setAlpha] = useState(1)
 	
-	// 使用ref存储viewState，避免在事件处理器中依赖state
 	const viewStateRef = useRef({ zoom, panX, panY, selectedNodeId, hoveredNodeId })
 	useEffect(() => {
 		viewStateRef.current = { zoom, panX, panY, selectedNodeId, hoveredNodeId }
@@ -102,13 +94,13 @@ export const ForceGraph = ({
 	
 	// 清理Sprite缓存
 	useEffect(() => {
+		const cache = spriteCacheRef.current
 		return () => {
-			spriteCacheRef.current.clear()
+			cache.clear()
 		}
 	}, [])
-
-	// 渲染函数（使用useCallback避免重复创建）
-	// 阶段3优化：添加视锥剔除和LOD
+	
+	// 渲染函数（带视锥剔除和LOD优化）
 	const render = useCallback(() => {
 		const canvas = canvasRef.current
 		const ctx = canvas?.getContext("2d")
@@ -116,48 +108,43 @@ export const ForceGraph = ({
 		
 		const { zoom, panX, panY, selectedNodeId, hoveredNodeId } = viewStateRef.current
 		const nodes = nodesRef.current
-		const links = linksRef.current
 		const nodeMap = nodeMapRef.current
 		
 		ctx.clearRect(0, 0, width, height)
-		
-		// 应用变换（缩放和平移）
 		ctx.save()
 		ctx.translate(panX, panY)
 		ctx.scale(zoom, zoom)
 		
-		// 视锥剔除：计算可见区域边界（world坐标）
-		const padding = 100 // 边界扩展，避免边缘节点突然消失
+		// 视锥剔除
+		const padding = 100
 		const viewLeft = (-panX - padding) / zoom
 		const viewRight = (width - panX + padding) / zoom
 		const viewTop = (-panY - padding) / zoom
 		const viewBottom = (height - panY + padding) / zoom
 		
-		// 过滤可见节点
 		const visibleNodes = nodes.filter((node) => {
 			return node.x >= viewLeft && node.x <= viewRight &&
 			       node.y >= viewTop && node.y <= viewBottom
 		})
 		
-		// LOD策略：根据缩放级别调整渲染细节
-		const showLinks = zoom >= 0.2  // 缩放<0.2时隐藏连线
-		const showLabels = zoom >= 0.5  // 缩放<0.5时隐藏标签
-		const showSmallNodes = zoom >= 0.2  // 缩放<0.2时只显示目录节点
+		// LOD策略
+		const showLinks = zoom >= 0.2
+		const showLabels = zoom >= 0.5
+		const showSmallNodes = zoom >= 0.2
 		
-		// 绘制边（LOD优化）
+		// 绘制边
 		if (showLinks) {
 			ctx.strokeStyle = "rgba(150, 150, 150, 0.3)"
-			ctx.lineWidth = 1 / zoom // 根据缩放调整线宽
+			ctx.lineWidth = 1 / zoom
 			
-			// 只绘制可见节点相关的边
 			const visibleNodeIds = new Set(visibleNodes.map(n => n.id))
-			links.forEach((link) => {
-				const source = typeof link.source === "string" ? nodeMap.get(link.source) : link.source
-				const target = typeof link.target === "string" ? nodeMap.get(link.target) : link.target
-				
+			data.links.forEach((link) => {
+				const sourceId = typeof link.source === 'string' ? link.source : link.source
+				const targetId = typeof link.target === 'string' ? link.target : link.target
+				const source = nodeMap.get(sourceId)
+				const target = nodeMap.get(targetId)
 				if (!source || !target) return
 				
-				// 视锥剔除：跳过不可见的边
 				if (!visibleNodeIds.has(source.id) && !visibleNodeIds.has(target.id)) return
 				
 				ctx.beginPath()
@@ -167,40 +154,37 @@ export const ForceGraph = ({
 			})
 		}
 		
-		// 绘制节点（带LOD + 发光效果）
+		// 绘制节点（带发光效果）
 		const spriteCache = spriteCacheRef.current
 		let renderedCount = 0
 		
 		visibleNodes.forEach((node) => {
-			// LOD优化：极小缩放时只渲染目录节点
 			if (!showSmallNodes && node.type !== "directory") return
 			
 			const isSelected = node.id === selectedNodeId
 			const isHovered = node.id === hoveredNodeId
 			
-			// 根据节点类型设置颜色
 			let color = "#666"
 			if (node.type === "directory") {
-				color = "#8b5cf6" // 紫色
+				color = "#8b5cf6"
 			} else if (node.fileType === "source") {
-				color = "#06b6d4" // 青色
+				color = "#06b6d4"
 			} else if (node.fileType === "test") {
-				color = "#10b981" // 绿色
+				color = "#10b981"
 			} else if (node.fileType === "config") {
-				color = "#f59e0b" // 橙色
+				color = "#f59e0b"
 			}
 			
-			// 根据状态调整颜色
 			if (isSelected) {
-				color = "#3b82f6" // 蓝色
+				color = "#3b82f6"
 			} else if (isHovered) {
 				color = d3.rgb(color).brighter(1).toString()
 			}
 			
 			const radius = node.type === "directory" ? 6 : 4
 			
-			// 阶段4：使用预渲染Sprite绘制发光效果
-			if (zoom >= 0.5) { // 只在较大缩放时显示发光
+			// 使用Sprite绘制发光效果
+			if (zoom >= 0.5) {
 				const sprite = spriteCache.get(color, radius)
 				const spriteSize = sprite.width
 				ctx.globalAlpha = 0.8
@@ -220,7 +204,6 @@ export const ForceGraph = ({
 			ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI)
 			ctx.fill()
 			
-			// 选中或悬浮时绘制外圈
 			if (isSelected || isHovered) {
 				ctx.strokeStyle = color
 				ctx.lineWidth = 2
@@ -239,7 +222,7 @@ export const ForceGraph = ({
 				}
 			}
 			
-			// 绘制标签（LOD优化）
+			// 绘制标签
 			if (showLabels && (isSelected || isHovered || zoom >= 1.0)) {
 				ctx.fillStyle = "#fff"
 				ctx.strokeStyle = "#000"
@@ -248,7 +231,6 @@ export const ForceGraph = ({
 				ctx.textAlign = "center"
 				ctx.textBaseline = "top"
 				
-				// 限制标签长度
 				const maxLength = 20
 				let label = node.label
 				if (label.length > maxLength) {
@@ -256,7 +238,6 @@ export const ForceGraph = ({
 				}
 				
 				const labelY = node.y + radius + 6
-				// 描边增加可读性
 				ctx.strokeText(label, node.x, labelY)
 				ctx.fillText(label, node.x, labelY)
 			}
@@ -266,30 +247,31 @@ export const ForceGraph = ({
 		
 		ctx.restore()
 		
-		// 显示性能统计（右上角）
+		// 性能统计
 		ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
-		ctx.fillRect(width - 180, 10, 170, 70)
+		ctx.fillRect(width - 180, 10, 170, 85)
 		ctx.fillStyle = "#fff"
 		ctx.font = "11px monospace"
 		ctx.fillText(`总节点: ${nodes.length}`, width - 170, 25)
 		ctx.fillText(`可见节点: ${visibleNodes.length}`, width - 170, 40)
 		ctx.fillText(`渲染节点: ${renderedCount}`, width - 170, 55)
 		ctx.fillText(`缩放: ${zoom.toFixed(2)}x`, width - 170, 70)
-	}, [width, height])
-	
-	// 初始化simulation - 只在数据变化时执行
-	useEffect(() => {
-		console.log("[ForceGraph] 初始化simulation，数据:", { nodes: data.nodes.length, links: data.links.length })
-		if (!canvasRef.current || !data.nodes.length) {
-			console.warn("[ForceGraph] Canvas 未准备好或数据为空")
-			return
+		if (alpha > 0.01) {
+			ctx.fillText(`Alpha: ${alpha.toFixed(3)}`, width - 170, 85)
 		}
+	}, [width, height, data.links, alpha])
+	
+	// 初始化Worker和数据
+	useEffect(() => {
+		console.log("[ForceGraphWorker] 初始化 Worker，数据:", { nodes: data.nodes.length, links: data.links.length })
 		
 		const canvas = canvasRef.current
+		if (!canvas || !data.nodes.length) return
+		
 		canvas.width = width
 		canvas.height = height
 		
-		// 转换节点数据
+		// 初始化节点
 		const nodes: GraphNodeWithPosition[] = data.nodes.map((node) => ({
 			...node,
 			x: Math.random() * width,
@@ -298,54 +280,76 @@ export const ForceGraph = ({
 			vy: 0,
 		}))
 		
-		// 转换边数据
-		const links: GraphLinkWithNodes[] = data.links.map((link) => ({
-			...link,
-			source: link.source,
-			target: link.target,
-		}))
-		
-		// 创建节点映射
 		const nodeMap = new Map<string, GraphNodeWithPosition>()
 		nodes.forEach((node) => nodeMap.set(node.id, node))
 		
-		// 保存到ref
 		nodesRef.current = nodes
-		linksRef.current = links
 		nodeMapRef.current = nodeMap
 		
-		// 创建优化的力导向模拟
-		const simulation = d3
-			.forceSimulation<GraphNodeWithPosition>(nodes)
-			.force(
-				"link",
-				d3
-					.forceLink<GraphNodeWithPosition, GraphLinkWithNodes>(links)
-					.id((d) => d.id)
-					.distance(50)
-					.strength(0.5) // 降低连接强度，提高性能
-			)
-			.force("charge", d3.forceManyBody().strength(-300).distanceMax(200)) // 限制作用距离
-			.force("center", d3.forceCenter(width / 2, height / 2))
-			.force("collision", d3.forceCollide().radius(10))
-			.alphaDecay(0.02) // 加快衰减，更快稳定
-			.velocityDecay(0.4) // 增加阻尼
+		// 创建 Worker（使用Vite的Worker导入语法）
+		try {
+			const worker = new Worker(new URL('./GraphWorker.ts', import.meta.url), { 
+				type: 'module' 
+			})
+			workerRef.current = worker
+			
+			// 监听Worker消息
+			worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
+				const { type, positions, nodeIds, alpha: workerAlpha } = e.data
+				
+				if (type === 'tick' && positions && nodeIds) {
+					// 更新节点位置
+					nodeIds.forEach((id, i) => {
+						const node = nodeMap.get(id)
+						if (node) {
+							node.x = positions[i * 2]
+							node.y = positions[i * 2 + 1]
+						}
+					})
+					
+					if (workerAlpha !== undefined) {
+						setAlpha(workerAlpha)
+					}
+					
+					// 触发渲染
+					render()
+				} else if (type === 'end') {
+					console.log("[ForceGraphWorker] Simulation 完成")
+					setAlpha(0)
+				}
+			}
+			
+			worker.onerror = (error) => {
+				console.error("[ForceGraphWorker] Worker 错误:", error)
+			}
+			
+			// 初始化Worker
+			worker.postMessage({
+				type: 'init',
+				data: {
+					nodes: nodes.map(n => ({ id: n.id, x: n.x, y: n.y, type: n.type })),
+					links: data.links,
+					width,
+					height,
+				},
+			})
+			
+			console.log("[ForceGraphWorker] Worker 已启动")
+		} catch (error) {
+			console.error("[ForceGraphWorker] Worker 创建失败:", error)
+		}
 		
-		simulationRef.current = simulation
-		
-		// 监听tick事件
-		simulation.on("tick", render)
-		
-		console.log("[ForceGraph] Simulation 已创建并启动")
-		
-		// 清理函数
 		return () => {
-			console.log("[ForceGraph] 停止 simulation")
-			simulation.stop()
+			if (workerRef.current) {
+				workerRef.current.postMessage({ type: 'stop' })
+				workerRef.current.terminate()
+				workerRef.current = null
+				console.log("[ForceGraphWorker] Worker 已终止")
+			}
 		}
 	}, [data, width, height, render])
 	
-	// 视图状态变化时重新渲染（不重启simulation）
+	// 视图状态变化时重新渲染
 	useEffect(() => {
 		render()
 	}, [zoom, panX, panY, selectedNodeId, hoveredNodeId, render])
@@ -357,7 +361,7 @@ export const ForceGraph = ({
 		
 		let isDraggingNode = false
 		let isDraggingCanvas = false
-		let dragNode: GraphNodeWithPosition | null = null
+		let dragNodeId: string | null = null
 		let lastMouseX = 0
 		let lastMouseY = 0
 		
@@ -367,7 +371,6 @@ export const ForceGraph = ({
 			const x = (e.clientX - rect.left - panX) / zoom
 			const y = (e.clientY - rect.top - panY) / zoom
 			
-			// 查找点击的节点
 			const clickedNode = nodesRef.current.find((node) => {
 				const dx = node.x - x
 				const dy = node.y - y
@@ -379,15 +382,16 @@ export const ForceGraph = ({
 			lastMouseY = e.clientY
 			
 			if (clickedNode) {
-				// 拖拽节点
 				isDraggingNode = true
-				dragNode = clickedNode
-				clickedNode.fx = clickedNode.x
-				clickedNode.fy = clickedNode.y
+				dragNodeId = clickedNode.id
+				// 通知Worker固定节点
+				workerRef.current?.postMessage({
+					type: 'update',
+					data: { nodeId: clickedNode.id, fx: clickedNode.x, fy: clickedNode.y },
+				})
 				setSelectedNodeId(clickedNode.id)
 				onNodeClick?.(clickedNode)
 			} else {
-				// 拖拽画布（平移功能）
 				isDraggingCanvas = true
 				canvas.style.cursor = "grabbing"
 			}
@@ -397,17 +401,22 @@ export const ForceGraph = ({
 			const rect = canvas.getBoundingClientRect()
 			const { zoom, panX, panY } = viewStateRef.current
 			
-			if (isDraggingNode && dragNode) {
-				// 拖拽节点
-				const dx = (e.clientX - lastMouseX) / zoom
-				const dy = (e.clientY - lastMouseY) / zoom
-				dragNode.fx! += dx
-				dragNode.fy! += dy
-				lastMouseX = e.clientX
-				lastMouseY = e.clientY
-				simulationRef.current?.alpha(0.3).restart()
+			if (isDraggingNode && dragNodeId) {
+				const node = nodeMapRef.current.get(dragNodeId)
+				if (node) {
+					const dx = (e.clientX - lastMouseX) / zoom
+					const dy = (e.clientY - lastMouseY) / zoom
+					node.x += dx
+					node.y += dy
+					workerRef.current?.postMessage({
+						type: 'update',
+						data: { nodeId: dragNodeId, fx: node.x, fy: node.y },
+					})
+					lastMouseX = e.clientX
+					lastMouseY = e.clientY
+					render()
+				}
 			} else if (isDraggingCanvas) {
-				// 拖拽画布（平移）
 				const dx = e.clientX - lastMouseX
 				const dy = e.clientY - lastMouseY
 				setPanX(panX + dx)
@@ -415,7 +424,6 @@ export const ForceGraph = ({
 				lastMouseX = e.clientX
 				lastMouseY = e.clientY
 			} else {
-				// 悬浮检测
 				const x = (e.clientX - rect.left - panX) / zoom
 				const y = (e.clientY - rect.top - panY) / zoom
 				const hoveredNode = nodesRef.current.find((node) => {
@@ -434,11 +442,13 @@ export const ForceGraph = ({
 		}
 		
 		const handleMouseUp = () => {
-			if (isDraggingNode && dragNode) {
-				dragNode.fx = null
-				dragNode.fy = null
+			if (isDraggingNode && dragNodeId) {
+				workerRef.current?.postMessage({
+					type: 'release',
+					data: { nodeId: dragNodeId },
+				})
 				isDraggingNode = false
-				dragNode = null
+				dragNodeId = null
 			}
 			if (isDraggingCanvas) {
 				isDraggingCanvas = false
@@ -477,7 +487,6 @@ export const ForceGraph = ({
 		canvas.addEventListener("mouseleave", handleMouseUp)
 		canvas.addEventListener("dblclick", handleDoubleClick)
 		canvas.addEventListener("wheel", handleWheel, { passive: false })
-		
 		canvas.style.cursor = "grab"
 		
 		return () => {
@@ -488,8 +497,8 @@ export const ForceGraph = ({
 			canvas.removeEventListener("dblclick", handleDoubleClick)
 			canvas.removeEventListener("wheel", handleWheel)
 		}
-	}, [onNodeClick, onNodeHover, onNodeDoubleClick, hoveredNodeId])
-
+	}, [onNodeClick, onNodeHover, onNodeDoubleClick, render, hoveredNodeId])
+	
 	return (
 		<canvas
 			ref={canvasRef}

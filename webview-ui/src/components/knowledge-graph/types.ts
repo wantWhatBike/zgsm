@@ -40,3 +40,23 @@ export interface GraphViewState {
 	hoveredNodeId: string | null
 }
 
+/**
+ * Web Worker 消息类型
+ */
+export interface WorkerMessage {
+	type: 'init' | 'update' | 'release' | 'restart' | 'stop' | 'setForce' | 'tick' | 'end'
+	data?: any
+	positions?: Float32Array
+	nodeIds?: string[]
+	alpha?: number
+}
+
+/**
+ * 视图控制接口（阶段6）
+ */
+export interface ViewControl {
+	flyToNode: (nodeId: string) => void
+	setZoom: (zoom: number) => void
+	resetView: () => void
+}
+
