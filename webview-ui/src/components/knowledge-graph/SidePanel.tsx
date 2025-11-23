@@ -59,9 +59,9 @@ export const SidePanel = ({ node, graphData, onClose, onOpenFile }: SidePanelPro
 				top: 0,
 				bottom: 0,
 				width: "380px",
-				background: "rgba(20, 20, 20, 0.95)",
-				borderLeft: "1px solid rgba(255, 255, 255, 0.1)",
-				color: "#fff",
+				background: "var(--vscode-sideBar-background, rgba(20, 20, 20, 0.95))",
+				borderLeft: "1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.1))",
+				color: "var(--vscode-foreground, #fff)",
 				overflowY: "auto",
 				zIndex: 1000,
 				backdropFilter: "blur(10px)",
@@ -84,10 +84,10 @@ export const SidePanel = ({ node, graphData, onClose, onOpenFile }: SidePanelPro
 			{/* 头部 */}
 			<div style={{ 
 				padding: "20px", 
-				borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+				borderBottom: "1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.1))",
 				position: "sticky",
 				top: 0,
-				background: "rgba(20, 20, 20, 0.95)",
+				background: "var(--vscode-sideBar-background, rgba(20, 20, 20, 0.95))",
 				zIndex: 1
 			}}>
 				<div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>

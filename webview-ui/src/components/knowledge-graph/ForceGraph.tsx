@@ -65,6 +65,8 @@ interface ForceGraphProps {
 	data: GraphData
 	width?: number
 	height?: number
+	zoom?: number
+	onZoomChange?: (zoom: number) => void
 	onNodeClick?: (node: GraphNode | null) => void
 	onNodeHover?: (node: GraphNode | null) => void
 	onNodeDoubleClick?: (node: GraphNode) => void
@@ -74,6 +76,8 @@ export const ForceGraph = ({
 	data,
 	width = 800,
 	height = 600,
+	zoom: externalZoom = 1,
+	onZoomChange,
 	onNodeClick,
 	onNodeHover,
 	onNodeDoubleClick,
@@ -87,8 +91,10 @@ export const ForceGraph = ({
 	// Sprite缓存（阶段4：发光效果）
 	const spriteCacheRef = useRef(new SpriteCache())
 	
+	// 使用外部传入的 zoom（受控组件）
+	const zoom = externalZoom
+	
 	// 分离viewState为独立状态，避免过度重渲染
-	const [zoom, setZoom] = useState(1)
 	const [panX, setPanX] = useState(0)
 	const [panY, setPanY] = useState(0)
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -468,7 +474,8 @@ export const ForceGraph = ({
 			e.preventDefault()
 			const delta = e.deltaY > 0 ? 0.9 : 1.1
 			const { zoom } = viewStateRef.current
-			setZoom(Math.max(0.1, Math.min(3, zoom * delta)))
+			const newZoom = Math.max(0.1, Math.min(3, zoom * delta))
+			onZoomChange?.(newZoom)
 		}
 		
 		canvas.addEventListener("mousedown", handleMouseDown)
@@ -497,7 +504,7 @@ export const ForceGraph = ({
 				width: "100%",
 				height: "100%",
 				cursor: "pointer",
-				background: "#1e1e1e",
+				background: "var(--vscode-editor-background, #1e1e1e)",
 			}}
 		/>
 	)

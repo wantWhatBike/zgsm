@@ -254,8 +254,8 @@ export const GraphVisualizer = () => {
 					onClick={requestGraphData}
 					style={{
 						padding: "0.5rem 1rem",
-						background: "#3b82f6",
-						color: "#fff",
+						background: "var(--vscode-button-background, #3b82f6)",
+						color: "var(--vscode-button-foreground, #fff)",
 						border: "none",
 						borderRadius: "4px",
 						cursor: "pointer",
@@ -300,6 +300,8 @@ export const GraphVisualizer = () => {
 				data={displayData}
 				width={selectedNode ? window.innerWidth - 380 : window.innerWidth}
 				height={window.innerHeight}
+				zoom={zoom}
+				onZoomChange={handleZoomChange}
 				onNodeClick={handleNodeClick}
 				onNodeHover={handleNodeHover}
 				onNodeDoubleClick={handleNodeDoubleClick}
@@ -311,11 +313,12 @@ export const GraphVisualizer = () => {
 					position: "absolute",
 					top: "1rem",
 					left: "1rem",
-					background: "rgba(0, 0, 0, 0.7)",
+					background: "var(--vscode-panel-background, rgba(0, 0, 0, 0.7))",
 					padding: "0.5rem 1rem",
 					borderRadius: "4px",
-					color: "#fff",
+					color: "var(--vscode-foreground, #fff)",
 					fontSize: "0.875rem",
+					border: "1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.2))",
 				}}
 			>
 				<div>总节点: {graphData.nodes.length} | 显示: {displayData.nodes.length}</div>
