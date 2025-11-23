@@ -33,6 +33,7 @@ export const GraphVisualizer = () => {
 	// const [targetNodeForFly, setTargetNodeForFly] = useState<GraphNode | null>(null) // TODO: 实现平滑飞行动画
 	
 	// 目录展开/折叠状态（阶段7）
+	// 注意：初始值会在收到图谱数据后更新为所有目录
 	const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(() => new Set(['/']))
 	
 	// 过滤后的图谱数据（阶段7）
@@ -69,6 +70,18 @@ export const GraphVisualizer = () => {
 	// 根据节点数量自动选择使用Worker还是普通版本（必须在所有 early returns 之前）
 	const useWorker = useMemo(() => {
 		return graphData ? graphData.nodes.length >= WORKER_THRESHOLD : false
+	}, [graphData])
+
+	// 自动展开所有目录（当图谱数据加载后）
+	useEffect(() => {
+		if (graphData) {
+			const allDirectoryIds = graphData.nodes
+				.filter(node => node.type === 'directory')
+				.map(node => node.id)
+			
+			console.log("[GraphVisualizer] 自动展开所有目录，总数:", allDirectoryIds.length)
+			setExpandedDirectories(new Set(allDirectoryIds))
+		}
 	}, [graphData])
 
 	// 请求图谱数据
@@ -306,9 +319,9 @@ export const GraphVisualizer = () => {
 				}}
 			>
 				<div>总节点: {graphData.nodes.length} | 显示: {displayData.nodes.length}</div>
-				<div>边: {displayData.links.length} | 展开: {expandedDirectories.size - 1} 目录</div>
+				<div>边 (依赖): {displayData.links.length} | 已展开: {expandedDirectories.size} 目录</div>
 				<div style={{ fontSize: "0.75rem", color: "#999", marginTop: "0.25rem" }}>
-					{useWorker ? "🔥 Worker模式" : "⚡ 普通模式"} | 💡 双击目录展开/折叠
+					{useWorker ? "🔥 Worker模式" : "⚡ 普通模式"} | 💡 双击目录可折叠 | 📊 默认全部展开
 				</div>
 			</div>
 			
