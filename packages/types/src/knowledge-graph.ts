@@ -36,6 +36,10 @@ export const KNOWLEDGE_GRAPH_MESSAGES = {
 	RESUME: "knowledgeGraphResume",
 	CLEAR: "knowledgeGraphClear",
 	STATUS_RESPONSE: "knowledgeGraphStatusResponse",
+	OPEN_GRAPH_VIEW: "knowledgeGraphOpenGraphView", // 打开可视化视图
+	GET_GRAPH_DATA: "knowledgeGraphGetGraphData",   // 获取图谱数据
+	GRAPH_DATA_RESPONSE: "knowledgeGraphDataResponse", // 返回图谱数据
+	OPEN_FILE: "knowledgeGraphOpenFile",            // 打开文件
 } as const
 
 /**
@@ -199,4 +203,36 @@ export interface KnowledgeGraphBuildState {
       status: 'pending' | 'running' | 'completed' | 'skipped'
     }
   }
+}
+
+// --- Graph Visualization Types ---
+
+/**
+ * 图谱节点类型
+ */
+export interface GraphNode {
+	id: string;       // 路径 (唯一标识)
+	label: string;    // 文件名/目录名
+	type: 'file' | 'directory';
+	fileType?: 'source' | 'config' | 'test'; // 仅文件节点有
+	parentId?: string; // 父目录路径，用于构建树形结构
+	// 附加信息 (可选，用于详情展示)
+	description?: string;
+}
+
+/**
+ * 图谱边类型
+ */
+export interface GraphLink {
+	source: string; // 源节点 ID
+	target: string; // 目标节点 ID
+	type: 'import' | 'reference' | 'contains'; // 关系类型
+}
+
+/**
+ * 图谱数据
+ */
+export interface GraphData {
+	nodes: GraphNode[];
+	links: GraphLink[];
 }

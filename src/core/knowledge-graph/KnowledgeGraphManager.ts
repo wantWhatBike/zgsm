@@ -513,6 +513,13 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
+	 * 获取图谱检索器
+	 */
+	public getGraphRetriever(): GraphRetriever | undefined {
+		return this.graphRetriever
+	}
+
+	/**
 	 * 启用/禁用知识图谱 - 从MessageHandler迁移的核心逻辑
 	 * 消除脑裂风险，统一管理状态
 	 */

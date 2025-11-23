@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useReducer } from "react"
-import { FileText, AlertCircle, Play, Pause, Trash, Loader2 } from "lucide-react"
+import { FileText, AlertCircle, Play, Pause, Trash, Loader2, Network } from "lucide-react"
 import { format } from "date-fns"
 
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
@@ -98,23 +98,23 @@ const uiStateReducer = (state: UIState, action: UIAction): UIState => {
 const STATUS_CONFIG = {
 	[KNOWLEDGE_GRAPH_STATUS.RUNNING]: {
 		icon: "w-3 h-3 bg-yellow-500 rounded-full animate-pulse",
-		textKey: "knowledgeGraph.statusRunning"
+		textKey: "knowledgegraph:statusRunning"
 	},
 	[KNOWLEDGE_GRAPH_STATUS.PENDING]: {
 		icon: "w-3 h-3 bg-gray-400 rounded-full animate-pulse",
-		textKey: "knowledgeGraph.statusPending"
+		textKey: "knowledgegraph:statusPending"
 	},
 	[KNOWLEDGE_GRAPH_STATUS.COMPLETED]: {
 		icon: "w-3 h-3 bg-green-500 rounded-full",
-		textKey: "knowledgeGraph.statusSuccess"
+		textKey: "knowledgegraph:statusSuccess"
 	},
 	[KNOWLEDGE_GRAPH_STATUS.ERROR]: {
 		icon: "w-3 h-3 bg-red-500 rounded-full",
-		textKey: "knowledgeGraph.statusFailed"
+		textKey: "knowledgegraph:statusFailed"
 	},
 	[KNOWLEDGE_GRAPH_STATUS.PAUSED]: {
 		icon: "w-3 h-3 bg-orange-500 rounded-full",
-		textKey: "knowledgeGraph.statusPaused"
+		textKey: "knowledgegraph:statusPaused"
 	}
 } as const
 
@@ -306,6 +306,11 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.CLEAR)
 	}, DEBOUNCE_DELAY)
 
+	const handleOpenGraphView = useCallback(() => {
+		console.log("[KnowledgeGraphSettings] 点击可视化按钮，发送 OPEN_GRAPH_VIEW 消息")
+		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.OPEN_GRAPH_VIEW)
+	}, [sendMessage])
+
 	const getStatusIcon = useCallback((status: string) => {
 		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
 		const iconClass = config?.icon || STATUS_CONFIG[KNOWLEDGE_GRAPH_STATUS.PENDING].icon
@@ -314,22 +319,22 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 
 	const getStatusText = useCallback((status: string) => {
 		const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
-		const textKey = config?.textKey || "knowledgeGraph.statusUnknown"
+		const textKey = config?.textKey || "knowledgegraph:statusUnknown"
 		return t(textKey)
 	}, [t])
 
 	// 获取禁用提示文本 - 简化复杂的三元表达式
 	const getDisabledTooltipText = useCallback(() => {
 		if (uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
-			return t("knowledgeGraph.cannotDisableWhileRunning")
+			return t("knowledgegraph:cannotDisableWhileRunning")
 		}
 		if (!isZgsmProvider) {
-			return t("knowledgeGraph.onlyCostrictProviderSupport")
+			return t("knowledgegraph:onlyCostrictProviderSupport")
 		}
 		if (!cwd) {
-			return t("knowledgeGraph.disabled")
+			return t("knowledgegraph:disabled")
 		}
-		return t("knowledgeGraph.disabled")
+		return t("knowledgegraph:disabled")
 	}, [uiState.knowledgeGraphStatus.status, isZgsmProvider, cwd, t])
 
 	const handleMessage = useCallback(
@@ -380,7 +385,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 										onClick={handleKnowledgeGraphToggle}
 										disabled={shouldDisableCheckbox}
 									/>
-									<div>{t("knowledgeGraph.title")}</div>
+									<div>{t("knowledgegraph:title")}</div>
 								</div>
 							</TooltipTrigger>
 							{shouldDisableCheckbox && (
@@ -409,28 +414,28 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 					<div className={`flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background ${shouldDisableAll ? "pointer-events-none" : ""}`}>
 						<div className="flex items-center gap-4 font-bold">
 							<FileText className="w-4 h-4" />
-							<div>{t("knowledgeGraph.buildStatus")}</div>
+							<div>{t("knowledgegraph:buildStatus")}</div>
 						</div>
 						<div className="text-vscode-descriptionForeground text-sm mb-3">
-							{t("knowledgeGraph.description")}
+							{t("knowledgegraph:description")}
 						</div>
 						
 						{(!isZgsmProvider || !cwd) ? (
 							<div className="text-vscode-descriptionForeground text-sm italic py-4">
-								{t("knowledgeGraph.enableToShowDetails")}
+								{t("knowledgegraph:enableToShowDetails")}
 							</div>
 						) : (
 							<>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
 										<div className="text-vscode-descriptionForeground text-sm">
-											{t("knowledgeGraph.fileCount")}
+											{t("knowledgegraph:fileCount")}
 										</div>
 										<div className="font-medium">{uiState.knowledgeGraphStatus.totalFiles}</div>
 									</div>
 									<div>
 										<div className="text-vscode-descriptionForeground text-sm">
-											{t("knowledgeGraph.lastUpdated")}
+											{t("knowledgegraph:lastUpdated")}
 										</div>
 										<div className="font-medium">
 											{uiState.knowledgeGraphStatus.lastUpdateTime
@@ -443,7 +448,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 
 								<div className="mt-2">
 									<div className="flex justify-between text-sm mb-1">
-										<span>{t("knowledgeGraph.buildProgress")}</span>
+										<span>{t("knowledgegraph:buildProgress")}</span>
 										<span>{(uiState.knowledgeGraphStatus.progress || 0).toFixed(1)}%</span>
 									</div>
 									<Progress
@@ -471,6 +476,17 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 									</div>
 									
 									<div className="flex items-center gap-2">
+										{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED || uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR) && (
+											<Button
+												onClick={handleOpenGraphView}
+												variant="outline"
+												size="sm"
+												className="flex items-center gap-1"
+												disabled={shouldDisableAll || uiState.isOperating}>
+												<Network className="w-3 h-3" />
+												可视化
+											</Button>
+										)}
 										{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PENDING && (
 											<Button
 												onClick={handleStartBuild}
@@ -479,7 +495,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 												className="flex items-center gap-1"
 												disabled={shouldDisableAll || uiState.isOperating}>
 												<Play className="w-3 h-3" />
-												{t("knowledgeGraph.start")}
+												{t("knowledgegraph:start")}
 											</Button>
 										)}
 										{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING && (
@@ -490,7 +506,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 												className="flex items-center gap-1"
 												disabled={shouldDisableAll || uiState.isOperating}>
 												{uiState.isOperating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pause className="w-3 h-3" />}
-												{t("knowledgeGraph.pause")}
+												{t("knowledgegraph:pause")}
 											</Button>
 										)}
 										{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PAUSED && (
@@ -501,7 +517,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 												className="flex items-center gap-1"
 												disabled={shouldDisableAll || uiState.isOperating}>
 												<Play className="w-3 h-3" />
-												{t("knowledgeGraph.resume")}
+												{t("knowledgegraph:resume")}
 											</Button>
 										)}
 										{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED || uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR) && (
@@ -512,7 +528,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 												className="flex items-center gap-1"
 												disabled={shouldDisableAll || uiState.isOperating}>
 												<Trash className="w-3 h-3" />
-												{t("knowledgeGraph.clear")}
+												{t("knowledgegraph:clear")}
 											</Button>
 										)}
 									</div>
@@ -524,7 +540,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 										<div className="flex items-center gap-2 mb-2">
 											<AlertCircle className="w-4 h-4 text-red-500" />
 											<span className="text-sm font-medium text-vscode-errorForeground">
-												{t("knowledgeGraph.buildFailed")}
+												{t("knowledgegraph:buildFailed")}
 											</span>
 										</div>
 										<p className="text-sm text-vscode-errorForeground">
@@ -532,7 +548,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 										</p>
 										{uiState.knowledgeGraphStatus.failedFiles > 0 && (
 											<p className="text-xs text-vscode-descriptionForeground mt-1">
-												{t("knowledgeGraph.failedFileCount", { count: uiState.knowledgeGraphStatus.failedFiles })}
+												{t("knowledgegraph:failedFileCount", { count: uiState.knowledgeGraphStatus.failedFiles })}
 											</p>
 										)}
 									</div>

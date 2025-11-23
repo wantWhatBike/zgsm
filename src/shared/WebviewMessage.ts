@@ -249,6 +249,9 @@ export interface WebviewMessage {
 		| "knowledgeGraphPause"
 		| "knowledgeGraphResume"
 		| "knowledgeGraphClear"
+		| "knowledgeGraphOpenGraphView"
+		| "knowledgeGraphGetGraphData"
+		| "knowledgeGraphOpenFile"
 		// zgsm
 		| "profileThresholds"
 		| "shareTaskSuccess"
@@ -328,6 +331,7 @@ export interface WebviewMessage {
 	upsellId?: string // For dismissUpsell
 	list?: string[] // For dismissedUpsells response
 	organizationId?: string | null // For organization switching
+	filePath?: string // For knowledgeGraphOpenFile
 	codeIndexSettings?: {
 		// Global state settings
 		zgsmCodebaseIndexEnabled: boolean

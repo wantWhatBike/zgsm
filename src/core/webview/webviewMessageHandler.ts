@@ -3614,10 +3614,12 @@ export const webviewMessageHandler = async (
 		case "knowledgeGraphBuild":
 		case "knowledgeGraphPause":
 		case "knowledgeGraphResume":
-		case "knowledgeGraphClear": {
+		case "knowledgeGraphClear":
+		case "knowledgeGraphOpenGraphView":
+		case "knowledgeGraphGetGraphData":
+		case "knowledgeGraphOpenFile": {
 			// 使用知识图谱消息处理器处理所有知识图谱相关消息
 			try {
-				
 				const handler = getKnowledgeGraphMessageHandler()
 				
 				if (!handler) {

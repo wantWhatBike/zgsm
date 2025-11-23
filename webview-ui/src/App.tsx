@@ -28,6 +28,7 @@ import { useAddNonInteractiveClickListener } from "./components/ui/hooks/useNonI
 import { TooltipProvider } from "./components/ui/tooltip"
 import { STANDARD_TOOLTIP_DELAY, StandardTooltip } from "./components/ui/standard-tooltip"
 import { ZgsmAccountView } from "./components/cloud/ZgsmAccountView"
+import { GraphVisualizer } from "./components/knowledge-graph/GraphVisualizer"
 import { TabContent, TabList, TabTrigger } from "./components/common/Tab"
 import { cn } from "./lib/utils"
 import { ReauthConfirmationDialog } from "./components/chat/ReauthConfirmationDialog"
@@ -315,6 +316,32 @@ const App = () => {
 		vscode.postMessage({ type: "cancelReviewTask" })
 	}, [])
 
+	// 检查是否在知识图谱可视化视图中（通过检查 URL 参数或特定标识）
+	// 必须在所有早期返回之前调用，遵守 React Hooks 规则
+	const isGraphVisualizerView = useMemo(() => {
+		// 检查 URL 参数
+		const urlParams = new URLSearchParams(window.location.search)
+		const isView = urlParams.get("view") === "graph-visualizer"
+		
+		console.log("[App] 检查是否为图谱可视化视图:", isView, "URL:", window.location.search)
+		return isView
+	}, [])
+	
+	// 在组件挂载时设置 URL 参数（如果需要）
+	useEffect(() => {
+		if (isGraphVisualizerView && !window.location.search.includes("view=graph-visualizer")) {
+			window.history.replaceState({}, "", window.location.pathname + "?view=graph-visualizer")
+		}
+	}, [isGraphVisualizerView])
+
+	// 如果在知识图谱可视化视图中，直接渲染 GraphVisualizer（不依赖 didHydrateState）
+	// 知识图谱视图是独立的，不需要等待主应用的状态水合
+	if (isGraphVisualizerView) {
+		console.log("[App] 渲染 GraphVisualizer 组件（知识图谱视图）")
+		return <GraphVisualizer />
+	}
+
+	// 对于其他视图，需要等待状态水合完成
 	if (!didHydrateState) {
 		return null
 	}
