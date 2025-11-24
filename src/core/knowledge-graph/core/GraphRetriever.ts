@@ -36,6 +36,153 @@ export class GraphRetriever {
 	}
 
 	/**
+	 * 搜索文件摘要 - 用于 search_codes 工具
+	 * @param keywords 关键词列表
+	 * @param type 检索类型：'precise' 精确检索，'fuzzy' 模糊检索
+	 * @param maxResults 最大返回结果数
+	 * @returns 搜索到的文件摘要列表
+	 */
+	public async searchFileSummaries(
+		keywords: string[],
+		type: "precise" | "fuzzy",
+		maxResults: number = 5,
+	): Promise<Array<{
+		path: string
+		description: string
+		match_functions: string[]
+		dependencies: string[]
+	}>> {
+		this.logger?.info(`[GraphRetriever] 搜索文件摘要: keywords=${JSON.stringify(keywords)}, type=${type}`)
+
+		try {
+			// 1. 获取所有文件摘要
+			const fileSummaries = await this.fileSummrizer.getFileSummaries()
+			if (!fileSummaries || fileSummaries.length === 0) {
+				this.logger?.warn(`[GraphRetriever] 没有文件摘要数据`)
+				return []
+			}
+
+			// 2. 并行检索三个字段
+			const matchedFiles = new Map<string, {
+				summary: any
+				matchedFunctions: Set<string>
+				matchScore: number
+				firstKeywordIndex: number
+			}>()
+
+			for (const summary of fileSummaries) {
+				const matchedFunctions = new Set<string>()
+				let matchScore = 0
+				let firstKeywordIndex = keywords.length // 初始化为最大值
+
+				for (let i = 0; i < keywords.length; i++) {
+					const keyword = keywords[i]
+					const keywordLower = keyword.toLowerCase()
+					let matched = false
+
+					// 检索 description 字段（都是模糊检索，大小写不敏感）
+					if (summary.description && summary.description.toLowerCase().includes(keywordLower)) {
+						matchScore += 3 // description 匹配权重为 3
+						matched = true
+					}
+
+					// 检索 keywords 字段
+					if (summary.keywords && Array.isArray(summary.keywords)) {
+						if (type === "precise") {
+							// 精确检索：完全匹配
+							if (summary.keywords.some((k: string) => k.toLowerCase() === keywordLower)) {
+								matchScore += 5 // keywords 精确匹配权重为 5
+								matched = true
+							}
+						} else {
+							// 模糊检索：包含关键词
+							if (summary.keywords.some((k: string) => k.toLowerCase().includes(keywordLower))) {
+								matchScore += 4 // keywords 模糊匹配权重为 4
+								matched = true
+							}
+						}
+					}
+
+					// 检索 functions 字段
+					if (summary.functions && typeof summary.functions === "object") {
+						const functionNames = Object.keys(summary.functions)
+						for (const funcName of functionNames) {
+							const funcNameLower = funcName.toLowerCase()
+							let funcMatched = false
+
+							if (type === "precise") {
+								// 精确检索：函数名完全等于关键词
+								if (funcNameLower === keywordLower) {
+									matchedFunctions.add(funcName)
+									funcMatched = true
+								}
+							} else {
+								// 模糊检索：函数名包含关键词
+								if (funcNameLower.includes(keywordLower)) {
+									matchedFunctions.add(funcName)
+									funcMatched = true
+								}
+							}
+
+							if (funcMatched) {
+								matchScore += 2 // function 匹配权重为 2
+								matched = true
+							}
+						}
+					}
+
+					// 记录第一个匹配的关键词索引
+					if (matched && i < firstKeywordIndex) {
+						firstKeywordIndex = i
+					}
+				}
+
+				// 如果有匹配，添加到结果集
+				if (matchScore > 0) {
+					matchedFiles.set(summary.path, {
+						summary,
+						matchedFunctions,
+						matchScore,
+						firstKeywordIndex,
+					})
+				}
+			}
+
+			// 3. 排序：按输入关键词顺序排序
+			const sortedResults = Array.from(matchedFiles.entries())
+				.sort(([, a], [, b]) => {
+					// 首先按第一个匹配的关键词索引排序
+					if (a.firstKeywordIndex !== b.firstKeywordIndex) {
+						return a.firstKeywordIndex - b.firstKeywordIndex
+					}
+					// 如果匹配同一个关键词，按匹配分数排序
+					if (a.matchScore !== b.matchScore) {
+						return b.matchScore - a.matchScore
+					}
+					// 最后按文件路径字母序排序
+					return a.summary.path.localeCompare(b.summary.path)
+				})
+				.slice(0, maxResults)
+
+			// 4. 格式化结果
+			const results = sortedResults.map(([, data]) => ({
+				path: data.summary.path,
+				description: data.summary.description || "",
+				match_functions: Array.from(data.matchedFunctions),
+				dependencies: data.summary.dependencies || [],
+			}))
+
+			this.logger?.info(`[GraphRetriever] 搜索到 ${results.length} 个文件`)
+
+			return results
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : "搜索文件摘要失败"
+			this.logger?.error(`[GraphRetriever] 搜索文件摘要失败: ${errorMessage}`)
+			throw new Error(`搜索文件摘要失败: ${errorMessage}`)
+		}
+	}
+
+	/**
 	 * 获取项目根信息 - 从root_info.json读取
 	 */
 	public async getRootInfo(): Promise<RootInfo | undefined> {

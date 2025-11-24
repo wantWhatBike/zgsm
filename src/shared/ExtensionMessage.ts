@@ -423,6 +423,7 @@ export interface ClineSayTool {
 		| "appliedDiff"
 		| "newFileCreated"
 		| "codebaseSearch"
+		| "searchCodes"
 		| "readFile"
 		| "fetchInstructions"
 		| "listFilesTopLevel"
@@ -476,6 +477,10 @@ export interface ClineSayTool {
 	args?: string
 	source?: string
 	description?: string
+	// Properties for searchCodes tool
+	keywords?: string
+	type?: string
+	maxResults?: string
 }
 
 // Must keep in sync with system prompt.
