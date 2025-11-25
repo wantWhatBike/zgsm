@@ -308,9 +308,16 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 
 	const handleClearBuild = useDebounce(() => {
 		const { status } = uiState.knowledgeGraphStatus
+		// 运行中不允许清空
 		if (status === KNOWLEDGE_GRAPH_STATUS.RUNNING || uiState.isOperating) {
 			return
 		}
+		
+		// 二次确认
+		if (!confirm('确定要清空知识图谱吗？此操作不可恢复。')) {
+			return
+		}
+		
 		dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
 		dispatch({ type: UI_ACTIONS.RESET_TO_DEFAULT })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.CLEAR)
@@ -494,67 +501,84 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 									</div>
 
 									<div className="flex items-center gap-2">
-										{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED ||
-											uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR) && (
-											<Button
-												onClick={handleOpenGraphView}
-												variant="outline"
-												size="sm"
-												className="flex items-center gap-1"
-												disabled={shouldDisableAll || uiState.isOperating}>
-												<Network className="w-3 h-3" />
-												可视化
-											</Button>
-										)}
-										{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PENDING && (
-											<Button
-												onClick={handleStartBuild}
-												variant="outline"
-												size="sm"
-												className="flex items-center gap-1"
-												disabled={shouldDisableAll || uiState.isOperating}>
-												<Play className="w-3 h-3" />
-												{t("knowledgegraph:start")}
-											</Button>
-										)}
-										{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING && (
-											<Button
-												onClick={handlePauseBuild}
-												variant="outline"
-												size="sm"
-												className="flex items-center gap-1"
-												disabled={shouldDisableAll || uiState.isOperating}>
-												{uiState.isOperating ? (
-													<Loader2 className="w-3 h-3 animate-spin" />
-												) : (
-													<Pause className="w-3 h-3" />
-												)}
-												{t("knowledgegraph:pause")}
-											</Button>
-										)}
-										{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PAUSED && (
-											<Button
-												onClick={handleResumeBuild}
-												variant="outline"
-												size="sm"
-												className="flex items-center gap-1"
-												disabled={shouldDisableAll || uiState.isOperating}>
-												<Play className="w-3 h-3" />
-												{t("knowledgegraph:resume")}
-											</Button>
-										)}
-										{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED ||
-											uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR) && (
-											<Button
-												onClick={handleClearBuild}
-												variant="outline"
-												size="sm"
-												className="flex items-center gap-1"
-												disabled={shouldDisableAll || uiState.isOperating}>
-												<Trash className="w-3 h-3" />
-												{t("knowledgegraph:clear")}
-											</Button>
-										)}
+										{/* 左侧操作按钮组 */}
+										<div className="flex items-center gap-2">
+											{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED ||
+												uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR) && (
+												<Button
+													onClick={handleOpenGraphView}
+													variant="outline"
+													size="sm"
+													className="flex items-center gap-1"
+													disabled={shouldDisableAll || uiState.isOperating}>
+													<Network className="w-3 h-3" />
+													可视化
+												</Button>
+											)}
+											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PENDING && (
+												<Button
+													onClick={handleStartBuild}
+													variant="outline"
+													size="sm"
+													className="flex items-center gap-1"
+													disabled={shouldDisableAll || uiState.isOperating}>
+													<Play className="w-3 h-3" />
+													{t("knowledgegraph:start")}
+												</Button>
+											)}
+											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING && (
+												<Button
+													onClick={handlePauseBuild}
+													variant="outline"
+													size="sm"
+													className="flex items-center gap-1"
+													disabled={shouldDisableAll || uiState.isOperating}>
+													{uiState.isOperating ? (
+														<Loader2 className="w-3 h-3 animate-spin" />
+													) : (
+														<Pause className="w-3 h-3" />
+													)}
+													{t("knowledgegraph:pause")}
+												</Button>
+											)}
+											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PAUSED && (
+												<Button
+													onClick={handleResumeBuild}
+													variant="outline"
+													size="sm"
+													className="flex items-center gap-1"
+													disabled={shouldDisableAll || uiState.isOperating}>
+													<Play className="w-3 h-3" />
+													{t("knowledgegraph:resume")}
+												</Button>
+											)}
+											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED && (
+												<Button
+													onClick={handleStartBuild}
+													variant="outline"
+													size="sm"
+													className="flex items-center gap-1"
+													disabled={shouldDisableAll || uiState.isOperating}>
+													<Play className="w-3 h-3" />
+													重新构建
+												</Button>
+											)}
+										</div>
+
+										{/* 右侧危险操作按钮 - 始终显示 */}
+										<Button
+											onClick={handleClearBuild}
+											variant="destructive"
+											size="sm"
+											className="flex items-center gap-1 ml-4"
+											disabled={
+												shouldDisableAll ||
+												uiState.isOperating ||
+												uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
+											}>
+											<Trash className="w-3 h-3" />
+											{t("knowledgegraph:clear")}
+										</Button>
 									</div>
 								</div>
 
