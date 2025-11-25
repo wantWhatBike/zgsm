@@ -86,7 +86,7 @@ export class KnowledgeGraphManager {
 
 	// ✅ 全局操作互斥锁：确保同一时间只有一个操作在执行
 	private operationMutex = new Mutex()
-	private currentOperationType: 'build' | 'pause' | 'resume' | 'clear' | null = null
+	private currentOperationType: "build" | "pause" | "resume" | "clear" | null = null
 
 	// 配置缓存
 	private config: KnowledgeGraphConfig = { ...DEFAULT_CONFIG }
@@ -193,7 +193,7 @@ export class KnowledgeGraphManager {
 	private async handleInitializationError(error: any): Promise<void> {
 		const wrappedError = ErrorHandler.wrapError(error, "初始化知识图谱服务")
 		this.logger?.error(`[KnowledgeGraphManager] 初始化失败: ${ErrorHandler.formatError(wrappedError)}`)
-		
+
 		// 重置状态并清理组件
 		this.isInitialized = false
 		await this.cleanupComponents()
@@ -206,7 +206,7 @@ export class KnowledgeGraphManager {
 	private async loadUserConfig(): Promise<void> {
 		const provider = this.clineProvider
 		if (!provider) return
-		
+
 		const state = await provider.getState()
 		if (!state.knowledgeGraphConfig) {
 			return
@@ -217,7 +217,7 @@ export class KnowledgeGraphManager {
 		// 类型安全的配置映射
 		type UserConfigKey = keyof typeof userConfig
 		type InternalConfigKey = keyof KnowledgeGraphConfig
-		
+
 		const configMapping: Record<string, InternalConfigKey> = {
 			knowledgeGraphModel: "model",
 			knowledgeGraphMaxConcurrency: "maxConcurrency",
@@ -232,7 +232,7 @@ export class KnowledgeGraphManager {
 			const userValue = userConfig[userKey as UserConfigKey]
 			if (userValue !== undefined) {
 				// 类型安全的赋值
-				(this.config[internalKey] as typeof userValue) = userValue
+				;(this.config[internalKey] as typeof userValue) = userValue
 			}
 		}
 
@@ -261,9 +261,15 @@ export class KnowledgeGraphManager {
 				fileService,
 			})
 
-		// 5. 创建检索和导出器
-		this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer,fileSummarizer, directorySummarizer, workspacePath)
-		this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
+			// 5. 创建检索和导出器
+			this.graphRetriever = new GraphRetriever(
+				this.logger!,
+				rootAnalyzer,
+				fileSummarizer,
+				directorySummarizer,
+				workspacePath,
+			)
+			this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
 
 			// 6. 设置统一的暂停检查器
 			this.setupPauseCheckers(stateTracer, { rootAnalyzer, fileSummarizer, directorySummarizer, fileService })
@@ -340,7 +346,7 @@ export class KnowledgeGraphManager {
 	 */
 	private setupPauseCheckers(stateTracer: BuildStateTracer, components: any): void {
 		const pauseChecker = () => stateTracer.isPaused() ?? false
-		
+
 		components.rootAnalyzer.setPauseChecker(pauseChecker)
 		components.fileSummarizer.setPauseChecker(pauseChecker)
 		components.directorySummarizer.setPauseChecker(pauseChecker)
@@ -394,10 +400,20 @@ export class KnowledgeGraphManager {
 	 * 销毁管理器
 	 */
 	public async dispose(): Promise<void> {
-		// 暂停构建
+		// 暂停构建（仅当正在运行时）
 		const workspacePath = this.getWorkspacePath()
 		if (workspacePath && this.graphBuilder) {
-			await this.graphBuilder.pause(workspacePath)
+			const currentState = this.getBuildStatus()
+			// 只有在运行状态时才需要暂停
+			if (currentState?.status === "running") {
+				try {
+					await this.graphBuilder.pause(workspacePath)
+					this.logger?.info("[KnowledgeGraphManager] 构建已暂停")
+				} catch (error) {
+					// 暂停失败不应该阻止 dispose
+					this.logger?.warn(`[KnowledgeGraphManager] 暂停构建失败: ${error}`)
+				}
+			}
 		}
 
 		await this.stopService()
@@ -412,12 +428,14 @@ export class KnowledgeGraphManager {
 			if (this.stateTracer) {
 				// 获取 storage 并调用 dispose 清理资源（如关闭 WriteStream）
 				const storage = (this.stateTracer as any).storage
-				if (storage && typeof storage.dispose === 'function') {
+				if (storage && typeof storage.dispose === "function") {
 					try {
 						await storage.dispose()
 						this.logger?.debug("[KnowledgeGraphManager] 存储资源已释放")
 					} catch (disposeError) {
-						this.logger?.warn(`[KnowledgeGraphManager] 释放存储资源失败: ${ErrorHandler.formatError(disposeError)}`)
+						this.logger?.warn(
+							`[KnowledgeGraphManager] 释放存储资源失败: ${ErrorHandler.formatError(disposeError)}`,
+						)
 					}
 				}
 				this.stateTracer = undefined
@@ -456,21 +474,21 @@ export class KnowledgeGraphManager {
 	 * 防止多个操作同时执行导致的竞态条件
 	 */
 	private async executeOperation<T>(
-		operationType: 'build' | 'pause' | 'resume' | 'clear',
-		operation: () => Promise<T>
+		operationType: "build" | "pause" | "resume" | "clear",
+		operation: () => Promise<T>,
 	): Promise<T> {
 		return this.operationMutex.withLock(async () => {
 			// 检查是否有其他操作正在执行
 			if (this.currentOperationType) {
 				throw ErrorHandler.wrapError(
 					new Error(`操作冲突：${this.currentOperationType} 正在执行，无法执行 ${operationType}`),
-					"执行操作"
+					"执行操作",
 				)
 			}
-			
+
 			this.currentOperationType = operationType
 			this.logger?.info(`[KnowledgeGraphManager] 开始执行操作: ${operationType}`)
-			
+
 			try {
 				const result = await operation()
 				this.logger?.info(`[KnowledgeGraphManager] 操作完成: ${operationType}`)
@@ -489,17 +507,17 @@ export class KnowledgeGraphManager {
 	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async startBuild(options: Partial<BuildOptions> = {}): Promise<void> {
-		return this.executeOperation('build', async () => {
+		return this.executeOperation("build", async () => {
 			if (!this.graphBuilder) {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
 			}
-			
+
 			// 双重检查：确保没有构建任务在运行
 			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status === 'running') {
+			if (currentState?.status === "running") {
 				throw new Error("构建任务已在运行中，请等待完成或先暂停")
 			}
-			
+
 			return await this.graphBuilder.start(this.getWorkspacePath()!, options)
 		})
 	}
@@ -509,16 +527,16 @@ export class KnowledgeGraphManager {
 	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async pauseBuild(): Promise<void> {
-		return this.executeOperation('pause', async () => {
+		return this.executeOperation("pause", async () => {
 			if (!this.graphBuilder) {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "暂停构建")
 			}
-			
+
 			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status !== 'running') {
+			if (currentState?.status !== "running") {
 				throw new Error(`当前状态 ${currentState?.status} 不允许暂停`)
 			}
-			
+
 			return await this.graphBuilder.pause(this.getWorkspacePath()!)
 		})
 	}
@@ -528,16 +546,16 @@ export class KnowledgeGraphManager {
 	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async resumeBuild(): Promise<void> {
-		return this.executeOperation('resume', async () => {
+		return this.executeOperation("resume", async () => {
 			if (!this.graphBuilder) {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "继续构建")
 			}
-			
+
 			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status !== 'paused') {
+			if (currentState?.status !== "paused") {
 				throw new Error(`当前状态 ${currentState?.status} 不允许继续`)
 			}
-			
+
 			return await this.graphBuilder.resume(this.getWorkspacePath()!)
 		})
 	}
@@ -547,16 +565,16 @@ export class KnowledgeGraphManager {
 	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async clearKnowledgeGraph(): Promise<void> {
-		return this.executeOperation('clear', async () => {
+		return this.executeOperation("clear", async () => {
 			if (!this.graphBuilder) {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "清除知识图谱")
 			}
-			
+
 			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status === 'running') {
+			if (currentState?.status === "running") {
 				throw new Error("构建任务正在运行，无法清除。请先暂停构建。")
 			}
-			
+
 			return await this.graphBuilder.clear(this.getWorkspacePath()!)
 		})
 	}
