@@ -278,3 +278,82 @@ export interface ICostrictServiceInfo {
 	port: number
 	[key: string]: any
 }
+
+// ========== Skeleton 接口（预留，暂不使用）==========
+/**
+ * Skeleton 元素类型
+ */
+export interface SkeletonElement {
+	name: string
+	is_definition: boolean
+	element_type: number // 1:包, 2:函数, 3:方法, 4:调用, 5:结构体/类
+	range: [number, number, number, number] // [startLine, startColumn, endLine, endColumn]
+	extra_data?: Record<string, any>
+}
+
+/**
+ * Skeleton 请求参数
+ */
+export interface SkeletonRequest {
+	workspacePath: string
+	filePath: string
+	filteredBy?: "definition" | "reference" // 可选，默认 definition
+}
+
+/**
+ * Skeleton 响应
+ */
+export interface SkeletonResponse {
+	path: string
+	language: string
+	timestamp: number
+	imports: Array<{
+		name: string
+		source: string
+		alias: string
+		range: [number, number, number, number]
+	}>
+	package?: {
+		name: string
+		range: [number, number, number, number]
+	}
+	elements: SkeletonElement[]
+}
+
+// ========== CallGraph 接口 ==========
+/**
+ * 调用图节点类型
+ */
+export interface CallGraphNode {
+	filePath: string
+	symbolName: string
+	position: {
+		startLine: number
+		startColumn: number
+		endLine: number
+		endColumn: number
+	}
+	nodeType: "definition" | "reference"
+	children?: CallGraphNode[]
+}
+
+/**
+ * 调用图请求参数
+ */
+export interface CallGraphRequest {
+	clientId: string
+	codebasePath: string
+	filePath: string
+	startLine?: number
+	endLine?: number
+	symbolName: string
+	maxLayer?: number // 最大层级，默认2
+	noContent?: number // 不返回代码内容，默认1
+}
+
+/**
+ * 调用图响应
+ */
+export interface CallGraphResponse {
+	list: CallGraphNode[]
+}

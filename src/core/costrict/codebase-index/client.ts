@@ -20,6 +20,10 @@ import {
 	ApiResponse,
 	RequestHeaders,
 	ICostrictServiceInfo,
+	SkeletonRequest,
+	SkeletonResponse,
+	CallGraphRequest,
+	CallGraphResponse,
 } from "./types"
 import path from "path"
 import { execPromise, getServiceConfig, getWellKnownConfig, processIsRunning, spawnDetached } from "./utils"
@@ -583,6 +587,67 @@ export class CodebaseIndexClient {
 		}
 
 		return this.makeRequest<boolean>(url, options, token)
+	}
+
+	/**
+	 * 获取文件代码结构（skeleton）- 预留接口
+	 * @param request Skeleton请求参数
+	 * @param token 访问令牌
+	 * @returns Promise<ApiResponse<SkeletonResponse>> 返回skeleton数据
+	 */
+	async getFileSkeleton(request: SkeletonRequest, token?: string): Promise<ApiResponse<SkeletonResponse>> {
+		this.serverEndpointAndHostCheck()
+
+		const params = new URLSearchParams({
+			workspacePath: request.workspacePath,
+			filePath: request.filePath,
+		})
+
+		if (request.filteredBy) {
+			params.append("filteredBy", request.filteredBy)
+		}
+
+		const url = `${this.getCodebaseIndexerServerHost(this.serverHost)}/codebase-indexer/api/v1/files/skeleton?${params}`
+
+		const options: RequestInit = {
+			method: "GET",
+		}
+
+		return this.makeRequest<SkeletonResponse>(url, options, token)
+	}
+
+	/**
+	 * 查询函数调用图（上游调用链）
+	 * @param request 调用图请求参数
+	 * @param token 访问令牌
+	 * @returns Promise<ApiResponse<CallGraphResponse>> 返回调用图数据
+	 */
+	async getCallGraph(request: CallGraphRequest, token?: string): Promise<ApiResponse<CallGraphResponse>> {
+		this.serverEndpointAndHostCheck()
+
+		const params = new URLSearchParams({
+			clientId: request.clientId,
+			codebasePath: request.codebasePath,
+			filePath: request.filePath,
+			symbolName: request.symbolName,
+			maxLayer: String(request.maxLayer || 2),
+			noContent: String(request.noContent || 1),
+		})
+
+		if (request.startLine !== undefined) {
+			params.append("startLine", String(request.startLine))
+		}
+		if (request.endLine !== undefined) {
+			params.append("endLine", String(request.endLine))
+		}
+
+		const url = `${this.getCodebaseIndexerServerHost(this.serverHost)}/codebase-indexer/api/v1/callgraph?${params}`
+
+		const options: RequestInit = {
+			method: "GET",
+		}
+
+		return this.makeRequest<CallGraphResponse>(url, options, token)
 	}
 
 	serverEndpointAndHostCheck() {

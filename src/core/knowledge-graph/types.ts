@@ -24,6 +24,31 @@ export interface FileSummary {
   lastModified: number
 }
 
+// 调用链信息（精简版，只保留上游）
+export interface FunctionCallChain {
+  callers: Array<{         // 调用者列表（从根到当前函数）
+    filePath: string       // 调用者所在文件
+    symbolName: string     // 调用者函数名
+    line: number          // 调用位置行号
+  }>
+  depth: number           // 调用深度
+}
+
+// 匹配的函数信息
+export interface MatchedFunction {
+  name: string                    // 函数名
+  description: string             // 函数描述（来自 FileSummary.functions）
+  callChain?: FunctionCallChain  // 调用链信息（可选）
+}
+
+// search_codes 返回结果
+export interface SearchCodesResult {
+  path: string                    // 文件路径
+  description: string             // 文件描述
+  match_functions: MatchedFunction[]  // 匹配的函数列表（对象数组）
+  dependencies: string[]          // 文件依赖
+}
+
 // 目录摘要
 export interface DirectorySummary {
   path: string

@@ -261,9 +261,9 @@ export class KnowledgeGraphManager {
 				fileService,
 			})
 
-			// 5. 创建检索和导出器
-			this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer,fileSummarizer, directorySummarizer)
-			this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
+		// 5. 创建检索和导出器
+		this.graphRetriever = new GraphRetriever(this.logger!, rootAnalyzer,fileSummarizer, directorySummarizer, workspacePath)
+		this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
 
 			// 6. 设置统一的暂停检查器
 			this.setupPauseCheckers(stateTracer, { rootAnalyzer, fileSummarizer, directorySummarizer, fileService })
