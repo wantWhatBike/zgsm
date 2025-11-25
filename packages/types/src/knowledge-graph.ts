@@ -49,6 +49,12 @@ export const KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG = {
 	LABEL_FONT_SIZE: 10,
 	TOOLTIP_DELAY_MS: 1000,
 	TOOLTIP_HIDE_DELAY_MS: 200,
+	// LOD (Level of Detail) 缩放阈值
+	ZOOM_THRESHOLD_HIDE_LINKS: 0.2,    // 缩放<0.2时隐藏连线
+	ZOOM_THRESHOLD_SHOW_ARROWS: 0.5,   // 缩放>=0.5时显示箭头
+	ZOOM_THRESHOLD_SHOW_ALL_LABELS: 1.5, // 缩放>=1.5时显示所有标签
+	// 视锥剔除
+	VIEWPORT_PADDING: 100, // 视口边界扩展（像素）
 } as const
 
 /**

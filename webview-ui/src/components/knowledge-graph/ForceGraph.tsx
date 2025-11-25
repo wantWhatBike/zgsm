@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import * as d3 from "d3"
 import type { GraphData, GraphNode } from "@roo-code/types"
+import { KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG } from "@roo-code/types"
 import type { GraphNodeWithPosition, GraphLinkWithNodes } from "./types"
 
 /**
@@ -174,7 +175,7 @@ export const ForceGraph = ({
 		ctx.scale(zoom, zoom)
 		
 		// 视锥剔除：计算可见区域边界（world坐标）
-		const padding = 100 // 边界扩展，避免边缘节点突然消失
+		const padding = KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG.VIEWPORT_PADDING // 边界扩展，避免边缘节点突然消失
 		const viewLeft = (-panX - padding) / zoom
 		const viewRight = (width - panX + padding) / zoom
 		const viewTop = (-panY - padding) / zoom
@@ -187,9 +188,9 @@ export const ForceGraph = ({
 		})
 		
 		// LOD策略：根据缩放级别调整渲染细节
-		const showLinks = zoom >= 0.2  // 缩放<0.2时隐藏连线
-		const showAllLabels = zoom >= 1.5  // 缩放>=1.5时显示所有标签
-		const showSmallNodes = zoom >= 0.2  // 缩放<0.2时只显示目录节点
+		const showLinks = zoom >= KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG.ZOOM_THRESHOLD_HIDE_LINKS  // 缩放<阈值时隐藏连线
+		const showAllLabels = zoom >= KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG.ZOOM_THRESHOLD_SHOW_ALL_LABELS  // 缩放>=阈值时显示所有标签
+		const showSmallNodes = zoom >= KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG.ZOOM_THRESHOLD_HIDE_LINKS  // 缩放<阈值时只显示目录节点
 		
 		// 绘制边（LOD优化 + 箭头）
 		if (showLinks) {
@@ -214,7 +215,7 @@ export const ForceGraph = ({
 				ctx.stroke()
 				
 				// 绘制箭头（从target指向source，表示source依赖target）
-				if (zoom >= 0.5) { // 只在缩放足够大时显示箭头
+				if (zoom >= KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG.ZOOM_THRESHOLD_SHOW_ARROWS) { // 只在缩放足够大时显示箭头
 					const arrowSize = Math.max(6, 8 / zoom)
 					// 箭头方向：target -> source（被依赖方指向依赖方）
 					drawArrow(ctx, target.x, target.y, source.x, source.y, arrowSize)
@@ -255,7 +256,7 @@ export const ForceGraph = ({
 			const radius = node.type === "directory" ? 6 : 4
 			
 			// 阶段4：使用预渲染Sprite绘制发光效果
-			if (zoom >= 0.5) { // 只在较大缩放时显示发光
+			if (zoom >= KNOWLEDGE_GRAPH_VISUALIZATION_CONFIG.ZOOM_THRESHOLD_SHOW_ARROWS) { // 只在较大缩放时显示发光
 				const sprite = spriteCache.get(color, radius)
 				const spriteSize = sprite.width
 				ctx.globalAlpha = 0.8

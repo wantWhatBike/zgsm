@@ -3,43 +3,7 @@ import { ILogger } from "../../../utils/logger"
 import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
 import { KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE } from "@roo-code/types"
-
-/**
- * 简单的互斥锁实现
- */
-class Mutex {
-	private locked = false
-	private waitingQueue: (() => void)[] = []
-
-	async lock(): Promise<void> {
-		return new Promise<void>((resolve) => {
-			if (!this.locked) {
-				this.locked = true
-				resolve()
-			} else {
-				this.waitingQueue.push(resolve)
-			}
-		})
-	}
-
-	unlock(): void {
-		if (this.waitingQueue.length > 0) {
-			const next = this.waitingQueue.shift()!
-			next()
-		} else {
-			this.locked = false
-		}
-	}
-
-	async withLock<T>(fn: () => Promise<T>): Promise<T> {
-		await this.lock()
-		try {
-			return await fn()
-		} finally {
-			this.unlock()
-		}
-	}
-}
+import { Mutex } from "../utils/Mutex"
 
 const FILES_LIST_FILE = "files.json"
 const BUILD_STATE_FILE = "build_state.json"
@@ -78,6 +42,7 @@ export class BuildStateTracer {
 
 	/**
 	 * 初始化构建状态
+	 * ✅ 增强版：添加前置检查，防止覆盖正在运行的任务
 	 */
 	public async initializeBuildState(
 		workspacePath: string,
@@ -85,16 +50,22 @@ export class BuildStateTracer {
 		totalFilesToProcess: number,
 		initialProcessedFiles: number = 0,
 	): Promise<void> {
-		if (!this.storage) throw new Error("存储未初始化")
+		return this.mutex.withLock(async () => {
+			if (!this.storage) throw new Error("存储未初始化")
 
-		// 初始化存储文件
-		await this.storage.initialize()
+			// 初始化存储文件
+			await this.storage.initialize()
 
-		if (workspacePath == null) {
-			throw new Error("workspace is empty")
-		}
+			if (workspacePath == null) {
+				throw new Error("workspace is empty")
+			}
 
-		try {
+			// ✅ 前置检查：不允许覆盖正在运行的任务
+			if (this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
+				throw new Error("构建任务已在运行，无法初始化新任务")
+			}
+
+			try {
 			const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
 			const startTime = new Date().toISOString()
 
@@ -132,9 +103,10 @@ export class BuildStateTracer {
 
 			// 更新内部状态
 			this.currentState = taskState
-		} catch (error) {
-			throw new Error(`初始化任务状态失败: ${error instanceof Error ? error.message : String(error)}`)
-		}
+			} catch (error) {
+				throw new Error(`初始化任务状态失败: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		})
 	}
 
 
@@ -228,7 +200,7 @@ export class BuildStateTracer {
 	}
 
 	/**
-	 * 统一的进度计算方法
+	 * 统一的进度计算方法（简化版，基于 phaseProgress）
 	 */
 	private calculateProgress(state: KnowledgeGraphBuildState): number {
 		if (state.status === "completed") {
@@ -240,65 +212,36 @@ export class BuildStateTracer {
 			[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS]: 0.05,
 			[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS]: 0.85,
 			[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS]: 0.1,
-			[KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS]: 0.0,
-			[KNOWLEDGE_GRAPH_PHASE.COMPLETED]: 0.0,
 		}
 
-		// 如果有详细的阶段进度，优先使用
-		if (state.phaseProgress) {
-			let totalProgress = 0
-			
-			// 根目录分析
-			if (state.phaseProgress.root_analysis) {
-				const { processed, total, status } = state.phaseProgress.root_analysis
-				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
-				totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS] * 100
-			}
-
-			// 文件分析
-			if (state.phaseProgress.file_analysis) {
-				const { processed, total, status } = state.phaseProgress.file_analysis
-				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
-				totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS] * 100
-			}
-
-			// 目录分析
-			if (state.phaseProgress.directory_analysis) {
-				const { processed, total, status } = state.phaseProgress.directory_analysis
-				const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
-				totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS] * 100
-			}
-
-			return Math.max(0, Math.min(100, totalProgress))
-		}
-
-		// 回退到基于当前阶段的简单计算逻辑
-		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.COMPLETED]
-		const currentPhaseIndex = phases.indexOf(state.phase)
-
-		if (currentPhaseIndex === -1) {
+		// 统一使用 phaseProgress 计算进度
+		if (!state.phaseProgress) {
+			// phaseProgress 未初始化，返回 0
 			return 0
 		}
 
-		// 已完成阶段的进度
-		let completedProgress = 0
-		for (let i = 0; i < currentPhaseIndex; i++) {
-			completedProgress += phaseWeights[phases[i] as keyof typeof phaseWeights] * 100
+		let totalProgress = 0
+		
+		// 根目录分析
+		if (state.phaseProgress.root_analysis) {
+			const { processed, total, status } = state.phaseProgress.root_analysis
+			const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
+			totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS] * 100
 		}
 
-		// 当前阶段的进度
-		let currentPhaseProgress = 0
-		if ((state.phase === KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS || state.phase === KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS) && state.totalFilesToProcess > 0) {
-			currentPhaseProgress = (state.processedFiles / state.totalFilesToProcess) * 100
-		} else if (currentPhaseIndex > 0) {
-			// 对于非计数型阶段（如root_analysis），如果已经进入下一个阶段，则认为已完成；
-			// 如果处于当前阶段，这里简单估算为0（或者可以根据具体情况优化）
-			// 实际上 root_analysis 很快，通常瞬间完成或处于 pending
-			currentPhaseProgress = 0
+		// 文件分析
+		if (state.phaseProgress.file_analysis) {
+			const { processed, total, status } = state.phaseProgress.file_analysis
+			const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
+			totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS] * 100
 		}
 
-		const currentPhaseWeight = phaseWeights[state.phase as keyof typeof phaseWeights]
-		const totalProgress = completedProgress + currentPhaseWeight * currentPhaseProgress
+		// 目录分析
+		if (state.phaseProgress.directory_analysis) {
+			const { processed, total, status } = state.phaseProgress.directory_analysis
+			const progress = status === 'completed' ? 1 : (total > 0 ? processed / total : 0)
+			totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS] * 100
+		}
 
 		return Math.max(0, Math.min(100, totalProgress))
 	}
@@ -404,6 +347,18 @@ export class BuildStateTracer {
 	}
 
 	/**
+	 * 类型守卫：检查是否为文件记录对象
+	 */
+	private isFileRecord(value: unknown): value is { timestamp: number; status: string; hash: string } {
+		return (
+			typeof value === 'object' &&
+			value !== null &&
+			'timestamp' in value &&
+			typeof (value as any).timestamp === 'number'
+		)
+	}
+
+	/**
 	 * 读取或初始化文件列表 - 新格式：包含状态信息
 	 */
 	public async getFilesList(): Promise<
@@ -418,16 +373,28 @@ export class BuildStateTracer {
 			}
 			const data = JSON.parse(content)
 
-			// 兼容旧格式：如果是数字，转换为新格式
+			// 兼容旧格式：使用类型守卫检查并转换
 			const result: Record<
 				string,
 				{ timestamp: number; status: "pending" | "success" | "failed"; hash: string }
 			> = {}
 			for (const [path, value] of Object.entries(data)) {
-				result[path] = {
-					timestamp: (value as any).timestamp || 0,
-					status: (value as any).status || "pending",
-					hash: (value as any).hash || "",
+				if (this.isFileRecord(value)) {
+					const status = value.status === 'success' || value.status === 'failed' 
+						? value.status 
+						: 'pending'
+					result[path] = {
+						timestamp: value.timestamp,
+						status: status as "pending" | "success" | "failed",
+						hash: value.hash || "",
+					}
+				} else {
+					// 旧格式或无效数据，使用默认值
+					result[path] = {
+						timestamp: 0,
+						status: "pending",
+						hash: "",
+					}
 				}
 			}
 			return result
@@ -573,6 +540,87 @@ export class BuildStateTracer {
 	public canClear(): boolean {
 		const status = this.currentState?.status
 		return !status || status !== KNOWLEDGE_GRAPH_STATUS.RUNNING
+	}
+
+	/**
+	 * ✅ 原子性地检查并启动构建
+	 * 确保状态检查和更新的原子性，防止竞态条件
+	 * @returns true 表示可以启动，false 表示不能启动
+	 */
+	public async atomicCheckAndStartBuild(): Promise<boolean> {
+		return this.mutex.withLock(async () => {
+			const currentStatus = this.currentState?.status
+			
+			// 检查当前状态是否允许启动
+			if (currentStatus === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
+				return false // 已有任务运行
+			}
+			
+			if (currentStatus && 
+				currentStatus !== KNOWLEDGE_GRAPH_STATUS.PENDING &&
+				currentStatus !== KNOWLEDGE_GRAPH_STATUS.COMPLETED &&
+				currentStatus !== KNOWLEDGE_GRAPH_STATUS.ERROR) {
+				return false // 不在允许启动的状态
+			}
+			
+			// 立即更新状态为 RUNNING（预占锁）
+			if (this.currentState) {
+				this.currentState.status = KNOWLEDGE_GRAPH_STATUS.RUNNING
+				this.currentState.lastUpdateTime = new Date().toISOString()
+				await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
+			}
+			
+			return true
+		})
+	}
+
+	/**
+	 * ✅ 原子性地检查并暂停构建
+	 * @returns true 表示暂停成功，false 表示当前状态不允许暂停
+	 */
+	public async atomicCheckAndPause(): Promise<boolean> {
+		return this.mutex.withLock(async () => {
+			if (this.currentState?.status !== KNOWLEDGE_GRAPH_STATUS.RUNNING) {
+				return false
+			}
+			
+			this.currentState.status = KNOWLEDGE_GRAPH_STATUS.PAUSED
+			this.currentState.lastUpdateTime = new Date().toISOString()
+			await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
+			
+			return true
+		})
+	}
+
+	/**
+	 * ✅ 原子性地检查并继续构建
+	 * @returns true 表示继续成功，false 表示当前状态不允许继续
+	 */
+	public async atomicCheckAndResume(): Promise<boolean> {
+		return this.mutex.withLock(async () => {
+			if (this.currentState?.status !== KNOWLEDGE_GRAPH_STATUS.PAUSED) {
+				return false
+			}
+			
+			this.currentState.status = KNOWLEDGE_GRAPH_STATUS.RUNNING
+			this.currentState.lastUpdateTime = new Date().toISOString()
+			await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
+			
+			return true
+		})
+	}
+
+	/**
+	 * ✅ 强制重置状态（用于 forceRebuild）
+	 */
+	public async forceResetState(): Promise<void> {
+		return this.mutex.withLock(async () => {
+			if (this.currentState) {
+				this.currentState.status = KNOWLEDGE_GRAPH_STATUS.PENDING
+				this.currentState.lastUpdateTime = new Date().toISOString()
+				await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
+			}
+		})
 	}
 
 }

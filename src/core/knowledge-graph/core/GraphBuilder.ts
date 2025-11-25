@@ -7,6 +7,7 @@ import { FileService } from "./FileService"
 import { ILogger } from "../../../utils/logger"
 import { BuildStateTracer } from "./BuildStateTracer"
 import { ProgressTracer } from "../tools/ProgressTracer"
+import { Mutex } from "../utils/Mutex"
 
 /**
  * 依赖注入接口
@@ -39,6 +40,9 @@ export class GraphBuilder {
 	// 性能跟踪
 	private progressTracer: ProgressTracer
 	
+	// ✅ 互斥锁：确保同一时间只有一个构建任务
+	private buildMutex = new Mutex()
+	
 	// 任务控制：防止重复执行
 	private currentBuildPromise: Promise<void> | null = null
 	// 状态控制：防止在清除过程中启动构建
@@ -66,77 +70,103 @@ export class GraphBuilder {
 
 	/**
 	 * 开始构建知识图谱
+	 * ✅ 增强版：使用互斥锁和原子操作确保同一时间只有一个构建任务
 	 */
 	async start(workspacePath: string, options: BuildOptions = {}): Promise<void> {
-		if (!workspacePath) {
-			throw new Error("workspacePath is null, cannot build.")
-		}
-
-		if (this.isClearing) {
-			throw new Error("正在清除知识图谱，请稍后重试")
-		}
-
-		// 检查状态是否允许启动构建
-		if (!this.buildStateTracer.canStartBuild()) {
-			const currentStatus = this.buildStateTracer.getCurrentState()?.status
-			
-			// 如果强制重建，则忽略状态检查（除了正在清除）
-			if (options.forceRebuild) {
-				this.logger.info(`[GraphBuilder] 强制重建，忽略当前状态: ${currentStatus}`)
-			} else {
-				throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
+		// ========== 原子区域：检查和任务创建 ==========
+		await this.buildMutex.lock()
+		
+		try {
+			if (!workspacePath) {
+				throw new Error("workspacePath is null, cannot build.")
 			}
-		}
-		
-		// 如果已有任务在执行，直接返回该任务
-		if (this.currentBuildPromise) {
-			this.logger.info("构建任务已在进行中，等待完成")
-			return this.currentBuildPromise
-		}
 
-		// 初始化中止控制器
-		if (this.abortController) {
-			this.abortController.abort()
+			// 1. 检查清除状态
+			if (this.isClearing) {
+				throw new Error("正在清除知识图谱，请稍后重试")
+			}
+			
+			// 2. 检查是否已有任务（双重检查）
+			if (this.currentBuildPromise) {
+				this.logger.info("[GraphBuilder] 构建任务已在运行中，等待完成")
+				// 释放锁后返回已有任务
+				this.buildMutex.unlock()
+				return this.currentBuildPromise
+			}
+			
+			// 3. 原子性检查并更新状态
+			const canStart = await this.buildStateTracer.atomicCheckAndStartBuild()
+			if (!canStart) {
+				const currentStatus = this.buildStateTracer.getCurrentState()?.status
+				
+				// 如果强制重建，先重置状态
+				if (options.forceRebuild) {
+					this.logger.info(`[GraphBuilder] 强制重建，重置状态: ${currentStatus}`)
+					await this.buildStateTracer.forceResetState()
+					
+					// 再次尝试启动
+					const retryStart = await this.buildStateTracer.atomicCheckAndStartBuild()
+					if (!retryStart) {
+						throw new Error(`强制重建失败，当前状态: ${currentStatus}`)
+					}
+				} else {
+					throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
+				}
+			}
+			
+			// 4. 初始化中止控制器
+			if (this.abortController) {
+				this.abortController.abort()
+			}
+			this.abortController = new AbortController()
+			
+			// 5. 设置各组件的统一终止检查器
+			const stopChecker = () => {
+				return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
+			}
+			this.rootAnalyzer.setPauseChecker(stopChecker)
+			this.fileSummarizer.setPauseChecker(stopChecker)
+			this.directorySummarizer.setPauseChecker(stopChecker)
+			
+			// 6. 创建新的构建任务（此时状态已是 RUNNING）
+			this.currentBuildPromise = this.executeBuild(workspacePath, options)
+				.catch(async (error) => {
+					await this.handleBuildError(error)
+					throw error
+				})
+				.finally(() => {
+					// 任务完成后清理
+					this.currentBuildPromise = null
+					this.abortController = null
+				})
+			
+			this.logger.info("[GraphBuilder] 构建任务已创建并启动")
+		} finally {
+			// 确保锁被释放
+			this.buildMutex.unlock()
 		}
-		this.abortController = new AbortController()
 		
-		// 设置各组件的统一终止检查器
-		const stopChecker = () => {
-			return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
-		}
-		this.rootAnalyzer.setPauseChecker(stopChecker)
-		this.fileSummarizer.setPauseChecker(stopChecker)
-		this.directorySummarizer.setPauseChecker(stopChecker)
+		// ========== 原子区域结束 ==========
 		
-		// 创建新的构建任务
-		this.currentBuildPromise = this.executeBuild(workspacePath, options)
-			.catch(async (error) => {
-				await this.handleBuildError(error)
-				// 必须抛出错误，以便上层（如MessageHandler）知道任务失败了
-				throw error
-			})
-			.finally(() => {
-				// 任务完成后清理
-				this.currentBuildPromise = null
-				this.abortController = null
-			})
-
-		return this.currentBuildPromise
+		// 在锁外等待任务完成
+		return this.currentBuildPromise!
 	}
 
 	/**
-	 * 暂停构建 - 修复状态同步问题
+	 * 暂停构建
+	 * ✅ 增强版：使用原子操作确保状态一致性
 	 */
 	async pause(workspacePath: string): Promise<void> {
 		if (!workspacePath) {
 			throw new Error("workspacePath is null, cannot pause.")
 		}
 		
-		// 使用新的状态检查方法
-		if (!this.buildStateTracer.canPause()) {
+		// ✅ 原子性检查并暂停
+		const canPause = await this.buildStateTracer.atomicCheckAndPause()
+		if (!canPause) {
 			const currentStatus = this.buildStateTracer.getCurrentState()?.status
 			this.logger.warn(`[GraphBuilder] 当前状态 ${currentStatus} 不支持暂停操作`)
-			return
+			throw new Error(`当前状态 ${currentStatus} 不允许暂停`)
 		}
 
 		// 中断当前正在进行的耗时操作
@@ -145,113 +175,127 @@ export class GraphBuilder {
 			this.abortController = null
 		}
 
-		// 原子性更新状态，避免竞态条件
-		await this.buildStateTracer.updateBuildState({
-			status: KNOWLEDGE_GRAPH_STATUS.PAUSED,
-		})
-
 		this.logger.info("[GraphBuilder] 构建已暂停")
 	}
 
 	/**
-	 * 继续构建 - 修复状态同步和任务管理问题
+	 * 继续构建
+	 * ✅ 增强版：使用原子操作和互斥锁确保状态一致性
 	 */
 	async resume(workspacePath: string): Promise<void> {
-		if (!workspacePath) {
-			throw new Error("workspacePath is null, cannot resume.")
+		// ========== 原子区域：检查和任务恢复 ==========
+		await this.buildMutex.lock()
+		
+		try {
+			if (!workspacePath) {
+				throw new Error("workspacePath is null, cannot resume.")
+			}
+			
+			// 防止重复恢复
+			if (this.currentBuildPromise) {
+				this.logger.warn("[GraphBuilder] 构建任务已在执行中，忽略恢复请求")
+				this.buildMutex.unlock()
+				return this.currentBuildPromise
+			}
+			
+			// ✅ 原子性检查并恢复
+			const canResume = await this.buildStateTracer.atomicCheckAndResume()
+			if (!canResume) {
+				const currentStatus = this.buildStateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许继续构建`)
+			}
+
+			// 初始化中止控制器
+			if (this.abortController) {
+				this.abortController.abort()
+			}
+			this.abortController = new AbortController()
+
+			// 设置各组件的统一终止检查器
+			const stopChecker = () => {
+				return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
+			}
+			this.rootAnalyzer.setPauseChecker(stopChecker)
+			this.fileSummarizer.setPauseChecker(stopChecker)
+			this.directorySummarizer.setPauseChecker(stopChecker)
+
+			// 启动恢复任务
+			this.logger.info(`[GraphBuilder] 启动恢复构建任务：${workspacePath}`)
+			this.currentBuildPromise = this.executeBuild(workspacePath, { resumeFromPrevious: true })
+				.catch(async (error) => {
+					await this.handleBuildError(error)
+					throw error
+				})
+				.finally(() => {
+					this.currentBuildPromise = null
+					this.abortController = null
+				})
+		} finally {
+			// 确保锁被释放
+			this.buildMutex.unlock()
 		}
 		
-		// 使用新的状态检查方法
-		if (!this.buildStateTracer.canResume()) {
-			const currentStatus = this.buildStateTracer.getCurrentState()?.status
-			throw new Error(`构建任务未处于暂停状态，当前状态: ${currentStatus}`)
-		}
-
-		// 防止重复恢复
-		if (this.currentBuildPromise) {
-			this.logger.warn("[GraphBuilder] 构建任务已在执行中，忽略恢复请求")
-			return this.currentBuildPromise
-		}
-
-		// 初始化中止控制器
-		if (this.abortController) {
-			this.abortController.abort()
-		}
-		this.abortController = new AbortController()
-
-		// 设置各组件的统一终止检查器
-		const stopChecker = () => {
-			return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
-		}
-		this.rootAnalyzer.setPauseChecker(stopChecker)
-		this.fileSummarizer.setPauseChecker(stopChecker)
-		this.directorySummarizer.setPauseChecker(stopChecker)
-
-		// 1. 先更新状态为 running
-		await this.buildStateTracer.updateBuildState({
-			status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
-		})
-		this.logger.info(`[GraphBuilder] 构建状态已更新为 running`)
-
-		// 2. 启动恢复任务
-		this.logger.info(`[GraphBuilder] 启动恢复构建任务：${workspacePath}`)
-		this.currentBuildPromise = this.executeBuild(workspacePath, { resumeFromPrevious: true })
-			.catch(async (error) => {
-				await this.handleBuildError(error)
-				throw error
-			})
-			.finally(() => {
-				this.currentBuildPromise = null
-				this.abortController = null
-			})
-
-		return this.currentBuildPromise
+		// ========== 原子区域结束 ==========
+		
+		// 在锁外等待任务完成
+		return this.currentBuildPromise!
 	}
 
 	/**
-	 * 清除知识图谱 - 修复状态检查和清理逻辑
+	 * 清除知识图谱
+	 * ✅ 增强版：使用互斥锁确保不会与其他操作冲突
 	 */
 	async clear(workspacePath: string): Promise<void> {
-		if (!workspacePath) {
-			throw new Error("workspacePath is null, cannot clear.")
-		}
-
-		if (this.isClearing) {
-			this.logger.info("清除操作已在进行中")
-			return
-		}
-
-		// 使用新的状态检查方法
-		if (!this.buildStateTracer.canClear()) {
-			const currentStatus = this.buildStateTracer.getCurrentState()?.status
-			throw new Error(`当前状态 ${currentStatus} 不允许清除。请先暂停构建后再清除。`)
-		}
-
-		this.isClearing = true
+		// ========== 原子区域：检查和清除操作 ==========
+		await this.buildMutex.lock()
 		
 		try {
-			// 中断当前正在进行的耗时操作
-			if (this.abortController) {
-				this.abortController.abort()
-				this.abortController = null
+			if (!workspacePath) {
+				throw new Error("workspacePath is null, cannot clear.")
 			}
 
-			// 如果有暂停的任务，先取消它
-			if (this.currentBuildPromise) {
-				this.logger.info("[GraphBuilder] 取消暂停的构建任务")
-				this.currentBuildPromise = null
+			if (this.isClearing) {
+				this.logger.info("清除操作已在进行中")
+				return
 			}
 
-			// 清除所有存储
-			await this.buildStateTracer.clear()
-			await this.rootAnalyzer.clear()
-			await this.fileSummarizer.clear()
-			await this.directorySummarizer.clear()
+			// 检查状态是否允许清除
+			if (!this.buildStateTracer.canClear()) {
+				const currentStatus = this.buildStateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许清除。请先暂停构建后再清除。`)
+			}
 
-			this.logger.info("知识图谱存储已清除")
+			this.isClearing = true
+			
+			try {
+				// 中断当前正在进行的耗时操作
+				if (this.abortController) {
+					this.abortController.abort()
+					this.abortController = null
+				}
+
+				// 如果有暂停的任务，先取消它
+				if (this.currentBuildPromise) {
+					this.logger.info("[GraphBuilder] 取消暂停的构建任务")
+					this.currentBuildPromise = null
+				}
+
+				// 清除所有存储
+				await this.buildStateTracer.clear()
+				await this.rootAnalyzer.clear()
+				await this.fileSummarizer.clear()
+				await this.directorySummarizer.clear()
+
+				this.logger.info("[GraphBuilder] 知识图谱存储已清除")
+			} finally {
+				this.isClearing = false
+			}
 		} finally {
-			this.isClearing = false
+			// 确保锁被释放
+			this.buildMutex.unlock()
 		}
+		
+		// ========== 原子区域结束 ==========
 	}
 	
 	/**

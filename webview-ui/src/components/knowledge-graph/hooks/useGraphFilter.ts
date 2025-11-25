@@ -6,6 +6,18 @@ import { useMemo } from "react"
 import type { GraphData, GraphNode } from "@roo-code/types"
 import type { NodeFilter } from "../ControlPanel"
 
+/**
+ * 类型守卫：检查是否为带 id 属性的对象
+ */
+function isNodeWithId(value: unknown): value is { id: string } {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		'id' in value &&
+		typeof (value as any).id === 'string'
+	)
+}
+
 interface UseGraphFilterParams {
 	graphData: GraphData | null
 	filter: NodeFilter
@@ -42,9 +54,9 @@ export function useGraphFilter({ graphData, filter, expandedDirectories }: UseGr
 		// 修复 #16 & #8: 过滤边 - 使用类型守卫替代类型断言
 		const getNodeId = (nodeOrId: string | unknown): string => {
 			if (typeof nodeOrId === 'string') return nodeOrId
-			// 对象类型，尝试提取id属性
-			if (nodeOrId && typeof nodeOrId === 'object' && 'id' in nodeOrId) {
-				return (nodeOrId as { id: string }).id
+			// 使用类型守卫检查是否为带id属性的对象
+			if (isNodeWithId(nodeOrId)) {
+				return nodeOrId.id
 			}
 			return String(nodeOrId)
 		}

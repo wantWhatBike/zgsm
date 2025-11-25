@@ -223,58 +223,6 @@ export class FileSummarizer {
 		batchFiles.length = 0
 	}
 
-	/**
-	 * 处理文件批次 - 保留原方法以兼容其他调用
-	 * @deprecated 建议使用 processBatchByPaths 以优化内存占用
-	 */
-	private async processBatch(
-		batchFiles: Array<{ path: string; content: string }>,
-		basePrompt: string,
-		rootInfo: RootInfo,
-		onProgress?: (progress: BuildProgress) => void,
-		processedCount: number = 0,
-		totalFiles: number = 0,
-	): Promise<void> {
-		if (this.shouldPause()) return
-
-		this.logger.info(`[FileSummarizer] start to process batch, batch size: ${batchFiles.length}`)
-		const batchStartTime = Date.now()
-		const prompt = buildPrompt(basePrompt, {
-			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
-			fileContents: formatFileContents(batchFiles),
-		})
-
-		// 发送LLM请求
-		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
-
-		// 请求返回后再次检查终止状态，避免写入
-		if (this.shouldPause()) return
-
-		const batchDuration = Date.now() - batchStartTime
-
-		if (response.success && response.data) {
-			// 验证和清理数据
-			let batchSummaries = response.data.map((summary: FileSummary) => this.validateAndCleanFileSummary(summary))
-
-			await this.saveSummaries(batchSummaries)
-
-			const progress: BuildProgress = {
-				phase: "file_analysis" as const,
-				batchProcessedFilePaths: batchSummaries.map((s) => s.path),
-				totalProcessedFiles: processedCount + batchFiles.length,
-				totalFiles: totalFiles,
-				message: "",
-				filesToProcess: totalFiles,
-				batchFailedFiles: 0,
-				batchDuration: batchDuration,
-			}
-
-			onProgress?.(progress)
-		} else {
-			this.logger.error(`[FileSummarizer] 批量分析失败: ${response.error}`)
-		}
-	}
-
 	async saveSummaries(summaries: FileSummary[]): Promise<void> {
 		// 批量保存回调
 		try {

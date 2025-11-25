@@ -28,6 +28,7 @@ import { StorageFactory } from "./storage/StorageFactory"
 import { ErrorHandler } from "./errors/ErrorHandler"
 import { ProgressTracer } from "./tools/ProgressTracer"
 import { isKnowledgeGraphSupported, getKnowledgeGraphEnabledState } from "./utils"
+import { Mutex } from "./utils/Mutex"
 
 /**
  * 激活知识图谱功能
@@ -82,6 +83,10 @@ export class KnowledgeGraphManager {
 	private stateTracer: BuildStateTracer | undefined
 	private graphRetriever: GraphRetriever | undefined
 	private exporter: Exporter | undefined
+
+	// ✅ 全局操作互斥锁：确保同一时间只有一个操作在执行
+	private operationMutex = new Mutex()
+	private currentOperationType: 'build' | 'pause' | 'resume' | 'clear' | null = null
 
 	// 配置缓存
 	private config: KnowledgeGraphConfig = { ...DEFAULT_CONFIG }
@@ -403,9 +408,18 @@ export class KnowledgeGraphManager {
 	 */
 	private async cleanupComponents(): Promise<void> {
 		try {
-			// 清理存储资源
+			// 清理存储资源 - 修复资源泄漏问题
 			if (this.stateTracer) {
-				// BuildStateTracer 可能需要清理资源
+				// 获取 storage 并调用 dispose 清理资源（如关闭 WriteStream）
+				const storage = (this.stateTracer as any).storage
+				if (storage && typeof storage.dispose === 'function') {
+					try {
+						await storage.dispose()
+						this.logger?.debug("[KnowledgeGraphManager] 存储资源已释放")
+					} catch (disposeError) {
+						this.logger?.warn(`[KnowledgeGraphManager] 释放存储资源失败: ${ErrorHandler.formatError(disposeError)}`)
+					}
+				}
 				this.stateTracer = undefined
 			}
 
@@ -438,43 +452,113 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
+	 * ✅ 统一的操作入口，确保互斥
+	 * 防止多个操作同时执行导致的竞态条件
+	 */
+	private async executeOperation<T>(
+		operationType: 'build' | 'pause' | 'resume' | 'clear',
+		operation: () => Promise<T>
+	): Promise<T> {
+		return this.operationMutex.withLock(async () => {
+			// 检查是否有其他操作正在执行
+			if (this.currentOperationType) {
+				throw ErrorHandler.wrapError(
+					new Error(`操作冲突：${this.currentOperationType} 正在执行，无法执行 ${operationType}`),
+					"执行操作"
+				)
+			}
+			
+			this.currentOperationType = operationType
+			this.logger?.info(`[KnowledgeGraphManager] 开始执行操作: ${operationType}`)
+			
+			try {
+				const result = await operation()
+				this.logger?.info(`[KnowledgeGraphManager] 操作完成: ${operationType}`)
+				return result
+			} catch (error) {
+				this.logger?.error(`[KnowledgeGraphManager] 操作失败: ${operationType}`, error)
+				throw error
+			} finally {
+				this.currentOperationType = null
+			}
+		})
+	}
+
+	/**
 	 * 构建知识图谱
+	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async startBuild(options: Partial<BuildOptions> = {}): Promise<void> {
-		if (!this.graphBuilder) {
-			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
-		}
-		return await this.graphBuilder.start(this.getWorkspacePath()!, options)
+		return this.executeOperation('build', async () => {
+			if (!this.graphBuilder) {
+				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
+			}
+			
+			// 双重检查：确保没有构建任务在运行
+			const currentState = this.stateTracer?.getCurrentState()
+			if (currentState?.status === 'running') {
+				throw new Error("构建任务已在运行中，请等待完成或先暂停")
+			}
+			
+			return await this.graphBuilder.start(this.getWorkspacePath()!, options)
+		})
 	}
 
 	/**
-	 * 暂停构建 - 修复暂停逻辑
+	 * 暂停构建
+	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async pauseBuild(): Promise<void> {
-		if (!this.graphBuilder) {
-			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "暂停构建")
-		}
-		return await this.graphBuilder.pause(this.getWorkspacePath()!)
+		return this.executeOperation('pause', async () => {
+			if (!this.graphBuilder) {
+				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "暂停构建")
+			}
+			
+			const currentState = this.stateTracer?.getCurrentState()
+			if (currentState?.status !== 'running') {
+				throw new Error(`当前状态 ${currentState?.status} 不允许暂停`)
+			}
+			
+			return await this.graphBuilder.pause(this.getWorkspacePath()!)
+		})
 	}
 
 	/**
-	 * 继续构建 - 修复恢复逻辑
+	 * 继续构建
+	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async resumeBuild(): Promise<void> {
-		if (!this.graphBuilder) {
-			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "继续构建")
-		}
-		return await this.graphBuilder.resume(this.getWorkspacePath()!)
+		return this.executeOperation('resume', async () => {
+			if (!this.graphBuilder) {
+				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "继续构建")
+			}
+			
+			const currentState = this.stateTracer?.getCurrentState()
+			if (currentState?.status !== 'paused') {
+				throw new Error(`当前状态 ${currentState?.status} 不允许继续`)
+			}
+			
+			return await this.graphBuilder.resume(this.getWorkspacePath()!)
+		})
 	}
 
 	/**
-	 * 清除知识图谱 - 修复清除逻辑
+	 * 清除知识图谱
+	 * ✅ 增强版：通过统一入口确保互斥
 	 */
 	public async clearKnowledgeGraph(): Promise<void> {
-		if (!this.graphBuilder) {
-			throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "清除知识图谱")
-		}
-		return await this.graphBuilder.clear(this.getWorkspacePath()!)
+		return this.executeOperation('clear', async () => {
+			if (!this.graphBuilder) {
+				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "清除知识图谱")
+			}
+			
+			const currentState = this.stateTracer?.getCurrentState()
+			if (currentState?.status === 'running') {
+				throw new Error("构建任务正在运行，无法清除。请先暂停构建。")
+			}
+			
+			return await this.graphBuilder.clear(this.getWorkspacePath()!)
+		})
 	}
 
 	/**
