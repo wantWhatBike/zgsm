@@ -2150,7 +2150,7 @@ export class ClineProvider
 			openRouterImageGenerationSelectedModel,
 			openRouterUseMiddleOutTransform,
 			featureRoomoteControlEnabled,
-			knowledgeGraphEnabled: false, // 默认值为false，后续可以从配置中读取
+			knowledgeGraphEnabled: knowledgeGraphEnabled ?? false,
 		}
 	}
 

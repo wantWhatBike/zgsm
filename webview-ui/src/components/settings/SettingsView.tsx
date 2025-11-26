@@ -154,6 +154,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		enableCheckpoints,
 		useZgsmCustomConfig,
 		zgsmCodebaseIndexEnabled,
+		knowledgeGraphEnabled,
 		checkpointTimeout,
 		diffEnabled,
 		experiments,
@@ -777,7 +778,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					)}
 					{/* Knowledge Graph Section - Moved to bottom */}
 					{activeTab === "contextManagement" && (
-						<KnowledgeGraphSettings setCachedStateField={setCachedStateField} />
+						<KnowledgeGraphSettings
+							knowledgeGraphEnabled={knowledgeGraphEnabled}
+							setCachedStateField={setCachedStateField}
+						/>
 					)}
 
 					{/* Terminal Section */}

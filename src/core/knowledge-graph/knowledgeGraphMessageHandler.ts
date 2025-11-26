@@ -107,6 +107,9 @@ export class KnowledgeGraphMessageHandler {
   		// 委托给Manager处理核心业务逻辑
   		await knowledgeGraphManager.setKnowledgeGraphEnabled(isEnabled)
   		
+  		// 同步状态到前端（确保 extensionState 更新）
+  		await this.clineProvider.postStateToWebview()
+  		
   		// 发送成功响应到 webview
   		this.clineProvider.postMessageToWebview({
   			type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
@@ -121,6 +124,9 @@ export class KnowledgeGraphMessageHandler {
   		// 获取当前实际状态（可能回滚了）
   		const currentEnabled = await knowledgeGraphManager.isKnowledgeGraphEnabled()
  
+  		// 同步状态到前端
+  		await this.clineProvider.postStateToWebview()
+  		
   		// 发送错误响应，并附带错误信息和当前实际状态
   		this.clineProvider.postMessageToWebview({
   			type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,

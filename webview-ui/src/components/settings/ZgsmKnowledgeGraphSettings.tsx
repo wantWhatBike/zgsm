@@ -131,12 +131,13 @@ const useDebounce = <T extends (...args: any[]) => void>(callback: T, delay: num
 }
 
 interface KnowledgeGraphSettingsProps {
+	knowledgeGraphEnabled?: boolean
 	setCachedStateField?: SetCachedStateField<"knowledgeGraphEnabled">
 }
 
-export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSettingsProps) => {
+export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateField }: KnowledgeGraphSettingsProps) => {
 	const { t } = useAppTranslation()
-	const { knowledgeGraphEnabled, knowledgeGraphStatus: initialStatus, apiConfiguration, cwd } = useExtensionState()
+	const { knowledgeGraphStatus: initialStatus, apiConfiguration, cwd } = useExtensionState()
 
 	// 使用状态机管理UI状态
 	const [uiState, dispatch] = useReducer(uiStateReducer, {
@@ -160,6 +161,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 			uiState.isOperating,
 		[isZgsmProvider, cwd, uiState.knowledgeGraphStatus.status, uiState.isOperating],
 	)
+
 
 	// Use useMemo to avoid unnecessary state updates
 	const shouldDisableAll = useMemo(
@@ -242,8 +244,20 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 		}
 	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, getStatusOnce])
 
+	// 使用 ref 追踪最后操作时间，防止短时间内重复触发
+	const lastOperationTimeRef = useRef<number>(0)
+	const DEBOUNCE_TIME = 500 // 500ms 内不允许重复操作
+
 	const handleKnowledgeGraphToggle = useCallback(
 		(e: any) => {
+			const now = Date.now()
+			const timeSinceLastOperation = now - lastOperationTimeRef.current
+
+			// 时间戳防抖：500ms 内不允许重复操作
+			if (timeSinceLastOperation < DEBOUNCE_TIME) {
+				return
+			}
+
 			// e.preventDefault may not exist in tests
 			if (e && e.preventDefault) {
 				e.preventDefault()
@@ -266,6 +280,7 @@ export const KnowledgeGraphSettings = ({ setCachedStateField }: KnowledgeGraphSe
 						? target._checked
 						: !knowledgeGraphEnabled
 
+			lastOperationTimeRef.current = now
 			dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
 			// Send message to extension directly without confirmation dialog
 			sendMessage(KNOWLEDGE_GRAPH_MESSAGES.ENABLED, { bool: newChecked })
