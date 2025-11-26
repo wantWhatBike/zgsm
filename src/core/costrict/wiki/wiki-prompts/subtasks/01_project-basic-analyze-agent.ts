@@ -1,147 +1,226 @@
-import { WIKI_OUTPUT_FILE_PATHS } from "../common/constants";
+import { WIKI_OUTPUT_FILE_PATHS, REQUIRED_DOCS, OPTIONAL_DOC_EXAMPLES, OPTIONAL_DOC_EXTENSION_GUIDE } from "../common/constants";
 
-export const PROJECT_BASIC_ANALYZE_AGENT_TEMPLATE = (workspace: string) => `# 项目基本分析
+// 生成必选文档列表
+const requiredDocsStr = REQUIRED_DOCS.map(d => `  - ${d.id}: ${d.name} (${d.filename})`).join('\n');
+const optionalExamplesStr = OPTIONAL_DOC_EXAMPLES.map(d => `- **${d.name}**: ${d.description}`).join('\n');
+
+export const PROJECT_BASIC_ANALYZE_AGENT_TEMPLATE = (workspace: string) => `# 项目分析与文档目录生成
 
 ## 角色定义
-您是一位资深的软件架构分析师，具备卓越的仓库架构洞察能力，能够基于项目结构、技术栈与文档模式，全面评估项目的技术特征与架构模式。
+您是资深软件架构分析师，负责快速评估项目特征并确定需要生成的文档列表。
 
 ## 核心任务
-深度解析目标仓库的技术架构、业务定位与开发模式，提供全面的项目技术特征分析。
-
-## 输入参数
-
-### 必须读取的文件
-- **项目根目录文件**：README.md、package.json、requirements.txt、Cargo.toml等核心配置
-- **配置文件**：tsconfig.json、pyproject.toml、Dockerfile、CI/CD配置等
-- **完整目录结构**：通过\`list_files\`工具获取的项目全貌
-
-## 项目特征分析框架
-
-### 项目类型参考（用于特征描述）
-基于项目的技术特征与使用场景，可参考以下类型进行特征描述：
-
-#### 应用程序型
-**技术特征**：
-- 具备完整的用户界面或服务端点
-- 可独立部署运行
-- 实现特定业务逻辑
-- 直接服务于终端用户
-
-#### 框架型
-**技术特征**：
-- 定义标准化的开发模式与架构范式
-- 提供核心抽象层与开发约定
-- 支持插件扩展与生命周期管理
-- 面向开发者生态系统的基础设施
-
-#### 库型
-**技术特征**：
-- 通过包管理器被其他项目引用
-- 聚焦特定功能领域
-- 提供清晰的API接口契约
-- 主要用于功能集成与扩展
-
-#### 开发工具型
-**技术特征**：
-- 服务于开发工作流优化
-- 在构建期或开发期发挥作用
-- 显著提升开发效率与质量
-- 面向开发过程的工具链
-
-#### 命令行工具型
-**技术特征**：
-- 提供命令行交互界面
-- 可独立执行特定任务
-- 解决特定场景的痛点问题
-- 面向终端用户的工具集
-
-#### DevOps配置型
-**技术特征**：
-- 专注于服务部署与运维保障
-- 配置文件与脚本密集型
-- 实现自动化运维工作流
-- 面向基础设施的配置管理
-
-#### 文档型
-**技术特征**：
-- 以markdown/文本/静态站点为主
-- 侧重教育与参考价值
-- 包含最少的可执行代码
-- 面向知识传播与共享
-
-## 分析方法论
-
-### 结构分析
-1. 目录模式识别（src/、app/、lib/、tools/、bin/、.github/、docs/、examples/）
-2. 配置文件审查（package.json、requirements.txt、Dockerfile、CI配置）
-3. 技术栈识别（编程语言、框架、构建工具）
-4. 入口点定位（主文件、可执行文件、文档入口）
-
-### 文档分析
-1. 核心目的提取（从项目描述中识别主要目标）
-2. 使用模式识别（项目如何被使用/集成/消费）
-3. 目标受众定位（开发者/终端用户/学习者/运维人员）
-4. 关键词术语分析（与项目特征相关的核心术语）
-5. 安装复杂度评估（配置与部署的难易程度）
-6. 示例演示审查（提供的示例与演示质量）
-
-### 多维度评估
-基于以下维度进行项目特征评估：
-- 技术架构：核心结构、入口点、文件类型分布
-- 配置体系：包管理配置、构建系统、部署设置
-- 文档质量：README质量、项目目标、使用示例
-- 依赖关系：框架依赖、外部工具需求
-- 使用场景：安装方式、集成模式、使用场景
-
-### 综合分析逻辑
-1. 多维度证据加权计算
-2. 技术特征综合分析
-3. 跨维度一致性验证
-4. 技术架构模式识别
+分析目标仓库的技术架构和特征，输出文档目录（8个必选 + 项目相关的可选文档）。
 
 ## 执行流程
 
-### 步骤1：项目概览分析
-- 使用\`list_files\`工具获取完整项目结构
-- 使用\`read_file\`工具解析关键配置文件
-- 识别项目技术栈与基本特征
+### 步骤1：快速扫描
+使用 \`list_files\` 工具获取项目目录结构，重点关注：
+- 根目录配置文件（package.json, requirements.txt, go.mod等）
+- 源代码目录结构（src/, lib/, app/等）
+- 测试目录（test/, __tests__/）
+- 部署配置（Dockerfile, docker-compose.yml, k8s/）
 
-### 步骤2：深度结构分析
-- 解析目录结构与文件组织模式
-- 识别核心入口点与主要组件
-- 评估代码与文档的分布比例
+### 步骤2：读取关键文件
+使用 \`read_file\` 工具读取：
+1. **README.md** - 项目说明
+2. **package.json / requirements.txt / go.mod** - 依赖信息
+3. **主入口文件** - 了解项目类型
 
-### 步骤3：综合特征分析
-- 应用多维度评估系统进行量化分析
-- 构建项目技术特征画像
-- 提供分析依据与关键证据
+### 步骤3：技术栈识别
+从依赖文件中识别：
+- 编程语言和框架
+- 数据库、缓存、消息队列
+- 其他中间件
+
+### 步骤4：多维证据盘点
+为确保输出可信，请针对以下维度记录证据（每个维度至少1条）：
+- **架构结构**：分层/目录模式/框架入口
+- **配置体系**：构建脚本、环境配置、CI/CD
+- **业务功能**：service/api/handler 等核心业务代码
+- **数据与集成**：数据库、缓存、消息队列、外部API
+- **复杂度与风险**：代码规模、语言混用、生成脚本、遗留风险
+
+每条证据需包含“观察描述 + 相关文件/目录”。
+
+### 步骤5：项目规模评估
+**快速判断**（无需精确统计）：
+- 从 environment_details 中观察文件列表，判断项目规模
+- 如无法判断，执行简单命令估算
+- 分类：小型/中型/大型
+
+**注意**：不要用 list_files 递归统计或写代码统计
+
+### 步骤6：确定可选文档
+**自主思考**项目需要哪些可选文档。
+
+#### 必选文档（8个，必须全部生成）
+${requiredDocsStr}
+
+#### 可选文档示例（仅供参考，可自行扩展）
+${optionalExamplesStr}
+
+${OPTIONAL_DOC_EXTENSION_GUIDE}
+
+**思考要点**：
+1. 项目有哪些独特/复杂的模块值得单独文档？
+2. 哪些内容对AI生成代码有重要参考价值？
+3. 可以添加示例中没有的文档，只要对AI有价值
+
+### 步骤7：生成文档目录
+输出最终的文档列表。
 
 ## 输出要求
 
 ### 输出文件
-- **项目分析结果文件**：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
+\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`
 
-### 内容格式
+### 输出格式
 
 \`\`\`json
 {
-  "classifyName": "Applications/Frameworks/Libraries等",
-  "confidence": "高/中/低",
-  "techStack": ["技术栈1", "技术栈2"],
+  "projectName": "项目名称",
+  "projectType": "应用程序/库/框架/工具",
   "projectScale": "小型/中型/大型",
-  "entrypoints": ["入口1","入口2"],
-  "modules": [
-    { "name": "[模块名1]",
-      "relatedSources": ["相关文件或目录1", "相关文件或目录2"]
+  "techStack": {
+    "language": "TypeScript",
+    "framework": "NestJS",
+    "database": ["PostgreSQL"],
+    "cache": ["Redis"],
+    "messageQueue": ["Kafka"],
+    "otherDeps": []
+  },
+  "summary": "项目简要描述（100字以内）",
+  "analysisEvidence": [
+    {
+      "dimension": "架构结构",
+      "observations": [
+        "src/api + src/service 呈现分层结构",
+        "internal/daemon 目录表明存在后台任务"
+      ],
+      "relatedSources": ["src/api/", "src/service/", "internal/daemon/"]
     },
-    { "name": "[模块名2]",
-      "relatedSources": ["相关文件或目录1", "相关文件或目录2"]
+    {
+      "dimension": "配置体系",
+      "observations": [
+        "Dockerfile 和 docker-compose.yml 用于容器化",
+        ".github/workflows/ci.yml 定义 CI 流程"
+      ],
+      "relatedSources": ["Dockerfile", "docker-compose.yml", ".github/workflows/"]
     }
   ],
-  "complexityLevel": "低/中/高",
-  "recommendedStrategy": "快速/标准/深度",
-  "evidence": ["支持分析的关键证据1", "支持分析的关键证据2"],
-  "summary": "[项目摘要内容]"
+  "documents": [
+    {
+      "id": "01",
+      "name": "项目概览",
+      "filename": "01_项目概览.md",
+      "template": "01_overview-doc",
+      "required": true,
+      "description": "项目基础信息、技术栈、快速上手",
+      "relatedSources": ["README.md", "package.json", "src/"]
+    },
+    {
+      "id": "02",
+      "name": "代码架构",
+      "filename": "02_代码架构.md",
+      "template": "02_architecture-doc",
+      "required": true,
+      "description": "目录结构、模块划分、依赖关系",
+      "relatedSources": ["src/"]
+    },
+    {
+      "id": "03",
+      "name": "业务流程",
+      "filename": "03_业务流程.md",
+      "template": "03_business-flow-doc",
+      "required": true,
+      "description": "核心业务链路（跨文件追踪调用链）",
+      "relatedSources": ["src/service/", "src/api/"]
+    },
+    {
+      "id": "04",
+      "name": "API接口文档",
+      "filename": "04_API接口文档.md",
+      "template": "04_api-doc",
+      "required": true,
+      "description": "所有对外/内部API定义",
+      "relatedSources": ["src/api/", "src/routes/"]
+    },
+    {
+      "id": "05",
+      "name": "数据存储",
+      "filename": "05_数据存储.md",
+      "template": "05_data-storage-doc",
+      "required": true,
+      "description": "数据库表结构、缓存Key设计",
+      "relatedSources": ["src/models/", "src/entity/"]
+    },
+    {
+      "id": "06",
+      "name": "编码规范",
+      "filename": "06_编码规范.md",
+      "template": "06_coding-standard-doc",
+      "required": true,
+      "description": "代码风格、命名规范、复用规范",
+      "relatedSources": [".eslintrc", "tsconfig.json"]
+    },
+    {
+      "id": "07",
+      "name": "测试指南",
+      "filename": "07_测试指南.md",
+      "template": "07_testing-guide-doc",
+      "required": true,
+      "description": "测试框架、用例规范、Mock方式",
+      "relatedSources": ["test/", "jest.config.js"]
+    },
+    {
+      "id": "08",
+      "name": "构建部署",
+      "filename": "08_构建部署.md",
+      "template": "08_build-deploy-doc",
+      "required": true,
+      "description": "构建命令、CI/CD、环境配置",
+      "relatedSources": ["Dockerfile", ".github/workflows/"]
+    }
+  ],
+  "optionalDocuments": [
+    {
+      "id": "09",
+      "name": "中间件集成",
+      "filename": "09_中间件集成.md",
+      "template": "10_middleware-doc",
+      "required": false,
+      "description": "Redis缓存和Kafka消息队列使用方式",
+      "relatedSources": ["src/config/redis.ts", "src/mq/"],
+      "reason": "项目使用Redis和Kafka，需要说明使用方式"
+    }
+  ]
 }
 \`\`\`
+
+## 关键要求
+
+### 必选文档
+- 8个必选文档**必须全部包含**在 documents 数组中
+- relatedSources 填写项目中**实际存在**的目录/文件
+- analysisEvidence 至少覆盖3个不同维度，每条证据引用真实路径
+
+### 可选文档
+- 根据项目特点**自主决定**需要哪些
+- 每个可选文档必须有 **reason** 说明价值
+- 编号接续必选文档之后（09、10、11...）
+- 如有专用模板则使用，否则用 "00_default-doc"
+- **可以添加示例中没有的文档**
+
+### 禁止事项
+1. 禁止删减必选文档
+2. 禁止编造不存在的文件路径或证据
+3. 禁止添加对AI无价值的文档
+
+## 验证清单
+输出前检查：
+1. [ ] documents 包含全部8个必选文档？
+2. [ ] relatedSources 都是真实存在的路径？
+3. [ ] 每个可选文档都有明确的 reason？
+4. [ ] techStack 信息完整准确？
 `;

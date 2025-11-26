@@ -1,123 +1,143 @@
-// Costrict Wiki v2 重构版本 - 真正可执行的智能代码仓库分析系统
-// 整合所有高价值组件，实现完整的分析流程
+// Costrict Wiki v3 - 固定文档体系版本
+// 8个必选文档 + 可选文档（模型自主决定）
 
 import {
   WIKI_OUTPUT_FILE_PATHS,
   SUBTASK_FILENAMES,
   subtaskDir,
   COMMON_RULES,
+  REQUIRED_DOCS,
 } from './common/constants';
 
+// 生成必选文档列表
+const requiredDocsDisplay = REQUIRED_DOCS.map(d => 
+  `    - ${d.id}: ${d.name} → ${d.filename}`
+).join('\n');
 
-
-// 主要执行模板 - 完全重写版本，整合任务调度功能
 export const PROJECT_WIKI_TEMPLATE = (workspace: string) => `
-# 🚀 智能代码仓库分析和文档生成
+# 智能代码仓库分析和文档生成
 
 ## 前置步骤（强制执行）
-确保当前处于\`📋 Orchestrator\`模式，如果不是，使用\`switch_mode\`切换到\`Orchestrator\`模式\`,然后执行后续任务。
+确保当前处于\`📋 Orchestrator\`模式，如果不是，使用\`switch_mode\`切换到\`Orchestrator\`模式，然后执行后续任务。
 
 ## 角色定义
-您是一位**任务协调专家**（Orchestrator），专门负责：
+您是**任务协调专家**（Orchestrator），负责：
 - **任务分解与调度**：将复杂任务分解为可执行的子任务序列
-- **流程控制**：确保子任务按正确顺序执行，处理依赖关系
-- **进度跟踪**：监控各子任务执行状态，确保整体进度
-- **质量把关**：验证子任务输出质量，确保符合标准
-- **异常处理**：识别并处理执行过程中的异常情况
+- **流程控制**：确保子任务按正确顺序执行
+- **进度跟踪**：监控各子任务执行状态
+- **质量把关**：验证子任务输出质量
 
 ## 任务目标
-协调完成对工作区 \`${workspace}\` 的**智能代码仓库分析和文档生成**，实现以下目标：
-- **生成高质量技术文档**：包括项目分析、开发规范、索引文件等
-- **提升AI代码生成精准性**：通过分析代码结构和文档，为AI代码生成提供更准确的项目上下文信息
-- **建立开发标准**：为项目提供统一的开发规范和最佳实践
-- **加速团队协作**：为新开发者提供快速上手的指导文档
+为工作区 \`${workspace}\` 生成一套完整的技术文档，服务于：
+1. **AI 代码生成**：通过文档理解项目结构和规范
+2. **AI 测试编写**：了解测试框架和规范
+3. **AI 构建运行**：理解构建和部署流程
+4. **人工校验**：Markdown 格式便于人工阅读和校验
 
-## 📋 详细执行步骤
+## 文档体系（v3 固定版）
 
-**执行要点**：
-- **模式切换**：必须先切换到\`📋 Orchestrator\`模式
-- **严格顺序**：所有子任务必须按顺序执行，不得跳跃
-- **子任务委托**：每个子任务使用\`new_task\`工具创建子任务，执行模式统一\`💻 Code\`
-- **协调管理**：Orchestrator 负责协调和跟踪进度
-- **上下文管理**：通过子任务分解避免上下文累积过长
-- **完成确认**：每个子任务完成后声明"子任务X已完成"
-- **任务返回**： 每个子任务需使用\`attempt_completion\`工具返回关键信息，供父任务传递到后续子任务使用
-- **文件输出**：每个子任务必须生成对应文件，并输出到指定目录
-- **结构化子任务**：每个子任务必须按照以下结构化模板进行编写，并根据任务需求传入相关参数
+### 必选文档（8个，必须生成）
+${requiredDocsDisplay}
 
-**子任务创建模板**：
+### 可选文档（模型根据项目特点自主决定）
+    - 示例：服务通信、中间件集成、安全认证、前端组件、领域模型等
+    - 可自行扩展：支付集成、定时任务、WebSocket、文件存储等
+
+## 执行流程
+
+### 子任务1：项目分析与文档目录生成
 \`\`\`yaml
 new_task:
     mode: 💻 Code
     message: |
-      **{子任务名称}**
+      **项目分析与文档目录生成**
       ## Role
-        {角色定义}
+        项目分析专家，快速评估项目特征并确定文档列表
       ## Instructions
-        1. 使用 \`read_file\`工具读取指令文件内容并严格遵循：
-           \`{指令文件路径}\`
-        2. 根据上一步读取到的任务指令，规划 \`todo_list\` 待办项，逐个执行
-        3. {其它指令}
+        1. 使用 \`read_file\` 工具读取指令文件：\`${subtaskDir}${SUBTASK_FILENAMES.PROJECT_ANALYZE_AGENT}\`
+        2. 按照指令分析项目并生成文档目录
+        3. 输出包含8个必选文档 + 可选文档的完整列表
       ## Rules
         ${COMMON_RULES}
-        4. 必须使用 \`read_file\` 工具读取指令文件，严格按照指令文件中的指令执行
-        5. {其他注意事项}
+      ## Output
+        输出到：\`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`
+\`\`\`
+
+### 任务2：读取文档列表
+1. 使用 \`switch_mode\` 工具切换到 \`💻 Code\` 模式
+2. 使用 \`read_file\` 工具读取 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`
+3. 解析文档列表，准备创建文档生成子任务
+4. 使用 \`switch_mode\` 工具切换回 \`📋 Orchestrator\` 模式
+
+### 子任务3.1 ~ 3.N：文档生成（动态创建）
+根据任务2读取到的文档列表，为每个文档创建一个子任务：
+
+\`\`\`yaml
+new_task:
+    mode: 💻 Code
+    message: |
+      **文档生成 - {文档名称}**
+      ## Role
+        技术文档撰写专家
+      ## Instructions
+        1. 使用 \`read_file\` 工具读取指令文件：\`${subtaskDir}${SUBTASK_FILENAMES.DOCUMENT_GENERATION_AGENT}\`
+        2. 按照指令中的模板路由，找到对应的专用模板
+        3. 根据模板指令生成文档
       ## Input
-        {输入参数}    
-      ## Background
-        {背景信息}
+        - docId: "{文档编号}"
+        - docName: "{文档名称}"
+        - docFilename: "{文档文件名}"
+        - template: "{模板ID}"
+        - description: "{文档描述}"
+        - relatedSources: [{相关源文件列表}]
+      ## Rules
+        ${COMMON_RULES}
+        - 每个结论必须标注代码来源
+        - 禁止编造内容
+      ## Output
+        输出到：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}{文档文件名}\`
 \`\`\`
 
-### 子任务1：📊 项目分类分析
-子任务指令文件路径：\`${subtaskDir}${SUBTASK_FILENAMES.PROJECT_CLASSIFICATION_AGENT}\`
-
-### 子任务2：🗂️ 文档结构生成
-子任务指令文件路径：\`${subtaskDir}${SUBTASK_FILENAMES.THINK_CATALOGUE_AGENT}\`
-
-### 任务3：读取文档结构定义
-1. 使用\`swtich_mode\` 工具切换到\`💻 Code\`模式
-2. 使用\`read_file\`工具读取 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\ 文件，供后续任务使用
-4. 使用\`switch_mode\` 工具再次切换回 \`📋 Orchestrator\`模式
-
-### 🔄 子任务动态分解
-分析任务3读取到的json格式的文档结构定义，使用\`new_task\`工具创建N（N=文档数量）个文档生成子任务，每个子任务负责一个文档的生成。
 **注意**：
-1. 一个顶层的json object元素对应一个文档，json array 长度就是总文档个数。即：
-\`\`\`json
-[ {
-    文档1
-  }, 
-  {
-    文档2
-  },
-  ...
-]
+- 必须为每个文档创建独立的子任务
+- 文档信息从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取
+- 按文档编号顺序执行
+
+### 子任务4：索引文件生成
+\`\`\`yaml
+new_task:
+    mode: 💻 Code
+    message: |
+      **索引文件生成**
+      ## Role
+        文档索引专家
+      ## Instructions
+        1. 使用 \`read_file\` 工具读取指令文件：\`${subtaskDir}${SUBTASK_FILENAMES.INDEX_GENERATION_AGENT}\`
+        2. 扫描已生成的文档
+        3. 生成索引文件
+      ## Rules
+        ${COMMON_RULES}
+        - 只列出实际存在的文档
+      ## Output
+        输出到：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.DOCUMENT_INDEX_MD}\`
 \`\`\`
-2.子任务必须输入的信息：
-  - 文档核心信息：从任务3读到的文档中，提取到的与本子任务相关内容
-  - 文档子任务指令模板路径：\`${subtaskDir}${SUBTASK_FILENAMES.DOCUMENT_GENERATION_AGENT}\`
-
-### 子任务4.1：📋 文档生成-1
-    ...
-
-... (需要动态创建的文档生成子任务)
-
-#### 子任务4.N：📋 文档生成-N
-    ...
-
-### 子任务5: 🔍 索引文件生成
-子任务指令文件路径：\`${subtaskDir}${SUBTASK_FILENAMES.INDEX_GENERATION_AGENT}\`
 
 ## 完成标准
-当以下条件全部满足时，任务执行完成：
-1. 所有子任务都已执行完成
-2. 生成了所有必需的输出文件
-3. 上下文信息完整且一致
-4. 输出质量符合标准要求
-5. 错误处理记录完整
 
-现在请开始执行任务调度器的职责，协调完成对工作区 \`${workspace}\` 的完整分析。请确保每个子任务都完整执行，并在遇到错误时应用智能重试机制。最终输出应该是一套完整、高质量的技术文档和分析报告。
+当以下条件全部满足时，任务执行完成：
+1. ✅ 文档目录已生成（8个必选 + 可选文档）
+2. ✅ 所有文档已生成到 \`${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}\`
+3. ✅ 索引文件已生成
+4. ✅ 每个文档都有代码来源标注
+
+## 质量要求
+
+- **文档服务AI**：优先满足AI理解和使用的需求
+- **代码可追溯**：每个结论、图表、代码示例都要标注来源
+- **禁止编造**：所有内容必须基于实际代码
+- **格式规范**：统一使用 Markdown 格式
+
+现在开始执行任务调度，协调完成对工作区 \`${workspace}\` 的完整文档生成。
 `;
 
-// 导出重构后的主模板
 export default PROJECT_WIKI_TEMPLATE;
