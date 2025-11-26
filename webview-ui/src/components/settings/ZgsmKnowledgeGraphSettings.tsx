@@ -36,20 +36,17 @@ const OPERATION_TIMEOUT = KNOWLEDGE_GRAPH_UI_CONFIG.OPERATION_TIMEOUT
 type UIState = {
 	knowledgeGraphStatus: KnowledgeGraphBuildState
 	isOperating: boolean
-	toggleError: string | null
 }
 
 type UIAction =
 	| { type: "UPDATE_STATUS"; payload: KnowledgeGraphBuildState }
 	| { type: "SET_OPERATING"; payload: boolean }
-	| { type: "SET_TOGGLE_ERROR"; payload: string | null }
 	| { type: "RESET_TO_DEFAULT" }
 
 // UI Action 类型常量
 const UI_ACTIONS = {
 	UPDATE_STATUS: "UPDATE_STATUS",
 	SET_OPERATING: "SET_OPERATING",
-	SET_TOGGLE_ERROR: "SET_TOGGLE_ERROR",
 	RESET_TO_DEFAULT: "RESET_TO_DEFAULT",
 } as const
 
@@ -78,8 +75,6 @@ const uiStateReducer = (state: UIState, action: UIAction): UIState => {
 			}
 		case UI_ACTIONS.SET_OPERATING:
 			return { ...state, isOperating: action.payload }
-		case UI_ACTIONS.SET_TOGGLE_ERROR:
-			return { ...state, toggleError: action.payload }
 		case UI_ACTIONS.RESET_TO_DEFAULT:
 			return {
 				...state,
@@ -143,7 +138,6 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 	const [uiState, dispatch] = useReducer(uiStateReducer, {
 		knowledgeGraphStatus: initialStatus || createDefaultBuildState(),
 		isOperating: false,
-		toggleError: null,
 	})
 
 	// 检查是否为支持的API提供者 - 使用共享常量
@@ -157,9 +151,8 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		() =>
 			!isZgsmProvider ||
 			!cwd ||
-			uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING ||
-			uiState.isOperating,
-		[isZgsmProvider, cwd, uiState.knowledgeGraphStatus.status, uiState.isOperating],
+			uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING,
+		[isZgsmProvider, cwd, uiState.knowledgeGraphStatus.status],
 	)
 
 
@@ -244,20 +237,9 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		}
 	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, getStatusOnce])
 
-	// 使用 ref 追踪最后操作时间，防止短时间内重复触发
-	const lastOperationTimeRef = useRef<number>(0)
-	const DEBOUNCE_TIME = 500 // 500ms 内不允许重复操作
-
+	// 知识图谱开关处理 - 使用统一的状态管理机制
 	const handleKnowledgeGraphToggle = useCallback(
 		(e: any) => {
-			const now = Date.now()
-			const timeSinceLastOperation = now - lastOperationTimeRef.current
-
-			// 时间戳防抖：500ms 内不允许重复操作
-			if (timeSinceLastOperation < DEBOUNCE_TIME) {
-				return
-			}
-
 			// e.preventDefault may not exist in tests
 			if (e && e.preventDefault) {
 				e.preventDefault()
@@ -266,7 +248,7 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 				e.stopPropagation()
 			}
 
-			if (uiState.isOperating) {
+			if (!setCachedStateField) {
 				return
 			}
 
@@ -280,12 +262,10 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 						? target._checked
 						: !knowledgeGraphEnabled
 
-			lastOperationTimeRef.current = now
-			dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
-			// Send message to extension directly without confirmation dialog
-			sendMessage(KNOWLEDGE_GRAPH_MESSAGES.ENABLED, { bool: newChecked })
+			// 更新缓存状态，等待用户点击 Save 按钮
+			setCachedStateField(KNOWLEDGE_GRAPH_FIELDS.ENABLED, newChecked)
 		},
-		[knowledgeGraphEnabled, sendMessage, uiState.isOperating],
+		[knowledgeGraphEnabled, setCachedStateField],
 	)
 
 	// 防抖的操作函数 - 统一状态检查和防重复点击
@@ -381,28 +361,9 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 
 				// 更新状态 - 使用状态机
 				dispatch({ type: UI_ACTIONS.UPDATE_STATUS, payload: statusInfo })
-			} else if (message.type === KNOWLEDGE_GRAPH_MESSAGES.ENABLED && setCachedStateField) {
-				// 处理启用/禁用响应
-				// 无论成功失败，都需要重置操作状态
-				dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: false })
-
-				if (message.error) {
-					console.error("Knowledge Graph Toggle Error:", message.error)
-					dispatch({ type: UI_ACTIONS.SET_TOGGLE_ERROR, payload: message.error })
-					// 强制设置为 false
-					setCachedStateField(KNOWLEDGE_GRAPH_FIELDS.ENABLED, false)
-				} else {
-					dispatch({ type: UI_ACTIONS.SET_TOGGLE_ERROR, payload: null })
-					setCachedStateField(KNOWLEDGE_GRAPH_FIELDS.ENABLED, message.payload)
-
-					// 当知识图谱被启用时，立即获取状态（避免重复轮询逻辑）
-					if (message.payload && isZgsmProvider && cwd) {
-						getStatusOnce()
-					}
-				}
 			}
 		},
-		[setCachedStateField, getStatusOnce, isZgsmProvider, cwd],
+		[],
 	)
 
 	useEvent("message", handleMessage)
@@ -434,14 +395,6 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 			</SectionHeader>
 
 			<Section>
-				{uiState.toggleError && (
-					<div className="mb-4 p-2 bg-vscode-textBlockQuote-background border border-vscode-input-border rounded">
-						<div className="flex items-center gap-2">
-							<AlertCircle className="w-4 h-4 text-red-500" />
-							<span className="text-sm text-vscode-errorForeground">{uiState.toggleError}</span>
-						</div>
-					</div>
-				)}
 				<div className={`space-y-6 ${shouldDisableAll ? "opacity-50" : ""}`}>
 					{/* Knowledge Graph Status Section */}
 					<div

@@ -93,10 +93,11 @@ export class KnowledgeGraphMessageHandler {
     }
   }
 
-  /**
-   * 处理启用/禁用消息 - 重构版本，职责简化
-   */
-  private async handleEnabledMessage(message: any): Promise<void> {
+	/**
+	 * 处理启用/禁用消息 - 简化版本，使用单一数据源
+	 * 移除冗余的状态同步，只通过 postStateToWebview 统一同步
+	 */
+	private async handleEnabledMessage(message: any): Promise<void> {
   	const isEnabled = message.bool ?? false
   	
   	try {
@@ -107,32 +108,22 @@ export class KnowledgeGraphMessageHandler {
   		// 委托给Manager处理核心业务逻辑
   		await knowledgeGraphManager.setKnowledgeGraphEnabled(isEnabled)
   		
-  		// 同步状态到前端（确保 extensionState 更新）
+  		// 统一通过 postStateToWebview 同步状态到前端
+  		// 这会触发前端的 ExtensionState 更新，包括 knowledgeGraphEnabled 字段
   		await this.clineProvider.postStateToWebview()
   		
-  		// 发送成功响应到 webview
-  		this.clineProvider.postMessageToWebview({
-  			type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
-  			payload: isEnabled,
-  		})
+  		this.logger.info(`[KnowledgeGraphMessageHandler] 知识图谱状态已切换: ${isEnabled}`)
   		
   	} catch (error) {
-  		// 修复 #7: 统一错误处理
+  		// 统一错误处理
   		const wrappedError = ErrorHandler.wrapError(error, "切换知识图谱状态")
   		this.logger.error(`[KnowledgeGraphMessageHandler] ${ErrorHandler.formatError(wrappedError)}`)
   		
-  		// 获取当前实际状态（可能回滚了）
-  		const currentEnabled = await knowledgeGraphManager.isKnowledgeGraphEnabled()
- 
-  		// 同步状态到前端
+  		// 同步实际状态到前端（可能已回滚）
   		await this.clineProvider.postStateToWebview()
   		
-  		// 发送错误响应，并附带错误信息和当前实际状态
-  		this.clineProvider.postMessageToWebview({
-  			type: KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
-  			payload: currentEnabled,
-  			error: wrappedError.message
-  		})
+  		// 通知用户错误
+  		throw wrappedError
   	}
   }
 
@@ -150,7 +141,8 @@ export class KnowledgeGraphMessageHandler {
         return
       }
       
-      this.logger.warn(`[KnowledgeGraphMessageHandler] 未获取到知识图谱状态，使用默认状态`)
+      // 在启用/禁用切换期间，状态跟踪器可能还未初始化，这是正常的过渡状态
+      this.logger.debug(`[KnowledgeGraphMessageHandler] 知识图谱状态未初始化，返回默认状态`)
       
       // 返回默认状态
       this.sendStatusResponse(DEFAULT_BUILD_STATE)

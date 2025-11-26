@@ -76,6 +76,22 @@ import { fetchZgsmQuotaInfo, fetchZgsmInviteCode } from "../../api/providers/fet
 import { getKnowledgeGraphMessageHandler, isKnowledgeGraphMessageHandlerInitialized } from "../knowledge-graph/knowledgeGraphMessageHandler"
 import { KNOWLEDGE_GRAPH_MESSAGES } from "@roo-code/types"
 
+/**
+ * 知识图谱消息路由表 - 使用 Set 提高查找效率，减少代码侵入性
+ * 所有知识图谱相关的消息类型都在这里声明，避免在主 switch 中添加多个 case
+ */
+const KNOWLEDGE_GRAPH_MESSAGE_TYPES = new Set<string>([
+	KNOWLEDGE_GRAPH_MESSAGES.ENABLED,
+	KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS,
+	KNOWLEDGE_GRAPH_MESSAGES.BUILD,
+	KNOWLEDGE_GRAPH_MESSAGES.PAUSE,
+	KNOWLEDGE_GRAPH_MESSAGES.RESUME,
+	KNOWLEDGE_GRAPH_MESSAGES.CLEAR,
+	KNOWLEDGE_GRAPH_MESSAGES.OPEN_GRAPH_VIEW,
+	KNOWLEDGE_GRAPH_MESSAGES.GET_GRAPH_DATA,
+	KNOWLEDGE_GRAPH_MESSAGES.OPEN_FILE,
+])
+
 export const webviewMessageHandler = async (
 	provider: ClineProvider,
 	message: WebviewMessage,
@@ -437,6 +453,29 @@ export const webviewMessageHandler = async (
 			await handleDeleteOperation(messageTs)
 		} else if (operation === "edit" && editedContent) {
 			await handleEditOperation(messageTs, editedContent, images)
+		}
+	}
+
+	// 知识图谱消息路由 - 在进入主 switch 之前拦截处理
+	// 这样可以避免在主 switch 中添加多个 case 语句，减少代码侵入性
+	if (KNOWLEDGE_GRAPH_MESSAGE_TYPES.has(message.type)) {
+		try {
+			const handler = getKnowledgeGraphMessageHandler(provider)
+			await handler.handleMessage(message)
+			return // 处理完成后直接返回，不再进入主 switch
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : "处理知识图谱消息失败"
+			provider.log(`[KnowledgeGraph] ${errorMessage}`)
+			
+			// 发送错误响应到前端
+			await provider.postMessageToWebview({
+				type: KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE,
+				payload: {
+					success: false,
+					error: errorMessage,
+				},
+			})
+			return
 		}
 	}
 
@@ -3609,35 +3648,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		}
-		case KNOWLEDGE_GRAPH_MESSAGES.ENABLED:
-		case KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS:
-		case KNOWLEDGE_GRAPH_MESSAGES.BUILD:
-		case KNOWLEDGE_GRAPH_MESSAGES.PAUSE:
-		case KNOWLEDGE_GRAPH_MESSAGES.RESUME:
-		case KNOWLEDGE_GRAPH_MESSAGES.CLEAR:
-		// 修复 #3: 使用常量而不是字符串字面量
-		case KNOWLEDGE_GRAPH_MESSAGES.OPEN_GRAPH_VIEW:
-		case KNOWLEDGE_GRAPH_MESSAGES.GET_GRAPH_DATA:
-		case KNOWLEDGE_GRAPH_MESSAGES.OPEN_FILE: {
-			// 使用知识图谱消息处理器处理所有知识图谱相关消息
-			try {
-				// 修复 #2: 使用改进的单例模式，自动初始化
-				const handler = getKnowledgeGraphMessageHandler(provider)
-				await handler.handleMessage(message)
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : "处理知识图谱消息失败"
-				// provider.log(errorMessage, "error", "KnowledgeGraphMessageHandler")
-				
-				// 发送错误响应
-				await provider.postMessageToWebview({
-					type: KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE,
-					payload: {
-						success: false,
-						error: errorMessage,
-					},
-				})
-			}
-			break
-		}
+		// 知识图谱消息已经在主 switch 之前通过路由模式处理
+		// 所有 KNOWLEDGE_GRAPH_MESSAGES.* 消息类型都在路由表中定义
 	}
 }
