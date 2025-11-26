@@ -25,6 +25,7 @@ import { GraphBuilder } from "./core/GraphBuilder"
 import { GraphRetriever } from "./core/GraphRetriever"
 import { BuildStateTracer } from "./core/BuildStateTracer"
 import { StorageFactory } from "./storage/StorageFactory"
+import { IStorage } from "./storage/IStorage"
 import { ErrorHandler } from "./errors/ErrorHandler"
 import { ProgressTracer } from "./tools/ProgressTracer"
 import { isKnowledgeGraphSupported, getKnowledgeGraphEnabledState } from "./utils"
@@ -49,9 +50,7 @@ export async function activateKnowledgeGraph(
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : "激活知识图谱功能失败"
 		logger.error(`[KnowledgeGraphManager] 激活失败: ${errorMessage}`)
-
-		// 显示错误提示
-		vscode.window.showErrorMessage(`知识图谱功能激活失败: ${errorMessage}`)
+		// 不再弹出错误提示给用户，只记录日志
 	}
 }
 
@@ -83,6 +82,10 @@ export class KnowledgeGraphManager {
 	private stateTracer: BuildStateTracer | undefined
 	private graphRetriever: GraphRetriever | undefined
 	private exporter: Exporter | undefined
+
+	// 存储实例
+	private fileStorage?: IStorage      // 用于根信息和状态
+	private sqliteStorage?: IStorage    // 用于文件摘要和目录摘要
 
 	// ✅ 全局操作互斥锁：确保同一时间只有一个操作在执行
 	private operationMutex = new Mutex()
@@ -244,14 +247,16 @@ export class KnowledgeGraphManager {
 	 */
 	private async initializeComponents(workspacePath: string): Promise<void> {
 		try {
-			// 1. 创建基础服务
-			const { storage, fileService, llmClient, progressTracer } = await this.createBaseServices(workspacePath)
+			// 1. 创建基础服务（包含两个存储实例）
+			const { fileStorage, sqliteStorage, fileService, llmClient, progressTracer } = 
+				await this.createBaseServices(workspacePath)
 
-			// 2. 创建分析器
-			const { rootAnalyzer, fileSummarizer, directorySummarizer } = this.createAnalyzers(llmClient, storage)
+			// 2. 创建分析器（传入两个存储）
+			const { rootAnalyzer, fileSummarizer, directorySummarizer } = 
+				this.createAnalyzers(llmClient, fileStorage, sqliteStorage)
 
-			// 3. 创建状态跟踪器
-			const stateTracer = await this.createStateTracer(storage)
+			// 3. 创建状态跟踪器（使用 JSON 文件存储）
+			const stateTracer = await this.createStateTracer(fileStorage)
 
 			// 4. 创建图构建器
 			this.graphBuilder = this.createGraphBuilder(stateTracer, {
@@ -291,25 +296,52 @@ export class KnowledgeGraphManager {
 			this.logger!,
 		)
 		const fileService = new FileService(fileFilter, this.logger!)
-		const storage = StorageFactory.createStorage({
-			type: this.config.storageType,
-			path: StorageFactory.getWorkspaceStoragePath(workspacePath),
+		
+		// 获取存储路径
+		const storagePath = StorageFactory.getWorkspaceStoragePath(workspacePath)
+		
+		// 创建 JSON 文件存储（用于根信息和状态）
+		this.fileStorage = StorageFactory.createStorage({
+			type: 'file',
+			path: storagePath
 		})
+		
+		// 创建 SQLite 存储（用于文件摘要和目录摘要）
+		this.sqliteStorage = StorageFactory.createStorage({
+			type: 'database',
+			path: storagePath
+		})
+		
+		// 初始化两个存储
+		await this.fileStorage.initialize()
+		await this.sqliteStorage.initialize()
+		
 		const llmClient = new LLMClient(this.config.model, progressTracer, undefined, this.logger!)
 
-		return { storage, fileService, llmClient, progressTracer }
+		return { 
+			fileStorage: this.fileStorage,
+			sqliteStorage: this.sqliteStorage,
+			fileService, 
+			llmClient, 
+			progressTracer 
+		}
 	}
 
 	/**
 	 * 创建分析器
 	 */
-	private createAnalyzers(llmClient: LLMClient, storage: any) {
-		const rootAnalyzer = new RootAnalyzer(llmClient, storage, this.config, this.logger!)
-		const fileSummarizer = new FileSummarizer(llmClient, storage, this.config, this.logger!)
+	private createAnalyzers(llmClient: LLMClient, fileStorage: IStorage, sqliteStorage: IStorage) {
+		// RootAnalyzer 使用 JSON 文件存储
+		const rootAnalyzer = new RootAnalyzer(llmClient, fileStorage, this.config, this.logger!)
+		
+		// FileSummarizer 使用 SQLite 存储
+		const fileSummarizer = new FileSummarizer(llmClient, sqliteStorage, this.config, this.logger!)
+		
+		// DirectorySummarizer 使用 SQLite 存储
 		const directorySummarizer = new DirectorySummarizer(
 			llmClient,
 			fileSummarizer,
-			storage,
+			sqliteStorage,
 			this.config,
 			this.logger!,
 		)
@@ -320,8 +352,8 @@ export class KnowledgeGraphManager {
 	/**
 	 * 创建状态跟踪器
 	 */
-	private async createStateTracer(storage: any): Promise<BuildStateTracer> {
-		const stateTracer = new BuildStateTracer(storage, this.logger!)
+	private async createStateTracer(fileStorage: IStorage): Promise<BuildStateTracer> {
+		const stateTracer = new BuildStateTracer(fileStorage, this.logger!)
 		await stateTracer.init()
 		this.stateTracer = stateTracer
 		return stateTracer
@@ -424,24 +456,38 @@ export class KnowledgeGraphManager {
 	 */
 	private async cleanupComponents(): Promise<void> {
 		try {
-			// 清理存储资源 - 修复资源泄漏问题
-			if (this.stateTracer) {
-				// 获取 storage 并调用 dispose 清理资源（如关闭 WriteStream）
-				const storage = (this.stateTracer as any).storage
-				if (storage && typeof storage.dispose === "function") {
+			// 清理 SQLite 存储资源
+			if (this.sqliteStorage) {
+				if (typeof this.sqliteStorage.dispose === 'function') {
 					try {
-						await storage.dispose()
-						this.logger?.debug("[KnowledgeGraphManager] 存储资源已释放")
+						await this.sqliteStorage.dispose()
+						this.logger?.debug("[KnowledgeGraphManager] SQLite 存储资源已释放")
 					} catch (disposeError) {
 						this.logger?.warn(
-							`[KnowledgeGraphManager] 释放存储资源失败: ${ErrorHandler.formatError(disposeError)}`,
+							`[KnowledgeGraphManager] 释放 SQLite 存储失败: ${ErrorHandler.formatError(disposeError)}`
 						)
 					}
 				}
-				this.stateTracer = undefined
+				this.sqliteStorage = undefined
+			}
+
+			// 清理 JSON 文件存储资源
+			if (this.fileStorage) {
+				if (typeof this.fileStorage.dispose === 'function') {
+					try {
+						await this.fileStorage.dispose()
+						this.logger?.debug("[KnowledgeGraphManager] 文件存储资源已释放")
+					} catch (disposeError) {
+						this.logger?.warn(
+							`[KnowledgeGraphManager] 释放文件存储失败: ${ErrorHandler.formatError(disposeError)}`
+						)
+					}
+				}
+				this.fileStorage = undefined
 			}
 
 			// 清理其他组件
+			this.stateTracer = undefined
 			this.graphBuilder = undefined
 			this.graphRetriever = undefined
 			this.exporter = undefined

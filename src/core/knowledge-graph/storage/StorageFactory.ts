@@ -5,6 +5,7 @@
 
 import { StorageConfig, IStorage, StorageError } from "./IStorage"
 import { JsonFileStorage } from "./JsonFileStorage"
+import { SqliteStorage } from "./SqliteStorage"
 import path from "path"
 import * as os from "os"
 import { createHash } from "crypto"
@@ -26,14 +27,25 @@ class FileStorageCreator implements StorageCreator {
   }
 }
 
-// 数据库存储创建器（占位符）
+// SQLite 存储创建器
+class SqliteStorageCreator implements StorageCreator {
+  create(config: StorageConfig): IStorage {
+    return new SqliteStorage(config.path)
+  }
+  
+  supports(type: string): boolean {
+    return type === "database"
+  }
+}
+
+// 数据库存储创建器（占位符，保留用于其他数据库类型）
 class DatabaseStorageCreator implements StorageCreator {
   create(config: StorageConfig): IStorage {
     throw new StorageError("数据库存储暂未实现", "UNSUPPORTED_STORAGE_TYPE", false)
   }
   
   supports(type: string): boolean {
-    return type === "database"
+    return type === "other-database"
   }
 }
 
@@ -45,6 +57,7 @@ class DatabaseStorageCreator implements StorageCreator {
 export class StorageFactory {
   private static creators: StorageCreator[] = [
     new FileStorageCreator(),
+    new SqliteStorageCreator(),
     new DatabaseStorageCreator()
   ]
 

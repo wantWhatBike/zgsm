@@ -46,6 +46,8 @@ export interface IStorage {
   add(table: string, data:any): Promise<void>
   addBatch(table: string, data:any[]): Promise<void>
   deleteItems(table: string, predicate: (item: any) => boolean): Promise<void>
+  // 资源释放方法（可选，兼容现有实现）
+  dispose?(): Promise<void>
 }
 
 export type { StorageConfig }

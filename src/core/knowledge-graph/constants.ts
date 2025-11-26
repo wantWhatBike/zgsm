@@ -44,6 +44,11 @@ export const FILE_PROCESSING_CONFIG = {
   BREAKPOINT_RESUME: true,
 } as const
 
+// 注意：知识图谱使用混合存储模式
+// - 文件摘要、目录摘要：SQLite（支持增量更新和全文搜索）
+// - 根信息、构建状态、文件列表：JSON 文件（轻量级配置数据）
+// storageType 配置项保留用于其他用途，实际使用由代码控制
+
 // 默认配置
 export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   model: 'auto',
