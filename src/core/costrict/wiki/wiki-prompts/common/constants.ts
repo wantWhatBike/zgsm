@@ -144,26 +144,74 @@ export const DOC_TEMPLATE_FILES = {
 // 文档类型枚举
 export type DocTemplateType = keyof typeof DOC_TEMPLATE_FILES
 
-export const COMMON_RULES = 
+export const ADVANCED_TOOL_STRATEGY = `
+## 高级工具使用策略 (Advanced Tool Strategy)
+1. **定义查找 (search_definitions)**：
+   - **场景**：需要获取类、接口、函数、常量的完整定义和签名时。
+   - **优势**：比 read_file 更精准，能跨文件查找，消耗 Token 更少。
+   - **规则**：优先使用 search_definitions 获取类型定义 (Interface/Struct) 和函数签名。
+2. **引用追踪 (search_references)**：
+   - **场景**：分析业务流程、调用链、依赖关系时。
+   - **优势**：能找到所有调用方，构建完整的上下游链路。
+   - **规则**：在生成“业务流程”或“架构图”时，必须对核心入口函数使用 search_references。
+3. **大纲扫描 (list_code_definition_names)**：
+   - **场景**：快速了解文件结构、类/方法列表，避免读取整个大文件。
+   - **规则**：在分析陌生的大型文件前，先用此工具获取概览。
+`
+
+export const ANTI_HALLUCINATION_RULES = `
+## 反幻觉协议 (Anti-Hallucination Protocol)
+1. **零信任原则**：严禁使用任何“模板自带”的路径（如 \`src/api/user.ts\`）。所有路径必须来自 \`list_files\` 的真实输出。
+2. **验证-执行-检查**：
+   - **验证**：在引用文件前，必须确认其在文件列表中存在。
+   - **执行**：读取文件内容或查找定义，确保函数/类/变量名真实存在。
+   - **检查**：输出前再次核对路径拼写。
+3. **置信度标记**：
+   - 如果逻辑不清晰或代码缺失，必须标注 \`[待人工核实]\` 或 \`[逻辑推断]\`。
+   - 禁止使用“可能”、“大概”等模糊词汇，要么是事实，要么是“未知”。
+4. **禁止幽灵依赖**：严禁在 Mermaid 图或调用链中引用不存在的文件节点。
+5. **工具验证**：对于关键的类型定义和函数调用，必须通过 \`search_definitions\` 或 \`read_file\` 获取确凿证据，禁止仅凭文件名猜测内容。
+`
+
+export const DEEP_ANALYSIS_RULES = `
+## 深度分析协议 (Deep Analysis Protocol)
+1. **透视隐式逻辑**：不要只翻译代码表面意思。要提取代码背后的业务规则（如：状态必须为 ACTIVE 才能登录、金额必须大于 0）。
+2. **追踪调用链 (DFS)**：遇到函数调用时，必须说明“调用了谁”以及“对方做了什么”，而不是简单说“调用服务层”。
+3. **识别领域术语**：提取代码中的业务术语（Ubiquitous Language），如 \`OrderPlaced\` (下单), \`InventoryReserved\` (库存预占)。
+4. **关注异常路径**：不仅要描述成功流程，必须描述失败时的处理逻辑（回滚、重试、报错）。
+`
+
+export const EVIDENCE_FORMAT = `
+## 证据标注标准
+所有关键结论必须附带证据，格式如下：
+> 💡 来源: [src/path/to/file.ts]
+
+示例：
+> 用户注册接口采用 JWT 认证。
+> 💡 来源: [src/middleware/auth.ts]
+`
+
+export const COMMON_RULES =
 `1. 使用\`todo_list\` 规划任务，逐个执行。
 2. 严格遵循每个步骤的**输出要求**，不要遗漏任何细节。
 3. 使用\`attempt_completion\`工具返回关键信息，供父任务使用。
+\${ADVANCED_TOOL_STRATEGY}
+\${ANTI_HALLUCINATION_RULES}
 `
 
 // 代码关联验证规则（所有模板通用）
 export const CODE_REFERENCE_RULES = `
 ## 代码关联强制规则
-- 每个结论必须标注来源：\`来源: src/service/user.ts, src/api/userController.ts\`
-- 每张图表必须标注关联代码：\`相关代码: src/flow/, src/handler/\`
-- 每段代码示例必须标注原始位置：\`摘自: src/utils/auth.ts:L23-45\`
-- 多个相关文件时列出全部，便于AI索引
-- 禁止描述未读取过的代码文件
-- 禁止编造代码示例
+- **精准定位**：每个结论必须标注来源：\`> 💡 来源: [src/service/user.ts]\`
+- **图表真实**：每张图表必须标注关联代码：\`> 💡 来源: [src/flow/, src/handler/]\`
+- **代码溯源**：每段代码示例必须标注原始位置：\`// 摘自: src/utils/auth.ts\`
+- **全量索引**：多个相关文件时列出全部，便于AI索引
+- **禁止臆造**：禁止描述未读取过的代码文件，禁止编造代码示例
 
-## 输出前检查清单
-1. [ ] 每个结论是否标注了代码来源路径？
-2. [ ] 每张图表是否关联了相关代码目录/文件？
-3. [ ] 代码示例是否标注了原始文件位置？
-4. [ ] 函数签名、参数类型是否与源码完全一致？
-5. [ ] 是否有未读取代码就生成的内容？（禁止）
+## 输出前自检清单 (Self-Correction Checklist)
+1. [ ] **幻觉自查**：文档中提到的所有文件路径（如 \`src/...\`）是否都在 \`list_files\` 结果中？(若否，立即修正)
+2. [ ] **符号验证**：引用的函数名、类名、变量名是否与源码完全一致？(禁止拼写错误)
+3. [ ] **模板清洗**：是否已彻底删除了模板自带的示例（如 user.ts, order.ts）？
+4. [ ] **证据绑定**：每个核心业务逻辑是否都附带了 \`> 💡 来源: [...]\`？
+5. [ ] **深度检查**：是否提取了隐式业务规则，而不仅仅是翻译代码？
 `

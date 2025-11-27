@@ -1,4 +1,4 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants";
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ANTI_HALLUCINATION_RULES, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
 export const CODING_STANDARD_DOC_TEMPLATE = (workspace: string) => `# 编码规范文档生成
 
@@ -6,10 +6,12 @@ export const CODING_STANDARD_DOC_TEMPLATE = (workspace: string) => `# 编码规�
 您是技术文档撰写专家，负责生成编码规范文档，帮助AI生成符合项目风格的代码。
 
 ## 核心原则
-- 文档优先服务AI（生成符合项目规范的代码）
+${ADVANCED_TOOL_STRATEGY}
+${ANTI_HALLUCINATION_RULES}
+- **文档优先服务AI**（生成符合项目规范的代码）
 - **无需图表**，以规则列表和代码示例为主
-- 规范必须从项目实际代码中提取
-- 禁止编造规范，必须基于项目现有实践
+- **强制复用**：必须识别项目中已有的工具类、基类，禁止重复造轮子
+- **正反对比**：必须提供 Correct vs Incorrect 代码对比
 
 ## 输入参数
 - **文档信息**
@@ -29,12 +31,10 @@ export const CODING_STANDARD_DOC_TEMPLATE = (workspace: string) => `# 编码规�
 - .editorconfig
 
 ### 步骤2：分析代码实现
-从多个实际代码文件中提取：
-- 命名规范（变量、函数、类、文件）
-- 代码组织方式
-- 注释风格
-- 错误处理模式
-- 复用模式
+1. **命名规范分析**：使用 \`list_code_definition_names\` 扫描核心目录，快速获取大量类名、函数名、变量名，分析命名风格（CamelCase/PascalCase）。
+2. **代码模式提取**：使用 \`search_files\` 扫描特定模式（如 \`TODO:\`, \`FIXME:\`, \`console.log\`），分析注释和调试习惯。
+3. **复用模式识别**：使用 \`list_files\` 扫描 \`utils/\`, \`common/\`, \`base/\` 等目录，识别公共组件。
+4. **细节提取**：从多个实际代码文件中提取代码组织方式、错误处理模式。
 
 ### 步骤3：生成文件
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}06_编码规范.md\`
@@ -276,28 +276,52 @@ async function getUserHandler(req: Request, res: Response, next: NextFunction) {
 
 ---
 
-## 复用规范
+## 强制复用工具链 (Mandatory Reuse)
 
-### 必须复用的模块
+> ⚠️ **警告**：AI 生成代码时，必须优先使用以下工具，禁止重复造轮子。
 
-| 功能 | 模块 | 路径 | 说明 |
+### 核心工具库
+
+| 功能 | 强制使用模块 | 路径 | 禁止使用 |
 |-----|-----|-----|-----|
-| HTTP 请求 | httpClient | src/utils/http.ts | 统一的请求封装|
-| 日志记录 | logger | src/utils/logger.ts | 统一日志格式 |
-| 缓存操作 | cacheService | src/service/cache.ts | Redis 操作封装 |
-| 错误处理 | AppError | src/utils/errors.ts | 自定义错误类 |
-| 验证器 | validators | src/utils/validators.ts | 参数校验工具 |
+| HTTP 请求 | \`httpClient\` | src/utils/http.ts | \`axios\`, \`fetch\` |
+| 日志记录 | \`logger\` | src/utils/logger.ts | \`console.log\` |
+| 缓存操作 | \`cacheService\` | src/service/cache.ts | \`redis.get/set\` |
+| 错误处理 | \`AppError\` | src/utils/errors.ts | \`new Error()\` |
+| 验证器 | \`validators\` | src/utils/validators.ts | 手写正则 |
+| 时间处理 | \`dateUtil\` | src/utils/date.ts | \`moment\`, \`new Date()\` |
 
 来源: src/utils/, src/service/
 
-### 禁止重复实现
+### 示例：正确 vs 错误
 
-- 禁止直接使用 \`fetch\` \`axios\`，必须使用\`httpClient\`
-- 禁止直接操作 Redis，必须通过 \`cacheService\`
-- 禁止使用 \`console.log\`，必须使用\`logger\`
-- 禁止直接抛出 \`Error\`，必须使用自定义错误
+**❌ 错误示例 (禁止)**
+\`\`\`typescript
+// 直接使用 axios
+import axios from 'axios';
+const res = await axios.get('/api/user');
 
-来源: 代码审查规范
+// 直接抛出 Error
+if (!user) throw new Error('User not found');
+
+// 使用 console.log
+console.log('User created');
+\`\`\`
+
+**✅ 正确示例 (强制)**
+\`\`\`typescript
+// 使用封装的 httpClient
+import { httpClient } from '@/utils/http';
+const res = await httpClient.get('/api/user');
+
+// 使用自定义错误
+import { NotFoundError } from '@/utils/errors';
+if (!user) throw new NotFoundError('User');
+
+// 使用 logger
+import { logger } from '@/utils/logger';
+logger.info('User created');
+\`\`\`
 
 ---
 
@@ -328,19 +352,20 @@ async function createOrder(userId: string, items: OrderItem[]): Promise<Order> {
 - TODO 注释格式：\`// TODO: 描述\`
 - FIXME 注释格式：\`// FIXME: 描述\`
 
-来源: 代码分析
-
 ---
 
-## 反模式（禁止）
+## 反模式 (Anti-Patterns)
 
-| 反模式| 说明 | 正确做法 |
+> ⚠️ **警告**：以下模式在本项目中被明确禁止。
+
+| 反模式 | 说明 | 替代方案 |
 |-------|-----|---------|
-| any 类型 | 禁止使用 any | 定义明确的类型|
-| 魔法数字 | 禁止硬编码数字| 使用常量 |
-| 嵌套回调 | 避免回调地狱 | 使用 async/await |
-| 巨型函数 | 函数超过50行| 拆分为小函数 |
-| 重复代码 | 相似代码超过3行| 提取为公共函数|
+| **Any 类型** | 禁止使用 \`any\` | 定义明确的 Interface 或使用 \`unknown\` |
+| **魔法数字** | 禁止硬编码数字 | 使用 \`constants.ts\` 中的常量 |
+| **回调地狱** | 禁止嵌套回调 | 使用 \`async/await\` |
+| **巨型函数** | 函数超过 50 行 | 拆分为小函数 |
+| **重复代码** | 相似代码超过 3 行 | 提取为公共函数 |
+| **硬编码配置** | 禁止硬编码 URL/密码 | 使用 \`config/\` 或 \`process.env\` |
 
 来源: .eslintrc.js
 

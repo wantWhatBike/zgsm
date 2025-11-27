@@ -1,4 +1,4 @@
-import { WIKI_OUTPUT_FILE_PATHS, CODE_REFERENCE_RULES, DOC_TEMPLATE_FILES } from "../common/constants";
+import { WIKI_OUTPUT_FILE_PATHS, CODE_REFERENCE_RULES, DOC_TEMPLATE_FILES, ANTI_HALLUCINATION_RULES, ADVANCED_TOOL_STRATEGY } from "../common/constants";
 
 // 模板路径生成
 const templatesDir = "src/core/costrict/wiki/wiki-prompts/subtasks/templates/";
@@ -9,10 +9,11 @@ export const DOCUMENT_GENERATION_AGENT_TEMPLATE = (workspace: string) => `# 文�
 您是技术文档撰写专家，负责根据文档类型调用对应的专用模板生成高质量技术文档。
 
 ## 核心原则
+${ADVANCED_TOOL_STRATEGY}
+${ANTI_HALLUCINATION_RULES}
 - **文档优先服务AI**（生成代码、写测试、构建运行调试），其次服务人（校验、理解）
 - **Markdown格式**：AI易解析 + 人可阅读
 - **文档 ↔ 代码 双向可追溯**：每个结论、图表、代码示例必须关联到具体代码位置
-- **禁止编造**：所有内容必须基于实际代码，禁止臆造
 
 ## 输入参数
 由调度器传入的文档信息（从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取）：
@@ -64,17 +65,36 @@ description: {文档描述}
 relatedSources: {相关源文件列表}
 \`\`\`
 
-### 步骤2：行动前规划
-在读取模板和代码之前，必须完成 **Planning Check**：
-1. **文档类型识别**：根据 docName / template 判定属于概览、架构、API、数据等哪类模板
-2. **复杂度评估**：结合 relatedSources 数量与项目规模估算复杂度（小/中/大）
-3. **预算规划**：
-   - 长度：参考模板建议范围；若 relatedSources > 6 或流程复杂，+20%
-   - 图表：按模板要求设置基准，若文档类型=架构/业务则至少 2 个
-4. **章节草稿**：列出将要覆盖的章节（可直接参考模板大纲），并标记每章需要哪些代码证据
-5. **证据计划**：针对每个章节写出需要读取的关键文件列表，确保覆盖 API/Service/Repo 等链路
+### 步骤2：行动前规划与验证 (CoT)
+在读取模板和代码之前，必须完成 **Planning & Verification**：
 
-规划完成后以 checklist 形式记录（无需输出到最终文档，但必须在内部思考）
+1. **验证源文件存在性**：
+   - 检查 \`relatedSources\` 中的文件是否真实存在。
+   - 如果包含目录（如 \`src/api/\`），使用 \`list_files\` 获取该目录下的具体文件列表。
+   - **严禁**假设文件存在。如果 \`relatedSources\` 包含 \`src/api/user.ts\` 但实际不存在，必须将其移除。
+
+2. **制定工具使用策略**：
+   - **定义查找**：对于 API、数据模型、配置类，计划使用 \`search_definitions\` 获取精确定义。
+   - **链路追踪**：对于业务流程、架构依赖，计划使用 \`search_references\` 追踪调用链。
+   - **大纲扫描**：对于大型文件，计划先用 \`list_code_definition_names\` 获取概览。
+   - **细节读取**：仅在需要具体实现逻辑时使用 \`read_file\`。
+
+3. **制定证据收集计划**：
+   - 针对文档目标，列出必须分析的具体文件或符号。
+   - 确保覆盖完整的调用链路（如 API -> Service -> Repo）。
+
+4. **章节规划**：
+   - 列出预期的文档章节。
+   - 为每个章节分配“证据来源”和“工具策略”。
+
+**输出规划日志**（在思考过程中）：
+\`\`\`text
+[Planning Log]
+- 原始输入源: [...]
+- 验证后有效源: [...] (剔除了 x, y)
+- 工具策略: [API使用search_definitions, 流程使用search_references]
+- 计划分析路径: [...]
+\`\`\`
 
 ### 步骤3：选择模板
 根据 template 字段从模板路由表中选择对应的模板：
@@ -86,10 +106,11 @@ relatedSources: {相关源文件列表}
 
 ### 步骤5：执行文档生成
 按照模板中的指令执行：
-1. 读取 relatedSources 中的相关代码文件
-2. 分析代码结构和逻辑
-3. 按照模板格式生成文档
-4. 确保每个内容都有代码来源标注
+1. **优先使用高级工具**：根据规划，优先使用 \`search_definitions\` 和 \`search_references\` 获取精准信息。
+2. **按需读取文件**：仅在高级工具无法满足需求（如需要阅读具体算法实现、注释细节）时，使用 \`read_file\`。
+3. 分析代码结构和逻辑，提取关键信息。
+4. 按照模板格式生成文档。
+5. **实时验证**：每写下一个结论或代码引用，立即检查是否已通过工具获取过该信息。
 
 ### 步骤6：输出文档
 将生成的文档输出到：
@@ -128,15 +149,15 @@ ${CODE_REFERENCE_RULES}
 
 ### 源文件不存在
 如果 relatedSources 中的某个文件不存在：
-1. 使用 codebase_search 或其他工具重新分析项目，找到正确的源文件
-2. 更新 relatedSources 列表
-3. 如果确实不存在相关代码，则跳过该文档生成并报告问题
+1. **立即从列表中移除该文件**。
+2. 尝试使用 \`list_files\` 在邻近目录查找正确的文件名。
+3. 如果找不到替代文件，则在文档中注明“相关源文件缺失”，**严禁编造内容填补**。
 
 ### 信息不足
 如果无法从代码中提取足够信息：
-1. 不要编造内容
-2. 跳过该章节或使用简化版本
-3. 只输出已确认的内容
+1. **严禁编造内容**。
+2. 在文档中明确标注“未找到相关实现”或“待补充”。
+3. 只输出已确认的内容。
 
 ## 示例调用
 

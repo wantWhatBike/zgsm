@@ -1,4 +1,4 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants";
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ANTI_HALLUCINATION_RULES, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
 export const ARCHITECTURE_DOC_TEMPLATE = (workspace: string) => `# 代码架构文档生成
 
@@ -6,9 +6,11 @@ export const ARCHITECTURE_DOC_TEMPLATE = (workspace: string) => `# 代码架构�
 您是技术文档撰写专家，负责生成代码架构文档，帮助AI理解项目的目录结构、模块划分和依赖关系。
 
 ## 核心原则
-- 文档优先服务AI（生成代码时知道代码该放哪、该依赖什么）
-- 每个模块描述必须关联到具体目录/文件
-- 禁止编造模块或依赖关系
+${ADVANCED_TOOL_STRATEGY}
+${ANTI_HALLUCINATION_RULES}
+- **基于事实绘图**：Mermaid 图中的每个节点必须对应真实存在的目录或文件，严禁套用“标准分层图”模板。
+- **物理映射**：架构图中的每个组件必须标注其对应的物理路径（如 \`[User Service] (src/service/user)\`）。
+- **文档优先服务AI**（生成代码时知道代码该放哪、该依赖什么）。
 
 ## 输入参数
 - **文档信息**：
@@ -20,18 +22,14 @@ export const ARCHITECTURE_DOC_TEMPLATE = (workspace: string) => `# 代码架构�
 
 ## 执行流程
 
-### 步骤1：扫描目录结构
-使用 \`list_files\` 工具获取完整目录结构，重点关注：
-- src/ 源代码目录
-- lib/ 或 packages/ 库目录
-- config/ 配置目录
-- test/ 测试目录
+### 步骤1：扫描目录结构与大纲
+1. 使用 \`list_files\` 工具获取完整目录结构，重点关注 src/, lib/, config/ 等核心目录。
+2. 使用 \`list_code_definition_names\` 扫描核心模块入口文件（如 index.ts, mod.rs, main.go），快速识别模块导出的核心类/接口，构建模块地图。
 
-### 步骤2：分析模块划分
-读取各模块的入口文件和核心文件，理解：
-- 模块职责
-- 模块间依赖关系
-- 导入导出关系
+### 步骤2：分析模块依赖
+1. 挑选核心模块的入口文件或核心类。
+2. 使用 \`search_references\` 或读取 import 语句，分析模块间的依赖关系。
+3. 确定分层架构（如 API -> Service -> Repo）。
 
 ### 步骤3：生成文档
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}02_代码架构.md\`
@@ -54,95 +52,56 @@ export const ARCHITECTURE_DOC_TEMPLATE = (workspace: string) => `# 代码架构�
 
 ## 架构概述
 [简述项目采用的架构模式（分层架构/DDD/微服务等），50字以内。必须引用 README 或入口文件。]
-来源: README.md, cmd/main.ts
+> 💡 来源: [README.md, cmd/main.ts]
 
 ## 目录结构
 
 \`\`\`
 project-root/
 ├── src/                      # 源代码根目录
-│   ├── api/                  # API接口层 - 处理HTTP请求
-│   │   ├── user.ts          # 用户相关接口
-│   │   ├── order.ts         # 订单相关接口
-│   │   └── index.ts         # 路由注册入口
-│   ├── service/              # 业务逻辑层 - 核心业务处理
-│   │   ├── userService.ts   # 用户业务逻辑
-│   │   ├── orderService.ts  # 订单业务逻辑
-│   │   └── index.ts         # 服务导出
-│   ├── model/                # 数据模型层 - 数据库实体
-│   │   ├── user.ts          # 用户模型
-│   │   ├── order.ts         # 订单模型
-│   │   └── index.ts         # 模型导出
-│   ├── repository/           # 数据访问层 - 数据库操作
-│   │   ├── userRepo.ts      # 用户数据访问
-│   │   └── orderRepo.ts     # 订单数据访问
-│   ├── middleware/           # 中间件 - 请求预处理
-│   │   ├── auth.ts          # 认证中间件
-│   │   └── logger.ts        # 日志中间件
-│   ├── utils/                # 工具函数
-│   │   ├── crypto.ts        # 加密工具
-│   │   └── validator.ts     # 验证工具
-│   └── index.ts              # 应用入口
-├── config/                   # 配置文件目录
-├── test/                     # 测试文件目录
-└── scripts/                  # 脚本目录
+│   ├── api/                  # API接口层
+│   ├── service/              # 业务逻辑层
+│   └── ...
 \`\`\`
+> 💡 来源: [list_files 输出]
 
 ## 分层架构图（图1）
+
+> **注意**：节点名称必须包含文件路径，禁止使用抽象名称。
 
 \`\`\`mermaid
 graph TB
     subgraph 接口层[API Layer]
-        A[api/user.ts]
-        B[api/order.ts]
+        A[UserAPI<br/>(src/api/user.ts)]
+        B[OrderAPI<br/>(src/api/order.ts)]
     end
     
     subgraph 业务层[Service Layer]
-        C[service/userService.ts]
-        D[service/orderService.ts]
-    end
-    
-    subgraph 数据层[Repository Layer]
-        E[repository/userRepo.ts]
-        F[repository/orderRepo.ts]
-    end
-    
-    subgraph 模型层[Model Layer]
-        G[model/user.ts]
-        H[model/order.ts]
+        C[UserService<br/>(src/service/userService.ts)]
+        D[OrderService<br/>(src/service/orderService.ts)]
     end
     
     A --> C
     B --> D
-    C --> E
-    D --> F
-    E --> G
-    F --> H
 \`\`\`
 
-相关代码: src/api/, src/service/, src/repository/, src/model/
+> 💡 来源: [src/api/, src/service/]
 
 ## 核心交互流程（图2）
 
 \`\`\`mermaid
 sequenceDiagram
     participant Client as Client
-    participant API as API Layer
-    participant Service as Service Layer
-    participant Repo as Repository
-    participant DB as Database
+    participant API as src/api/user.ts
+    participant Service as src/service/userService.ts
+    participant Repo as src/repository/userRepo.ts
 
     Client->>API: 发起请求
     API->>Service: 调用 {handler}
     Service->>Repo: 访问数据
-    Repo->>DB: 执行查询/写入
-    DB-->>Repo: 返回结果
-    Repo-->>Service: 数据对象
-    Service-->>API: 响应 DTO
-    API-->>Client: HTTP Response
 \`\`\`
 
-相关代码: src/api/{*}, src/service/{*}, src/repository/{*}
+> 💡 来源: [src/api/user.ts, src/service/userService.ts]
 
 ## 组件职责矩阵
 
@@ -150,11 +109,8 @@ sequenceDiagram
 |------|-----------|------|----------|
 | API 接口 | src/api/ | 暴露 REST/gRPC 接口 | src/service/ |
 | 业务服务 | src/service/ | 业务编排、事务 | src/repository/, src/model/ |
-| 数据访问 | src/repository/ | 封装数据库访问 | database/manager.ts |
-| 配置层 | config/ | 管理运行配置 | internal/config/** |
-| 守护任务 | internal/daemon/ | 调度后台作业 | internal/job/** |
 
-来源: src/, internal/
+> 💡 来源: [src/, internal/]
 
 ## 核心模块说明
 
@@ -191,6 +147,8 @@ sequenceDiagram
 
 ## 模块依赖关系
 
+### 依赖图
+
 \`\`\`mermaid
 graph LR
     subgraph External
@@ -207,6 +165,23 @@ graph LR
     API --> Middleware[middleware/]
     Service --> Utils[utils/]
 \`\`\`
+
+### 结构化依赖数据 (Machine Readable)
+
+<module_dependency>
+<module name="API Layer" path="src/api">
+  <dependency>src/service</dependency>
+  <dependency>src/middleware</dependency>
+</module>
+<module name="Service Layer" path="src/service">
+  <dependency>src/repository</dependency>
+  <dependency>src/model</dependency>
+  <dependency>src/utils</dependency>
+</module>
+<module name="Repository Layer" path="src/repository">
+  <dependency>src/model</dependency>
+</module>
+</module_dependency>
 
 相关代码: src/
 
@@ -239,11 +214,10 @@ ${CODE_REFERENCE_RULES}
 - 每个图表下方必须写明 \`相关代码: ...\`
 
 ## 质量要求
-1. 目录结构必须反映实际项目
-2. 每个模块说明必须基于实际代码分析
-3. 依赖关系必须从 import 语句中提取
-4. 扩展性说明必须基于实际架构设计，引用具体示例
-5. 图表引用的目录若不存在必须移除该图
-6. 文档长度控制在 200-400 行
+1. **真实性**：目录结构必须与 \`list_files\` 结果完全一致，禁止手动补全。
+2. **准确性**：Mermaid 图中的节点名称必须是真实的文件名或目录名。
+3. **依赖验证**：依赖关系必须基于 \`import\` 语句分析，禁止臆测。
+4. **图表有效性**：如果某个层级（如 Repository 层）在项目中不存在，禁止在图中画出该层。
+5. 文档长度控制在 200-400 行。
 `;
 

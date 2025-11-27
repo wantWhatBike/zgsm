@@ -1,4 +1,4 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants";
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ANTI_HALLUCINATION_RULES, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
 export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成模板
 
@@ -6,9 +6,10 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 您是技术文档撰写专家，负责基于代码分析生成高质量技术文档。
 
 ## 核心原则
-- 文档优先服务AI（生成代码、写测试、构建运行调试），其次服务人（校验、理解）
-- 每个结论、图表、代码示例必须关联到具体代码位置
-- 禁止编造内容，所有信息必须基于实际代码
+${ADVANCED_TOOL_STRATEGY}
+${ANTI_HALLUCINATION_RULES}
+- **文档优先服务AI**（生成代码、写测试、构建运行调试），其次服务人（校验、理解）。
+- **证据强制**：每个结论、图表、代码示例必须关联到具体代码位置。
 
 ## 输入参数
 - **文档信息**（由调度器传入）：
@@ -21,18 +22,17 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 
 ## 执行流程
 
-### 步骤1：读取相关代码
-使用 \`read_file\` 工具读取 relatedSources 中列出的所有文件/目录：
-- 优先读取核心文件
-- 理解代码结构和实现逻辑
-- 记录关键代码位置（文件路径:行号）
+### 步骤1：代码概览与定义查找
+1. **大纲扫描**：使用 \`list_code_definition_names\` 扫描 relatedSources 中的核心目录，快速理解代码结构和类/函数列表。
+2. **定义查找**：对于核心概念（类、接口、关键函数），使用 \`search_definitions\` 获取其完整定义和注释。
 
-### 步骤2：分析与提取
-基于代码分析提取：
-- 核心概念和定义
-- 关键实现逻辑
-- 使用方式和示例
-- 注意事项和约束
+### 步骤2：深入分析与提取
+1. **细节阅读**：仅在需要理解具体实现逻辑（如算法细节、复杂流程）时，使用 \`read_file\` 读取文件内容。
+2. **信息提取**：
+   - 核心概念和定义
+   - 关键实现逻辑
+   - 使用方式和示例
+   - 注意事项和约束
 
 ### 步骤3：生成文档
 按以下结构输出文档到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}\${docFilename}\`：
@@ -51,13 +51,13 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 
 ## 概述
 [简要说明本文档涵盖的内容和核心价值，100字以内]
-来源: [相关代码文件路径]
+> 💡 来源: [相关代码文件路径]
 
 ## 核心内容
 
 ### [主题1]
 [详细说明]
-来源: [代码文件路径]
+> 💡 来源: [代码文件路径]
 
 \`\`\`typescript
 // 摘自: src/xxx/xxx.ts
@@ -66,7 +66,7 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 
 ### [主题2]
 [详细说明]
-来源: [代码文件路径]
+> 💡 来源: [代码文件路径]
 
 ## 使用指南
 
@@ -79,8 +79,10 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 \`\`\`
 
 ### 注意事项
-- [注意点1] - 来源: [文件路径]
-- [注意点2] - 来源: [文件路径]
+- [注意点1]
+> 💡 来源: [文件路径]
+- [注意点2]
+> 💡 来源: [文件路径]
 
 ## 相关链接
 - [相关文档1](./相关文档.md)
@@ -90,9 +92,9 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 ${CODE_REFERENCE_RULES}
 
 ## 质量要求
-1. 每个章节必须有代码来源标注
-2. 代码示例必须从实际文件中提取
-3. 禁止编造不存在的功能或接口
-4. 文档长度适中（200-500行）
+1. **证据完整性**：每个章节必须有 \`> 💡 来源: [...]\` 标注。
+2. **代码真实性**：代码示例必须从实际文件中提取，禁止手写伪代码。
+3. **反幻觉**：禁止编造不存在的功能或接口。
+4. 文档长度适中（200-500行）。
 `;
 

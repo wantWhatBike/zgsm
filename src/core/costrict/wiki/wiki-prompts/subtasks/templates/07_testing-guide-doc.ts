@@ -1,4 +1,4 @@
-﻿import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants";
+﻿import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
 export const TESTING_GUIDE_DOC_TEMPLATE = (workspace: string) => `# 测试指南文档生成
 
@@ -6,6 +6,7 @@ export const TESTING_GUIDE_DOC_TEMPLATE = (workspace: string) => `# 测试指南
 您是测试平台专家，负责生成一份可直接指导 AI 编写 / 维护测试代码的技术文档。
 
 ## 核心原则
+${ADVANCED_TOOL_STRATEGY}
 - 文档优先服务 AI：突出测试框架、命令、目录结构、Mock/Fixture 等关键信息
 - **全程禁止编造**：只能引用实际存在的代码、配置或脚本
 - **无需图表**：使用表格、列表、命令或代码块即可
@@ -19,10 +20,10 @@ export const TESTING_GUIDE_DOC_TEMPLATE = (workspace: string) => `# 测试指南
 - 项目分析结果：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
-1. 读取测试配置（jest.config.js / vitest.config.ts / package.json scripts 等）
-2. 扫描测试目录（test/、__tests__/、spec/ 等）了解分层与命名规范
-3. 收集 Mock、Fixture、Helper、CI 测试步骤等关键文件
-4. 写作前列出章节与证据映射，确保每节都引用真实文件
+1. **配置分析**：读取测试配置（jest.config.js / vitest.config.ts / package.json scripts 等）。
+2. **结构扫描**：使用 \`list_code_definition_names\` 扫描测试目录（test/, __tests__/），快速了解测试文件的组织结构和命名规范。
+3. **辅助类识别**：使用 \`search_definitions\` 查找测试基类、Mock 工具或 Fixture 定义，理解测试辅助工具链。
+4. **写作前规划**：列出章节与证据映射，确保每节都引用真实文件。
 5. 按模板输出 Markdown，并执行 CODE_REFERENCE_RULES 自检
 
 ## 输出格式

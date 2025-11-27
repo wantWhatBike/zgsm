@@ -1,16 +1,17 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants"
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ANTI_HALLUCINATION_RULES, DEEP_ANALYSIS_RULES, ADVANCED_TOOL_STRATEGY } from "../../common/constants"
 
 export const BUSINESS_FLOW_DOC_TEMPLATE = (workspace: string) => `# 业务流程文档生成
 
 ## 角色定义
-您是技术文档撰写专家，负责生成业务流程文档，帮助AI理解项目的核心业务链路和调用关系。
+您是技术文档撰写专家，负责生成业务流程文档，帮助AI理解项目的核心业务链路、隐式规则和调用关系。
 
 ## 核心原则
-- 文档优先服务AI（理解业务流程以生成符合业务逻辑的代码）
-- **必须跨文件追踪完整调用链**，从入口到数据层
-- **禁止捏造**：所有流程必须基于实际代码，标注每个步骤的代码来源
-- 每个业务流程必须关联到具体代码文件/目录
-- 每个流程需列出涉及的关键结构体/接口/设计模式，并注明来源
+${ADVANCED_TOOL_STRATEGY}
+${ANTI_HALLUCINATION_RULES}
+${DEEP_ANALYSIS_RULES}
+- **深度追踪 (DFS)**：必须像调试器一样，从入口文件开始，逐层追踪函数调用，直到数据库或外部服务。
+- **显性化隐式逻辑**：必须提取代码中隐含的业务规则（如：if (balance < amount) throw ...）。
+- **拒绝浅层描述**：严禁只写“调用 Service 层”这种模糊描述，必须写出具体调用的函数名。
 
 ## 输入参数
 - **文档信息**：
@@ -26,15 +27,23 @@ export const BUSINESS_FLOW_DOC_TEMPLATE = (workspace: string) => `# 业务流程
 - 根据项目类型挑选 3-5 个最关键业务流程（用户、订单、支付、同步等）
 - 每个流程都需要真实入口（API/Job/CLI）与终点（DB/外部服务）
 
-### 步骤2：跨文件追踪
-1. 从入口文件（API/middleware/job）开始
-2. 依次追踪 service → repository → 外部依赖
-3. 记录函数名、关键参数、返回值
-4. 记录文件路径，能获取行号的附上行号
+### 步骤2：深度优先追踪 (DFS)
+1. **定位入口**：找到 Controller/Handler 中的具体函数（如 \`register\`）。
+2. **利用工具追踪**：
+   - 使用 \`search_references\` 查找该函数的调用者，确认入口触发点。
+   - 使用 \`search_definitions\` 查看该函数内部调用的 Service/Utils 方法定义，理解其功能。
+   - **仅在**需要查看具体逻辑实现（如复杂的 if/else 业务判断）时，使用 \`read_file\` 读取函数体。
+3. **逐层深入**：
+   - **提取校验**：在 Controller/Service 层，寻找参数校验和权限检查逻辑。
+   - **提取规则**：在 Service 层，寻找 \`if/else\` 判断，提取业务规则（如状态流转、金额限制）。
+   - **数据落地**：追踪到 Repository 层，查看具体的 SQL/ORM 操作。
+   - **异常处理**：记录 \`try/catch\` 块中的错误处理逻辑。
+4. **记录链路**：记录完整的调用栈：\`File A (func a) -> File B (func b) -> File C (func c)\`。
 
 ### 步骤3：绘制流程图
-- 使用 Mermaid 时序图或流程图
-- 参与者命名必须带文件路径（如 `api/user.ts`）
+- 使用 Mermaid 时序图。
+- **强制要求**：参与者名称必须包含文件名（如 \`src/api/user.ts\`），严禁使用抽象名称（如 "API Layer"）。
+- **标注关键节点**：在时序图中标注关键的校验失败或状态变更点。
 
 ### 步骤4：生成文档
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}03_业务流程.md\`
@@ -48,95 +57,77 @@ export const BUSINESS_FLOW_DOC_TEMPLATE = (workspace: string) => `# 业务流程
 <summary>相关源文件</summary>
 
 - src/api/user.ts
-- src/api/order.ts
 - src/service/userService.ts
-- src/service/orderService.ts
 - src/repository/userRepo.ts
-- src/repository/orderRepo.ts
 - ...
 
 </details>
 
 ## 概述
-本文档描述项目的核心业务流程、完整调用链与数据流转。
-来源: src/api/, src/service/, src/repository/
+本文档描述项目的核心业务流程、完整调用链与隐式业务规则。
+> 💡 来源: [src/api/, src/service/, src/repository/]
 
 ## 核心业务流程
 
-### 1. 用户注册流程
+### 1. [业务名称] 流程
 
 #### 流程时序图
 
 \`\`\`mermaid
 sequenceDiagram
     participant Client as Client
-    participant API as api/user.ts
-    participant Service as service/userService.ts
-    participant Repo as repository/userRepo.ts
-    participant DB as database/users
+    participant API as src/api/user.ts
+    participant Service as src/service/userService.ts
+    participant Repo as src/repository/userRepo.ts
 
     Client->>API: POST /api/user/register
-    API->>API: validatePayload()
+    API->>API: validate(email)
+    alt 校验失败
+        API-->>Client: 400 Bad Request
+    end
     API->>Service: registerUser(dto)
     Service->>Repo: findByEmail(email)
-    Repo->>DB: SELECT * FROM users
-    DB-->>Repo: result
-    Repo-->>Service: existing user | null
-    Service->>Service: hashPassword()
-    Service->>Repo: create(userData)
-    Repo->>DB: INSERT
-    DB-->>Repo: saved row
-    Repo-->>Service: User entity
-    Service-->>API: User DTO
-    API-->>Client: 201 Created
+    alt 邮箱已存在
+        Service-->>API: throw UserExistsError
+    end
+    Service->>Repo: save(user)
 \`\`\`
 
-相关代码: src/api/user.ts, src/service/userService.ts, src/repository/userRepo.ts
+> 💡 来源: [src/api/user.ts, src/service/userService.ts]
+
+#### 核心业务规则 (Business Rules)
+
+| 规则ID | 规则描述 | 触发条件 | 抛出异常/结果 | 代码位置 |
+|--------|----------|----------|---------------|----------|
+| BR-001 | 邮箱唯一性校验 | \`userRepo.findByEmail(email)\` 返回非空 | \`UserExistsError\` | src/service/userService.ts#registerUser |
+| BR-002 | 密码强度校验 | 长度 < 8 或无特殊字符 | \`ValidationError\` | src/utils/validator.ts |
+| BR-003 | 状态流转限制 | 当前状态 != PENDING | 无法取消订单 | src/service/orderService.ts#cancel |
+
+> 💡 来源: [src/service/, src/utils/]
 
 #### 调用链详情
 
-| 步骤 | 文件 | 函数 | 行号 | 描述 |
-|-----|------|------|------|------|
-| 1 | src/api/user.ts | register | L12-40 | 接收请求与校验 |
-| 2 | src/service/userService.ts | registerUser | L25-70 | 业务编排 |
-| 3 | src/service/userService.ts | hashPassword | L80-95 | 密码加密 |
-| 4 | src/repository/userRepo.ts | findByEmail | L15-25 | 唯一性校验 |
-| 5 | src/repository/userRepo.ts | create | L30-45 | 写入数据库 |
-
-#### 关键结构体 / 接口 / 设计模式
-
-| 名称 | 类型 | 文件 | 作用 | 设计模式 |
-|------|------|------|------|----------|
-| RegisterRequest | DTO | src/api/user.ts | 请求数据结构 | DTO |
-| UserService | Service | src/service/userService.ts | 注册/认证逻辑 | 事务脚本 |
-| UserRepository | Repository | src/repository/userRepo.ts | 数据访问 | Repository |
-| ConflictError | Exception | src/utils/errors.ts | 冲突处理 | 异常模式 |
-
-来源: 上述文件
+| 步骤 | 文件 | 函数 | 逻辑描述 |
+|-----|------|------|----------|
+| 1 | src/api/user.ts | register | 1. 校验参数<br>2. 调用 Service |
+| 2 | src/service/userService.ts | registerUser | 1. 检查邮箱唯一性<br>2. 密码哈希<br>3. 保存用户 |
 
 #### 关键代码片段
 
 \`\`\`typescript
-// 摘自: src/api/user.ts
-export async function register(req: Request, res: Response) {
-  const { email, password, name } = req.body
-  if (!email || !password) {
-    return res.status(400).json({ error: "Missing email or password" })
-  }
-  const user = await userService.registerUser({ email, password, name })
-  return res.status(201).json(user)
+// 摘自: src/service/userService.ts
+// 业务规则：检查邮箱是否已存在
+const existing = await this.userRepo.findByEmail(dto.email);
+if (existing) {
+  throw new UserExistsError('Email already taken');
 }
 \`\`\`
 
 ---
 
-### 2. 订单创建流程
+### 2. [其他核心业务流程]
 
-[沿用同样结构：时序图 + 调用链表 + 结构体/接口 + 代码片段]
-
-### 3. [其他核心业务流程]
-
-[同样结构，至少 1-2 个流程]
+[同样结构：时序图 + 业务规则表 + 调用链表 + 代码片段]
 
 ## 数据流转总览
 
@@ -147,15 +138,14 @@ flowchart LR
         B[权限验证]
     end
     subgraph Service层
-        C[业务编排]
-        D[聚合/转换]
+        C[业务规则检查]
+        D[状态变更]
     end
     subgraph 数据层
-        E[Repository]
-        F[(Database/Cache)]
+        E[持久化]
     end
 
-    A --> B --> C --> D --> E --> F
+    A --> B --> C --> D --> E
 \`\`\`
 
 相关代码: src/api/, src/service/, src/repository/
@@ -165,11 +155,9 @@ flowchart LR
 | 异常类型 | 触发条件 | 处理位置 | 返回码 |
 |---------|---------|---------|-------|
 | ValidationError | 参数校验失败 | api/*.ts | 400 |
-| UnauthorizedError | Token 无效 | middleware/auth.ts | 401 |
-| NotFoundError | 资源不存在 | service/*.ts | 404 |
-| ConflictError | 数据冲突 | service/*.ts | 409 |
+| BusinessError | 违反业务规则 | service/*.ts | 409 |
 
-来源: src/middleware/errorHandler.ts, src/utils/errors.ts
+来源: src/middleware/errorHandler.ts
 
 ## 设计模式速览
 
@@ -190,10 +178,10 @@ ${CODE_REFERENCE_RULES}
 - 若追踪不到完整链路，必须说明缺失的文件/原因
 
 ## 质量要求
-1. 禁止编造流程或代码
-2. 每个流程必须包含：概述、时序图、调用链表、结构体/接口表、代码片段
-3. 关键函数/结构必须标注文件路径（及可选行号）
-4. 若需要的源文件不存在，移除该流程并记录原因
-5. 文档长度控制在 300-600 行
+1. **深度优先**：必须追踪到数据库操作或外部 API 调用为止，禁止中途截断。
+2. **规则显性化**：必须提取 \`if/else\` 中的业务含义，填入“核心业务规则”表。
+3. **真实性**：时序图中的每个参与者必须是真实存在的文件。
+4. **异常覆盖**：时序图和规则表必须包含异常路径（Alt/Opt）。
+5. 文档长度控制在 300-600 行。
 `
 

@@ -1,4 +1,4 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants";
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
 export const BUILD_DEPLOY_DOC_TEMPLATE = (workspace: string) => `# 构建部署文档生成
 
@@ -6,6 +6,7 @@ export const BUILD_DEPLOY_DOC_TEMPLATE = (workspace: string) => `# 构建部署�
 您是技术文档撰写专家，负责生成构建部署文档，帮助AI理解项目的构建流程、CI/CD配置和部署方式。
 
 ## 核心原则
+${ADVANCED_TOOL_STRATEGY}
 - 文档优先服务AI（理解构建和部署流程以正确运行项目）
 - **可选图表**：复杂部署架构可使用图表
 - 所有命令/YAML 片段必须注明来源文件
@@ -23,24 +24,17 @@ export const BUILD_DEPLOY_DOC_TEMPLATE = (workspace: string) => `# 构建部署�
 ## 执行流程
 
 ### 步骤1：分析构建配置
-读取构建相关文件：
-- package.json (scripts)
-- Dockerfile / docker-compose.yml
-- Makefile
-- 构建脚本 (scripts/)
+1. **脚本分析**：读取 package.json (scripts) 或 Makefile，提取核心构建命令。
+2. **容器化分析**：使用 \`read_file\` 读取 Dockerfile / docker-compose.yml，理解镜像构建和容器编排逻辑。
+3. **自定义脚本**：使用 \`list_files\` 扫描 scripts/ 目录，识别自定义构建/部署脚本。
 
 ### 步骤2：分析CI/CD配置
-读取CI/CD文件：
-- .github/workflows/
-- .gitlab-ci.yml
-- Jenkinsfile
-- .circleci/config.yml
+1. **流程扫描**：使用 \`list_files\` 扫描 .github/workflows/, .gitlab-ci.yml 等目录。
+2. **逻辑提取**：读取核心 CI 配置文件，提取 Build -> Test -> Deploy 的流水线逻辑。
 
 ### 步骤3：分析环境配置
-读取环境配置：
-- .env.example
-- config/ 目录
-- k8s/ 配置
+1. **变量提取**：读取 .env.example等配置文件，提取必需的环境变量。
+2. **配置扫描**：使用 \`list_code_definition_names\` 扫描 config/ 目录，快速了解配置结构。
 
 ### 步骤4：生成文档
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}08_构建部署.md\`

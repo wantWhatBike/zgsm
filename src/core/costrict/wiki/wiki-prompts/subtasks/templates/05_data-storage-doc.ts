@@ -1,4 +1,4 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants"
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ADVANCED_TOOL_STRATEGY } from "../../common/constants"
 
 export const DATA_STORAGE_DOC_TEMPLATE = (workspace: string) => `# 数据存储文档生成
 
@@ -6,6 +6,7 @@ export const DATA_STORAGE_DOC_TEMPLATE = (workspace: string) => `# 数据存储�
 您是技术文档撰写专家，负责生成数据存储文档，帮助 AI 理解数据库、缓存、消息队列等存储结构，以便正确读写数据。
 
 ## 核心原则
+${ADVANCED_TOOL_STRATEGY}
 - 文档优先服务 AI：表结构、索引、字段类型必须与代码/DDL 完全一致
 - 仅使用表格/代码块，禁止虚构
 - 每个存储组件必须关联到具体文件（模型、迁移、配置）
@@ -20,11 +21,16 @@ export const DATA_STORAGE_DOC_TEMPLATE = (workspace: string) => `# 数据存储�
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
-1. 扫描 ORM 模型 / schema / migrations，提取所有表定义、字段、索引、关系
-2. 读取缓存配置与 Key 约定，列出命名规则、过期策略
-3. 读取消息队列配置（Kafka/RabbitMQ 等），列出 topic/queue、消费者
-4. 若存在对象存储/搜索（S3/ES），也需列出结构与索引
-5. 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}05_数据存储.md\`
+1. **扫描模型定义**：
+   - 使用 \`list_code_definition_names\` 扫描模型目录（如 src/models, src/entity），快速获取所有模型类名。
+   - 使用 \`search_definitions\` 查找核心模型类的定义，获取完整的字段、类型和注解（Decorators）。
+2. **分析数据库结构**：
+   - 结合模型定义和迁移文件（migrations/），提取表定义、字段、索引和外键关系。
+3. **分析中间件配置**：
+   - 读取缓存配置（Redis）与 Key 约定，列出命名规则。
+   - 读取消息队列配置（Kafka/RabbitMQ），列出 topic/queue。
+4. **输出文档**：
+   - 生成文档并输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}05_数据存储.md\`
 
 ## 输出格式
 

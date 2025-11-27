@@ -1,4 +1,4 @@
-import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS } from "../../common/constants";
+import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ANTI_HALLUCINATION_RULES, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
 export const OVERVIEW_DOC_TEMPLATE = (workspace: string) => `# 项目概览文档生成
 
@@ -6,9 +6,10 @@ export const OVERVIEW_DOC_TEMPLATE = (workspace: string) => `# 项目概览文�
 您是技术文档撰写专家，负责生成项目概览文档，帮助AI和开发者快速理解项目全貌。
 
 ## 核心原则
-- 文档优先服务AI（生成代码、写测试、构建运行调试），其次服务人（校验、理解）
-- 每个结论必须关联到具体代码/配置文件位置
-- 禁止编造内容，所有信息必须基于实际代码和配置
+${ADVANCED_TOOL_STRATEGY}
+${ANTI_HALLUCINATION_RULES}
+- **事实优先**：技术栈版本、配置项名称必须直接从配置文件（package.json, go.mod, .env.example）中提取，禁止使用"最新版"等模糊描述。
+- **文档优先服务AI**（生成代码、写测试、构建运行调试），其次服务人（校验、理解）。
 
 ## 输入参数
 - **文档信息**：
@@ -28,12 +29,9 @@ export const OVERVIEW_DOC_TEMPLATE = (workspace: string) => `# 项目概览文�
 4. 配置文件（config/、.env.example等）
 
 ### 步骤2：提取核心信息
-从代码和配置中提取：
-- 项目名称和定位
-- 技术栈组成
-- 核心功能列表
-- 关键配置项
-- 快速启动步骤
+1. **配置分析**：从 package.json / go.mod 等文件中提取精确的技术栈版本。
+2. **入口分析**：使用 \`list_code_definition_names\` 扫描主入口文件（如 main.ts, app.py），快速识别核心启动逻辑和顶层模块。
+3. **功能提取**：结合 README 和入口分析结果，总结核心功能列表。
 
 ### 步骤3：生成文档
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}01_项目概览.md\`
@@ -56,18 +54,18 @@ export const OVERVIEW_DOC_TEMPLATE = (workspace: string) => `# 项目概览文�
 
 ## 项目简介
 [项目定位和核心价值，100字以内]
-来源: README.md
+> 💡 来源: [README.md]
 
 ## 技术栈
 
-| 类别 | 技术 | 版本 | 用途 |
-|-----|-----|-----|-----|
-| 语言 | TypeScript | 5.x | 主要开发语言 |
-| 框架 | Express | 4.x | Web服务框架 |
-| 数据库 | PostgreSQL | 14.x | 主数据存储 |
-| 缓存 | Redis | 7.x | 会话和缓存 |
+| 类别 | 技术 | 版本 | 用途 | 来源文件 |
+|-----|-----|-----|-----|----------|
+| 语言 | TypeScript | 5.x | 主要开发语言 | package.json |
+| 框架 | Express | 4.x | Web服务框架 | package.json |
+| 数据库 | PostgreSQL | 14.x | 主数据存储 | docker-compose.yml |
+| 缓存 | Redis | 7.x | 会话和缓存 | docker-compose.yml |
 
-来源: package.json, docker-compose.yml
+> 💡 来源: [package.json, docker-compose.yml]
 
 ## 项目结构概览
 
@@ -83,7 +81,7 @@ project-root/
 └── scripts/            # 构建脚本
 \`\`\`
 
-来源: 项目目录结构
+> 💡 来源: [list_files 输出]
 
 ## 核心功能
 
@@ -93,7 +91,7 @@ project-root/
 | 订单处理 | 创建、支付、取消 | src/api/order.ts |
 | ... | ... | ... |
 
-来源: src/api/, src/service/
+> 💡 来源: [src/api/, src/service/]
 
 ## 快速开始
 
@@ -102,7 +100,7 @@ project-root/
 - PostgreSQL >= 14.x
 - Redis >= 7.x
 
-来源: package.json, README.md
+> 💡 来源: [package.json, README.md]
 
 ### 安装步骤
 
@@ -127,11 +125,11 @@ npm run dev
 
 | 配置项 | 说明 | 默认值 | 配置文件 |
 |-------|-----|-------|---------|
-| DATABASE_URL | 数据库连接 | - | .env |
-| REDIS_URL | Redis连接 | localhost:6379 | .env |
-| PORT | 服务端口 | 3000 | .env |
+| DATABASE_URL | 数据库连接 | - | .env.example |
+| REDIS_URL | Redis连接 | localhost:6379 | .env.example |
+| PORT | 服务端口 | 3000 | .env.example |
 
-来源: [.env.example](./.env.example), [config/](./config/)
+> 💡 来源: [.env.example, config/]
 
 ## 开发命令
 
@@ -142,7 +140,7 @@ npm run dev
 | npm run test | 运行测试 |
 | npm run lint | 代码检查 |
 
-来源: package.json, scripts/
+> 💡 来源: [package.json]
 \`\`\`
 
 ${CODE_REFERENCE_RULES}
@@ -152,10 +150,9 @@ ${CODE_REFERENCE_RULES}
 - 图表必须标注关联的代码目录
 
 ## 质量要求
-1. 技术栈信息必须从 package.json 等配置文件中提取，标注版本
-2. 项目结构必须反映实际目录
-3. 快速开始步骤必须可执行
-4. 配置项必须从实际配置文件中提取
-5. 文档长度控制在 150-300 行
+1. **真实性**：技术栈版本必须精确匹配配置文件（如 package.json 中的 dependencies）。
+2. **准确性**：项目结构树必须基于 \`list_files\` 的真实输出，禁止手动补全不存在的目录。
+3. **可执行性**：快速开始步骤必须经过逻辑验证。
+4. **配置完整性**：配置项必须从 .env.example 或 config 文件中提取，禁止臆造环境变量。
 `;
 
