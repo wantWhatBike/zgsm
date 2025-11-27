@@ -3,6 +3,7 @@
  */
 
 import { FileFilter, getFileHash } from "../tools/FileUtils"
+import { PathUtils } from "../tools/PathUtils"
 import * as path from "path"
 import * as fs from "fs/promises"
 import { createLogger, ILogger } from '../../../utils/logger'
@@ -115,6 +116,7 @@ export class FileService {
 
   /**
    * 创建FileInfo对象 - 只负责获取文件基本信息，不计算hash
+   * ✅ 路径标准化：统一使用 Unix 风格分隔符（"/"）
    */
   private async createFileInfos(filePaths: string[], workspacePath: string): Promise<FileInfo[]> {
     const fileInfos: FileInfo[] = []
@@ -130,8 +132,11 @@ export class FileService {
         const fileStats = await fs.stat(filePath)
         const relativePath = path.relative(workspacePath, filePath)
         
+        // ✅ 标准化路径为 Unix 风格（避免 Windows 路径分隔符问题）
+        const normalizedPath = PathUtils.normalizePathSeparators(relativePath)
+        
         fileInfos.push({
-          path: relativePath,
+          path: normalizedPath,
           size: fileStats.size,
           lastModified: fileStats.mtime.getTime(),
           hash: '' // 暂时为空，后续计算

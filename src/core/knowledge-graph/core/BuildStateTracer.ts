@@ -2,6 +2,7 @@ import type { KnowledgeGraphBuildState, BuildProgress, FileInfo, FileChanges } f
 import { ILogger } from "../../../utils/logger"
 import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
+import { PathUtils } from "../tools/PathUtils"
 import { KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE } from "@roo-code/types"
 import { Mutex } from "../utils/Mutex"
 
@@ -403,17 +404,17 @@ export class BuildStateTracer {
 	> {
 		try {
 			const content = await this.storage.load(FILES_LIST_FILE)
-			// 为空处理
 			if (!content) {
 				return undefined
 			}
 			const data = JSON.parse(content)
 
-			// 兼容旧格式：使用类型守卫检查并转换
+			// 使用类型守卫检查并转换
 			const result: Record<
 				string,
 				{ timestamp: number; status: "pending" | "success" | "failed"; hash: string }
 			> = {}
+			
 			for (const [path, value] of Object.entries(data)) {
 				if (this.isFileRecord(value)) {
 					const status = value.status === "success" || value.status === "failed" ? value.status : "pending"
@@ -431,6 +432,7 @@ export class BuildStateTracer {
 					}
 				}
 			}
+			
 			return result
 		} catch (error) {
 			this.logger.error("[BuildStateTracer] 获取构建状态失败:", error)
@@ -463,15 +465,18 @@ export class BuildStateTracer {
 			// 处理已完成的文件路径（更新状态为 success）
 			if (processedFilesPaths && processedFilesPaths.length > 0) {
 				processedFilesPaths.forEach((filePath) => {
+					// 标准化路径：防止路径分隔符不一致导致匹配失败
+					const normalizedPath = PathUtils.normalizePathSeparators(filePath)
+					
 					// 检查 key 是否存在于文件列表中
-					if (Object.prototype.hasOwnProperty.call(fileList, filePath)) {
+					if (Object.prototype.hasOwnProperty.call(fileList, normalizedPath)) {
 						// 更新状态为 success，保留其他字段（timestamp、hash）
-						fileList[filePath] = {
-							...fileList[filePath],
+						fileList[normalizedPath] = {
+							...fileList[normalizedPath],
 							status: buildStatus,
 						}
 					} else {
-						this.logger.warn(`[BuildStateTracer] 文件路径未在files.json中找到: ${filePath}`)
+						this.logger.warn(`[BuildStateTracer] 文件路径未在files.json中找到: ${normalizedPath}`)
 					}
 				})
 			}

@@ -62,5 +62,6 @@
 	"statusPaused": "已暫停",
 	"statusUnknown": "未知",
 	"selectModel": "選擇模型",
-	"cannotDisableWhileRunning": "運行中不能禁用，請先停止"
+	"cannotDisableWhileRunning": "運行中不能禁用，請先停止",
+	"confirmClear": "確認要清空知識圖譜嗎？"
 }

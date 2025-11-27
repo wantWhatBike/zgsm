@@ -9,6 +9,7 @@ import { FileSummary, RootInfo, BuildProgress, KnowledgeGraphConfig, FileInfo } 
 import { LLM_LANGUAGE } from "../constants"
 import { ErrorHandler } from "../errors/ErrorHandler"
 import { safeReadFile, stringToContentBlocks } from "../tools/FileUtils"
+import { PathUtils } from "../tools/PathUtils"
 import { ILogger } from "../../../utils/logger"
 import { countTokens } from "../../../utils/countTokens"
 import { IStorage } from "../storage/IStorage"
@@ -331,17 +332,22 @@ export class FileSummarizer {
 
 	/**
 	 * 验证和清理文件摘要
+	 * ✅ 路径标准化：LLM 可能返回不同格式的路径分隔符，统一标准化为 Unix 风格
 	 */
 	private validateAndCleanFileSummary(summary: FileSummary): FileSummary {
 		const now = new Date().toISOString()
 
 		return {
-			path: summary.path || "",
+			// ✅ 标准化路径：确保 LLM 返回的路径与系统中存储的路径格式一致
+			path: PathUtils.normalizePathSeparators(summary.path || ""),
 			type: this.validateFileType(summary.type),
 			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
 			functions: typeof summary.functions === "object" ? summary.functions : {},
-			dependencies: Array.isArray(summary.dependencies) ? summary.dependencies : [],
+			// ✅ 标准化依赖路径
+			dependencies: Array.isArray(summary.dependencies) 
+				? PathUtils.normalizePathsArray(summary.dependencies)
+				: [],
 			timestamp: summary.timestamp || now,
 			size: summary.size || 0,
 			lastModified: summary.lastModified || Date.now(),

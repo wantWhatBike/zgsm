@@ -1,10 +1,10 @@
-import { useEffect, useRef, useCallback, useMemo, useReducer } from "react"
+import { useEffect, useRef, useCallback, useMemo, useReducer, useState } from "react"
 import { FileText, AlertCircle, Play, Pause, Trash, Loader2, Network } from "lucide-react"
 import { format } from "date-fns"
 
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { vscode } from "@/utils/vscode"
-import { Button, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Badge } from "@/components/ui"
+import { Button, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Badge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui"
 
 import { SectionHeader } from "./SectionHeader"
 import { Section } from "./Section"
@@ -136,6 +136,9 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		knowledgeGraphStatus: initialStatus || createDefaultBuildState(),
 		isOperating: false,
 	})
+
+	// 清空确认对话框状态
+	const [showClearConfirm, setShowClearConfirm] = useState(false)
 
 	// 检查是否为支持的API提供者 - 使用共享常量
 	const isZgsmProvider = useMemo(
@@ -308,15 +311,17 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 			return
 		}
 		
-		// 二次确认
-		if (!confirm('确定要清空知识图谱吗？此操作不可恢复。')) {
-			return
-		}
-		
+		// 显示确认对话框
+		setShowClearConfirm(true)
+	}, DEBOUNCE_DELAY)
+
+	// 确认清空后的实际操作
+	const handleConfirmClear = useCallback(() => {
 		dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
 		dispatch({ type: UI_ACTIONS.RESET_TO_DEFAULT })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.CLEAR)
-	}, DEBOUNCE_DELAY)
+		setShowClearConfirm(false)
+	}, [dispatch, sendMessage])
 
 	const handleOpenGraphView = useCallback(() => {
 		console.log("[KnowledgeGraphSettings] 点击可视化按钮，发送 OPEN_GRAPH_VIEW 消息")
@@ -570,6 +575,26 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 						)}
 					</div>
 				</div>
+
+				{/* 清空确认对话框 */}
+				<AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>
+								<AlertCircle className="w-4 h-4 text-red-500" />
+								{t("knowledgegraph:confirmClear")}
+							</AlertDialogTitle>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
+							<AlertDialogAction
+								onClick={handleConfirmClear}
+								className="bg-red-600 hover:bg-red-700 text-white">
+								{t("common:confirm")}
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
 			</Section>
 		</div>
 	)

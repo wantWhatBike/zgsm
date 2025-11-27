@@ -63,5 +63,5 @@
 	"statusUnknown": "Unknown",
 	"selectModel": "Select Model",
 	"cannotDisableWhileRunning": "Cannot disable while running, please stop first",
-	"cannotDisableWhileRunning": "Cannot disable while running, please stop first"
+	"confirmClear": "Are you sure you want to clear the knowledge graph?"
 }

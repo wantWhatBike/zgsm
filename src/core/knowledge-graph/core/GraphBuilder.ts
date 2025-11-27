@@ -69,9 +69,53 @@ export class GraphBuilder {
 	}
 
 	/**
+	 * 检测并修复假状态
+	 * 
+	 * 假状态：状态机显示 RUNNING，但 currentBuildPromise 为 null
+	 * 常见原因：
+	 * 1. VSCode 崩溃/关闭后重启（最常见）
+	 * 2. 插件重新加载
+	 * 3. 异常导致任务创建失败但状态已更新
+	 * 4. 系统资源耗尽导致进程终止
+	 * 
+	 * @returns true 如果检测到假状态并已修复
+	 */
+	private async detectAndRepairGhostState(): Promise<boolean> {
+		const currentState = this.buildStateTracer.getCurrentState()
+		
+		// 只有 RUNNING 状态才需要检测
+		if (currentState?.status !== KNOWLEDGE_GRAPH_STATUS.RUNNING) {
+			return false
+		}
+		
+		// 检查是否有活跃任务
+		const hasActiveTask = this.currentBuildPromise !== null
+		
+		if (!hasActiveTask) {
+			// ❌ 假状态：状态是 RUNNING，但没有任务
+			this.logger.warn("[GraphBuilder] ========== 检测到假状态 ==========")
+			this.logger.warn("[GraphBuilder] 状态: RUNNING, 但 currentBuildPromise = null")
+			this.logger.warn("[GraphBuilder] 可能原因: VSCode崩溃、插件重载、或异常中断")
+			
+			// 修复为 PAUSED，让用户决定继续或清空
+			await this.buildStateTracer.updateBuildState({
+				status: KNOWLEDGE_GRAPH_STATUS.PAUSED,
+				error: "检测到异常中断，已自动修复状态。可以继续构建或清空重来。"
+			})
+			
+			this.logger.info("[GraphBuilder] 状态已修复: RUNNING → PAUSED")
+			this.logger.info("[GraphBuilder] ========================================")
+			return true  // 已修复
+		}
+		
+		return false  // 无需修复
+	}
+
+	/**
 	 * 开始构建知识图谱
 	 * ✅ 增强版：使用互斥锁和原子操作确保同一时间只有一个构建任务
 	 * ✅ 修复：立即返回，不等待构建完成，避免 Mutex lock timeout
+	 * ✅ 假状态检测：自动修复异常中断导致的假状态
 	 */
 	async start(workspacePath: string, options: BuildOptions = {}): Promise<void> {
 		if (!workspacePath) {
@@ -83,7 +127,10 @@ export class GraphBuilder {
 			throw new Error("正在清除知识图谱，请稍后重试")
 		}
 		
-		// 2. 检查是否已有任务（双重检查）- 在锁外检查，避免重复任务
+		// ✅ 2. 检测并修复假状态（在锁外，避免阻塞）
+		await this.detectAndRepairGhostState()
+		
+		// 3. 检查是否已有任务（双重检查）- 在锁外检查，避免重复任务
 		if (this.currentBuildPromise) {
 			this.logger.info("[GraphBuilder] 构建任务已在运行中，忽略重复请求")
 			return // ✅ 立即返回，不等待
@@ -93,13 +140,13 @@ export class GraphBuilder {
 		await this.buildMutex.lock()
 		
 		try {
-			// 3. 再次检查是否已有任务（双重检查模式）
+			// 4. 再次检查是否已有任务（双重检查模式）
 			if (this.currentBuildPromise) {
 				this.logger.info("[GraphBuilder] 构建任务已在运行中（双重检查），忽略重复请求")
 				return // ✅ 立即返回，不等待
 			}
 			
-			// 4. 检查是否可以启动（只读检查）
+			// 5. 检查是否可以启动（只读检查，假状态已被修复）
 			const canStart = this.buildStateTracer.canStartBuildNow()
 			if (!canStart) {
 				const currentStatus = this.buildStateTracer.getCurrentState()?.status
@@ -119,7 +166,7 @@ export class GraphBuilder {
 				}
 			}
 			
-			// ✅ 5. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
+			// ✅ 6. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
 			// 注意：这是简单状态，executeBuild() 会初始化完整状态
 			await this.buildStateTracer.updateBuildState({
 				status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
@@ -128,13 +175,13 @@ export class GraphBuilder {
 			})
 			this.logger.info("[GraphBuilder] 状态已更新为 RUNNING")
 			
-			// 6. 初始化中止控制器
+			// 7. 初始化中止控制器
 			if (this.abortController) {
 				this.abortController.abort()
 			}
 			this.abortController = new AbortController()
 			
-			// 7. 设置各组件的统一终止检查器
+			// 8. 设置各组件的统一终止检查器
 			const stopChecker = () => {
 				return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
 			}
@@ -142,7 +189,7 @@ export class GraphBuilder {
 			this.fileSummarizer.setPauseChecker(stopChecker)
 			this.directorySummarizer.setPauseChecker(stopChecker)
 			
-			// 8. 创建新的构建任务（此时状态已是 RUNNING）
+			// 9. 创建新的构建任务（此时状态已是 RUNNING）
 			this.currentBuildPromise = this.executeBuild(workspacePath, options)
 				.catch(async (error) => {
 					await this.handleBuildError(error)
@@ -195,123 +242,219 @@ export class GraphBuilder {
 
 	/**
 	 * 继续构建
-	 * ✅ 增强版：使用原子操作和互斥锁确保状态一致性
-	 * ✅ 修复：立即返回，不等待构建完成，避免 Mutex lock timeout
+	 * ✅ 方案 A（取消暂停）：
+	 *    - 如果任务还在（等待 LLM），取消暂停标志，任务继续执行
+	 *    - 如果任务已退出，创建新任务
+	 * ✅ 假状态检测：自动修复异常中断导致的假状态
+	 * ✅ 资源利用：快速"暂停-继续"不浪费 LLM 请求
 	 */
 	async resume(workspacePath: string): Promise<void> {
 		if (!workspacePath) {
 			throw new Error("workspacePath is null, cannot resume.")
 		}
 		
-		// 防止重复恢复 - 在锁外检查
-		if (this.currentBuildPromise) {
-			this.logger.warn("[GraphBuilder] 构建任务已在执行中，忽略恢复请求")
-			return // ✅ 立即返回，不等待
+		this.logger.info("[GraphBuilder] 收到恢复请求，准备分析场景")
+		
+		// ✅ 检测并修复假状态（理论上已在初始化时修复，但防御性检查）
+		const wasGhostState = await this.detectAndRepairGhostState()
+		if (wasGhostState) {
+			this.logger.info("[GraphBuilder] 检测到假状态，已修复，将创建新任务")
 		}
 		
 		// ========== 原子区域：检查和任务恢复 ==========
 		await this.buildMutex.lock()
 		
 		try {
-			// 再次检查是否已有任务（双重检查模式）
-			if (this.currentBuildPromise) {
-				this.logger.warn("[GraphBuilder] 构建任务已在执行中（双重检查），忽略恢复请求")
-				return // ✅ 立即返回，不等待
+			// 状态检查（只有 PAUSED 状态才能恢复）
+			if (!this.buildStateTracer.canResume()) {
+				const currentStatus = this.buildStateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许恢复`)
 			}
 			
-			// ✅ 立即更新状态为 RUNNING（在创建异步任务前）
-			// resumeBuild() 会检查状态并更新为 RUNNING
-			await this.buildStateTracer.resumeBuild()
-			this.logger.info("[GraphBuilder] 状态已更新为 RUNNING（恢复）")
-
-			// 初始化中止控制器
-			if (this.abortController) {
-				this.abortController.abort()
+			// 🔑 核心判断：任务是否还在运行
+			if (this.currentBuildPromise) {
+				// ===== 场景 A：快速继续（任务还在，取消暂停）=====
+				
+				this.logger.info("[GraphBuilder] ========================================")
+				this.logger.info("[GraphBuilder] 场景 A: 快速继续（取消暂停）")
+				this.logger.info("[GraphBuilder] 检测到任务仍在执行（可能在等待 LLM 响应）")
+				this.logger.info("[GraphBuilder] 操作: 取消暂停标志，任务将继续执行")
+				this.logger.info("[GraphBuilder] 优势: 不浪费已发送的 LLM 请求")
+				
+				// 1. 更新状态为 RUNNING
+				await this.buildStateTracer.resumeBuild()
+				this.logger.info("[GraphBuilder] 状态已更新: PAUSED → RUNNING")
+				
+				// 2. 🔑 重置 abortController（关键！）
+				if (this.abortController) {
+					this.abortController.abort()  // 先中止旧的
+					this.logger.debug("[GraphBuilder] 旧的 abortController 已中止")
+				}
+				this.abortController = new AbortController()  // 创建新的
+				this.logger.info("[GraphBuilder] 已创建新的 abortController")
+				
+				// 3. 🔑 重新设置 stopChecker（使用新的 abortController）
+				const stopChecker = () => {
+					return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
+				}
+				this.rootAnalyzer.setPauseChecker(stopChecker)
+				this.fileSummarizer.setPauseChecker(stopChecker)
+				this.directorySummarizer.setPauseChecker(stopChecker)
+				this.logger.debug("[GraphBuilder] stopChecker 已更新")
+				
+				this.logger.info("[GraphBuilder] 暂停已取消，任务将在下一个检查点继续执行")
+				this.logger.info("[GraphBuilder] ========================================")
+				return  // ✅ 不创建新任务，当前任务继续
+				
+			} else {
+				// ===== 场景 B：长时间继续（任务已退出，创建新任务）=====
+				
+				this.logger.info("[GraphBuilder] ========================================")
+				this.logger.info("[GraphBuilder] 场景 B: 长时间继续（启动新任务）")
+				this.logger.info("[GraphBuilder] 任务已退出（等待 LLM 后已完成检查点退出）")
+				this.logger.info("[GraphBuilder] 操作: 创建新的恢复任务")
+				
+				// 1. 更新状态为 RUNNING
+				await this.buildStateTracer.resumeBuild()
+				this.logger.info("[GraphBuilder] 状态已更新: PAUSED → RUNNING")
+				
+				// 2. 初始化 abortController
+				this.abortController = new AbortController()
+				this.logger.info("[GraphBuilder] 已创建 abortController")
+				
+				// 3. 设置 stopChecker
+				const stopChecker = () => {
+					return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
+				}
+				this.rootAnalyzer.setPauseChecker(stopChecker)
+				this.fileSummarizer.setPauseChecker(stopChecker)
+				this.directorySummarizer.setPauseChecker(stopChecker)
+				
+				// 4. 创建新任务
+				this.currentBuildPromise = this.executeBuild(workspacePath, { resumeFromPrevious: true })
+					.catch(async (error) => {
+						await this.handleBuildError(error)
+						throw error
+					})
+					.finally(() => {
+						this.currentBuildPromise = null
+						this.abortController = null
+						this.logger.info("[GraphBuilder] 恢复任务已完成并清理")
+					})
+					
+				this.logger.info("[GraphBuilder] 恢复任务已创建并启动")
+				this.logger.info("[GraphBuilder] ========================================")
 			}
-			this.abortController = new AbortController()
-
-			// 设置各组件的统一终止检查器
-			const stopChecker = () => {
-				return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
-			}
-			this.rootAnalyzer.setPauseChecker(stopChecker)
-			this.fileSummarizer.setPauseChecker(stopChecker)
-			this.directorySummarizer.setPauseChecker(stopChecker)
-
-			// 启动恢复任务
-			this.logger.info(`[GraphBuilder] 启动恢复构建任务：${workspacePath}`)
-			this.currentBuildPromise = this.executeBuild(workspacePath, { resumeFromPrevious: true })
-				.catch(async (error) => {
-					await this.handleBuildError(error)
-					throw error
-				})
-				.finally(() => {
-					this.currentBuildPromise = null
-					this.abortController = null
-				})
+			
 		} finally {
 			// 确保锁被释放
 			this.buildMutex.unlock()
 		}
 		
 		// ========== 原子区域结束 ==========
-		
-		// ✅ 立即返回，不等待 currentBuildPromise 完成
-		// 这样可以避免占用 operationMutex 锁过长时间，防止 Mutex lock timeout
 	}
 
 	/**
 	 * 清除知识图谱
 	 * ✅ 增强版：使用互斥锁确保不会与其他操作冲突
+	 * ✅ 详细日志：记录每个清除步骤，便于问题排查
 	 */
 	async clear(workspacePath: string): Promise<void> {
+		this.logger.info("[GraphBuilder] ================================================")
+		this.logger.info("[GraphBuilder] ========== 收到清空请求 ==========")
+		this.logger.info("[GraphBuilder] 工作区: " + workspacePath)
+		
 		// ========== 原子区域：检查和清除操作 ==========
+		this.logger.info("[GraphBuilder] 尝试获取 buildMutex 锁...")
 		await this.buildMutex.lock()
+		this.logger.info("[GraphBuilder] ✓ buildMutex 锁已获取")
 		
 		try {
+			// 1. 参数校验
 			if (!workspacePath) {
+				this.logger.error("[GraphBuilder] ✗ workspacePath 为空，清空失败")
 				throw new Error("workspacePath is null, cannot clear.")
 			}
+			this.logger.info("[GraphBuilder] ✓ 参数校验通过")
 
+			// 2. 检查是否正在清除
 			if (this.isClearing) {
-				this.logger.info("清除操作已在进行中")
+				this.logger.warn("[GraphBuilder] ⚠ 清除操作已在进行中，忽略重复请求")
 				return
 			}
+			this.logger.info("[GraphBuilder] ✓ 无重复清除操作")
 
-			// 检查状态是否允许清除
+			// 3. 状态检查
+			const currentState = this.buildStateTracer.getCurrentState()
+			this.logger.info(`[GraphBuilder] 当前状态: ${currentState?.status || 'null'}`)
+			
 			if (!this.buildStateTracer.canClear()) {
-				const currentStatus = this.buildStateTracer.getCurrentState()?.status
+				const currentStatus = currentState?.status
+				this.logger.error(`[GraphBuilder] ✗ 当前状态 ${currentStatus} 不允许清除`)
 				throw new Error(`当前状态 ${currentStatus} 不允许清除。请先暂停构建后再清除。`)
 			}
+			this.logger.info("[GraphBuilder] ✓ 状态检查通过，允许清除")
 
+			// 4. 开始清除
 			this.isClearing = true
+			this.logger.info("[GraphBuilder] ------------------------------------------")
+			this.logger.info("[GraphBuilder] 开始清除流程...")
 			
 			try {
-				// 中断当前正在进行的耗时操作
+				// 5. 中断当前操作
 				if (this.abortController) {
+					this.logger.info("[GraphBuilder] [1/6] 中止控制器已存在，正在中断...")
 					this.abortController.abort()
 					this.abortController = null
+					this.logger.info("[GraphBuilder] ✓ 中止控制器已中断并清理")
+				} else {
+					this.logger.info("[GraphBuilder] [1/6] 无需中断（中止控制器为空）")
 				}
 
-				// 如果有暂停的任务，先取消它
+				// 6. 清理构建任务引用
 				if (this.currentBuildPromise) {
-					this.logger.info("[GraphBuilder] 取消暂停的构建任务")
+					this.logger.info("[GraphBuilder] [2/6] 检测到暂停的构建任务，正在清理...")
 					this.currentBuildPromise = null
+					this.logger.info("[GraphBuilder] ✓ 构建任务引用已清理")
+				} else {
+					this.logger.info("[GraphBuilder] [2/6] 无需清理（构建任务引用为空）")
 				}
 
-				// 清除所有存储
+				// 7. 清除各组件存储（按顺序）
+				this.logger.info("[GraphBuilder] [3/6] 清除构建状态...")
 				await this.buildStateTracer.clear()
+				this.logger.info("[GraphBuilder] ✓ 构建状态已清除")
+				
+				this.logger.info("[GraphBuilder] [4/6] 清除根目录分析结果...")
 				await this.rootAnalyzer.clear()
+				this.logger.info("[GraphBuilder] ✓ 根目录分析结果已清除")
+				
+				this.logger.info("[GraphBuilder] [5/6] 清除文件摘要...")
 				await this.fileSummarizer.clear()
+				this.logger.info("[GraphBuilder] ✓ 文件摘要已清除")
+				
+				this.logger.info("[GraphBuilder] [6/6] 清除目录摘要...")
 				await this.directorySummarizer.clear()
+				this.logger.info("[GraphBuilder] ✓ 目录摘要已清除")
 
-				this.logger.info("[GraphBuilder] 知识图谱存储已清除")
+				this.logger.info("[GraphBuilder] ------------------------------------------")
+				this.logger.info("[GraphBuilder] ========== 清空完成 ==========")
+				this.logger.info("[GraphBuilder] ================================================")
+			} catch (error) {
+				this.logger.error("[GraphBuilder] ✗ 清除过程中发生错误:")
+				this.logger.error("[GraphBuilder] 错误详情: " + (error instanceof Error ? error.message : String(error)))
+				if (error instanceof Error && error.stack) {
+					this.logger.error("[GraphBuilder] 错误堆栈:\n" + error.stack)
+				}
+				throw error
 			} finally {
 				this.isClearing = false
+				this.logger.info("[GraphBuilder] isClearing 标志已重置为 false")
 			}
 		} finally {
 			// 确保锁被释放
 			this.buildMutex.unlock()
+			this.logger.info("[GraphBuilder] buildMutex 锁已释放")
 		}
 		
 		// ========== 原子区域结束 ==========
@@ -327,7 +470,13 @@ export class GraphBuilder {
 		if (!this.fileService) {
 			throw new Error("fileService not initialized")
 		}
-		this.logger.info(`[GraphBuilder] 开始构建知识图谱，工作区：${workspacePath}`)
+		
+		this.logger.info(`[GraphBuilder] ================================================`)
+		this.logger.info(`[GraphBuilder] ========== 开始知识图谱构建 ==========`)
+		this.logger.info(`[GraphBuilder] 工作区: ${workspacePath}`)
+		this.logger.info(`[GraphBuilder] 模式: ${options.resumeFromPrevious ? '恢复构建' : '新建构建'}`)
+		this.logger.info(`[GraphBuilder] ================================================`)
+		
 		// 重置性能跟踪器
 		this.progressTracer.reset()
 
@@ -470,7 +619,13 @@ export class GraphBuilder {
 			}
 			
 			this.progressTracer.start('fileSummary')
-			this.logger.info(`[GraphBuilder] 开始文件摘要: ${totalFilesToProcess}个文件`)
+			this.logger.info(`[GraphBuilder] ================================================`)
+			this.logger.info(`[GraphBuilder] ========== 开始文件摘要阶段 ==========`)
+			this.logger.info(`[GraphBuilder] 总文件数: ${totalFiles}`)
+			this.logger.info(`[GraphBuilder] 需处理: ${incrementalResult.added.length + incrementalResult.modified.length} 个文件`)
+			this.logger.info(`[GraphBuilder] 未变更: ${incrementalResult.unchangedCount} 个文件`)
+			this.logger.info(`[GraphBuilder] 新增: ${incrementalResult.added.length}, 修改: ${incrementalResult.modified.length}`)
+			this.logger.info(`[GraphBuilder] ================================================`)
 
 			if (!this.fileSummarizer) {
 				throw new Error("文件分析器未初始化")
@@ -520,9 +675,15 @@ export class GraphBuilder {
 			const fileSummaryDuration = this.progressTracer.end('fileSummary')
 			const batchStats = this.progressTracer.getBatchStats('fileSummary')
 			
-			this.logger.info(`[GraphBuilder] 文件摘要完成，总耗时: ${ProgressTracer.formatDuration(fileSummaryDuration)}, 总批次: ${batchStats.totalBatches}, 平均每批次: ${batchStats.averageItemsPerBatch}个文件, 平均批次耗时: ${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
+			this.logger.info(`[GraphBuilder] ================================================`)
+			this.logger.info(`[GraphBuilder] ========== 文件摘要阶段完成 ==========`)
+			this.logger.info(`[GraphBuilder] 总耗时: ${ProgressTracer.formatDuration(fileSummaryDuration)}`)
+			this.logger.info(`[GraphBuilder] 总批次: ${batchStats.totalBatches}`)
+			this.logger.info(`[GraphBuilder] 平均每批次: ${batchStats.averageItemsPerBatch} 个文件`)
+			this.logger.info(`[GraphBuilder] 平均批次耗时: ${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
+			this.logger.info(`[GraphBuilder] ================================================`)
 		} else {
-			this.logger.info("[GraphBuilder] 跳过文件摘要 (无变更)")
+			this.logger.info("[GraphBuilder] 跳过文件摘要阶段 (无文件变更)")
 		}
 
 		// 检查暂停状态
@@ -540,6 +701,10 @@ export class GraphBuilder {
 			}
 			
 			this.progressTracer.start('directorySummary')
+			this.logger.info(`[GraphBuilder] ================================================`)
+			this.logger.info(`[GraphBuilder] ========== 开始目录摘要阶段 ==========`)
+			this.logger.info(`[GraphBuilder] ================================================`)
+			
 			await this.buildStateTracer.updateBuildState({
 				phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS,
 				failedFiles: 0,
@@ -556,6 +721,12 @@ export class GraphBuilder {
 				rootInfo,
 				allFiles,
 				async (progress: BuildProgress) => {
+					// 如果正在清除，停止更新状态
+					if (this.isClearing) return
+					
+					// 🔑 记录目录摘要进度（每个目录完成时）
+					this.logger.info(`[GraphBuilder] 目录摘要进度: ${progress.totalProcessedFiles}/${progress.filesToProcess} 目录`)
+					
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
 						phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS,
@@ -583,7 +754,13 @@ export class GraphBuilder {
 			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, totalDirs, totalDirs, 'completed')
 
 			const directorySummaryDuration = this.progressTracer.end('directorySummary')
-			this.logger.info(`[GraphBuilder] 目录摘要完成，耗时: ${ProgressTracer.formatDuration(directorySummaryDuration)}`)
+			this.logger.info(`[GraphBuilder] ================================================`)
+			this.logger.info(`[GraphBuilder] ========== 目录摘要阶段完成 ==========`)
+			this.logger.info(`[GraphBuilder] 总目录数: ${totalDirs}`)
+			this.logger.info(`[GraphBuilder] 总耗时: ${ProgressTracer.formatDuration(directorySummaryDuration)}`)
+			this.logger.info(`[GraphBuilder] ================================================`)
+		} else {
+			this.logger.info("[GraphBuilder] 跳过目录摘要阶段 (无目录变更)")
 		}
 		
 		// 最终检查是否因暂停而中断
@@ -600,11 +777,13 @@ export class GraphBuilder {
 			error: "构建完成"
 		})
 		
+		this.logger.info(`[GraphBuilder] ================================================`)
+		this.logger.info(`[GraphBuilder] ========== 知识图谱构建完成 ==========`)
+		this.logger.info(`[GraphBuilder] ================================================`)
+		
 		// 生成性能报告
 		const performanceReport = this.progressTracer.generateReport()
 		performanceReport.forEach(log => this.logger.info(log))
-		
-		this.logger.info("[GraphBuilder] 构建完成")
 	}
 
 	/**
@@ -622,8 +801,8 @@ export class GraphBuilder {
 	}
 
 	/**
-	 * 状态修复：检查Build_state为running但实际没有正在运行的任务
-	 * 主要处理插件关闭后状态还是running的情况
+	 * 状态修复：处理插件初始化时的假状态
+	 * 主要场景：VSCode 崩溃/关闭后重启，状态文件还是 RUNNING 但内存已清空
 	 */
 	public async repairBuildState(): Promise<void> {
 		if (!this.buildStateTracer) {
@@ -631,27 +810,15 @@ export class GraphBuilder {
 		}
 
 		try {
-			const currentState = this.buildStateTracer.getCurrentState()
-			if (!currentState) {
-				return
-			}
-
-			// 如果Build_state显示为running，但实际没有正在运行的任务
-			if (currentState.status === "running") {
-				// 检查是否有正在执行的任务（检查currentBuildPromise）
-				const hasRunningTask = this.currentBuildPromise !== null
-				
-				if (!hasRunningTask) {
-					this.logger.warn("[GraphBuilder] 检测到状态不一致：Build_state为running但无实际运行任务，修复为paused")
-					
-					// 将状态修复为paused，用户可以选择继续或清空
-					await this.buildStateTracer.updateBuildState({
-						status: KNOWLEDGE_GRAPH_STATUS.PAUSED,
-						error: "检测到异常中断，已自动修复状态"
-					})
-					
-					this.logger.info("[GraphBuilder] 状态修复完成：running -> paused")
-				}
+			this.logger.info("[GraphBuilder] 执行初始化状态修复检查...")
+			
+			// ✅ 使用统一的假状态检测方法
+			const wasRepaired = await this.detectAndRepairGhostState()
+			
+			if (wasRepaired) {
+				this.logger.info("[GraphBuilder] ✓ 初始化时检测到假状态并已自动修复")
+			} else {
+				this.logger.info("[GraphBuilder] ✓ 状态正常，无需修复")
 			}
 		} catch (error) {
 			this.logger.error(`[GraphBuilder] 状态修复失败: ${error}`)
