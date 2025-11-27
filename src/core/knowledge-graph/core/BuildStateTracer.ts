@@ -517,6 +517,33 @@ export class BuildStateTracer {
 		try {
 			await this.storage.clear(BUILD_STATE_FILE)
 			await this.storage.clear(FILES_LIST_FILE)
+			
+			// 重置内存中的状态为 PENDING
+			this.currentState = {
+				taskId: undefined,
+				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
+				progress: 0,
+				status: KNOWLEDGE_GRAPH_STATUS.PENDING,
+				totalFiles: 0,
+				processedFiles: 0,
+				failedFiles: 0,
+				currentFile: "",
+				totalFilesToProcess: 0,
+				startTime: new Date().toISOString(),
+				lastUpdateTime: new Date().toISOString(),
+				totalDuration: 0,
+				llmStatistics: {
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalTokens: 0,
+					totalRequests: 0,
+					successfulRequests: 0,
+					failedRequests: 0,
+					totalDuration: 0,
+				}
+			}
+			
+			this.logger.info("[BuildStateTracer] 已清空构建状态并重置为 PENDING")
 		} catch (error) {
 			throw new Error(`删除构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
 		}

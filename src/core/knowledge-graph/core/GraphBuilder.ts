@@ -166,14 +166,18 @@ export class GraphBuilder {
 				}
 			}
 			
-			// ✅ 6. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
-			// 注意：这是简单状态，executeBuild() 会初始化完整状态
-			await this.buildStateTracer.updateBuildState({
-				status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
-				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
-				error: "正在启动构建..."
-			})
-			this.logger.info("[GraphBuilder] 状态已更新为 RUNNING")
+		// ✅ 6. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
+		// 注意：这是简单状态，executeBuild() 会初始化完整状态
+		await this.buildStateTracer.updateBuildState({
+			status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
+			phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
+			progress: 0,  // ✅ 重置进度为 0%
+			processedFiles: 0,  // ✅ 重置已处理文件数
+			totalFiles: 0,  // ✅ 重置总文件数
+			failedFiles: 0,  // ✅ 重置失败文件数
+			error: "正在启动构建..."
+		})
+		this.logger.info("[GraphBuilder] 状态已更新为 RUNNING，进度已重置为 0%")
 			
 			// 7. 初始化中止控制器
 			if (this.abortController) {

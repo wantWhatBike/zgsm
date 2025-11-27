@@ -158,8 +158,8 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 
 	// Use useMemo to avoid unnecessary state updates
 	const shouldDisableAll = useMemo(
-		() => !isZgsmProvider || !cwd || !knowledgeGraphEnabled,
-		[isZgsmProvider, cwd, knowledgeGraphEnabled],
+		() => !isZgsmProvider || !cwd || !knowledgeGraphEnabled || showClearConfirm,
+		[isZgsmProvider, cwd, knowledgeGraphEnabled, showClearConfirm],
 	)
 
 	// 统一的消息发送函数
@@ -586,11 +586,11 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 							</AlertDialogTitle>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
-							<AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
+							<AlertDialogCancel>{t("knowledgegraph:cancel")}</AlertDialogCancel>
 							<AlertDialogAction
 								onClick={handleConfirmClear}
 								className="bg-red-600 hover:bg-red-700 text-white">
-								{t("common:confirm")}
+								{t("knowledgegraph:confirm")}
 							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>

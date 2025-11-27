@@ -63,5 +63,7 @@
 	"statusUnknown": "未知",
 	"selectModel": "选择模型",
 	"cannotDisableWhileRunning": "运行中不能禁用，请先停止",
-	"confirmClear": "确认要清空知识图谱吗？"
+	"confirmClear": "确认要清空知识图谱吗？",
+	"cancel": "取消",
+	"confirm": "确认"
 }
