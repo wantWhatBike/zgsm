@@ -226,31 +226,34 @@ export class DirectorySummarizer {
 				// 标记该目录为已更新
 				dirsToUpdate.add(dirPath)
 
-				// 检查终止状态
-				if (this.shouldPause()) {
-					this.logger.info("[DirectorySummarizer] 分析被暂停")
-					break
-				}
+			// 检查终止状态
+			if (this.shouldPause()) {
+				this.logger.info("[DirectorySummarizer] 分析被暂停")
+				break
+			}
 
-				// 生成当前目录摘要
-				const summary = await this.generateDirectorySummary(
-					dirPath,
-					rootInfo,
-					allFileListStr,
-					subFiles,
-					subDirs,
-				)
+			// 开始处理目录
+			this.logger.info(`[DirectorySummarizer] 开始处理目录: ${dirPath}，进度: ${processedCount + 1}/${sortedDirs.length}`)
 
-				// 生成后再次检查终止状态
-				if (this.shouldPause()) break
+			// 生成当前目录摘要
+			const summary = await this.generateDirectorySummary(
+				dirPath,
+				rootInfo,
+				allFileListStr,
+				subFiles,
+				subDirs,
+			)
 
-				if (summary) {
-					dirSummaryMap.set(dirPath, summary)
-				}
+			// 生成后再次检查终止状态
+			if (this.shouldPause()) break
 
-				processedCount++
-				
-				this.logger.info(`[DirectorySummarizer] 目录摘要生成: ${dirPath}`)
+			if (summary) {
+				dirSummaryMap.set(dirPath, summary)
+			}
+
+			processedCount++
+			
+			this.logger.info(`[DirectorySummarizer] 目录摘要完成: ${dirPath}`)
 				
 				onProgress?.({
 					phase: "directory_analysis",

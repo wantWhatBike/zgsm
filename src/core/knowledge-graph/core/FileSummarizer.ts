@@ -152,7 +152,7 @@ export class FileSummarizer {
 	): Promise<void> {
 		if (this.shouldPause()) return
 
-		this.logger.info(`[FileSummarizer] 开始处理批次，批次大小: ${batchFilePaths.length}`)
+		this.logger.info(`[FileSummarizer] 开始处理批次，批次大小: ${batchFilePaths.length}，进度: ${processedCount}/${totalFiles}`)
 		const batchStartTime = Date.now()
 		
 		// 延迟读取：只在需要时读取文件内容

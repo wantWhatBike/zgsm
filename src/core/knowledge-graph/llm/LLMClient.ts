@@ -9,6 +9,18 @@ import { ProgressTracer } from "../tools/ProgressTracer"
 import { createLogger, ILogger } from "../../../utils/logger"
 import { ProviderSettings } from "@roo-code/types"
 import { ApiHandlerOptions } from "../../../shared/api"
+
+/**
+ * 带超时的 Promise 包装器
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutError: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error(timeoutError)), timeoutMs)
+    )
+  ])
+}
 import { LLM_CONFIG } from "../constants"
 
 export class LLMClient {
@@ -113,21 +125,27 @@ export class LLMClient {
             }
           )
 
-          let responseText = ""
-          let inputTokens = 0
-          let outputTokens = 0
-          let totalCost = 0
-          
-          // 处理流式响应
-          for await (const chunk of stream) {
-            if (chunk.type === "text") {
-              responseText += chunk.text
-            } else if (chunk.type === "usage") {
-              inputTokens += chunk.inputTokens
-              outputTokens += chunk.outputTokens
-              totalCost = chunk.totalCost || 0
+        let responseText = ""
+        let inputTokens = 0
+        let outputTokens = 0
+        let totalCost = 0
+        
+        // 处理流式响应（带超时控制）
+        await withTimeout(
+          (async () => {
+            for await (const chunk of stream) {
+              if (chunk.type === "text") {
+                responseText += chunk.text
+              } else if (chunk.type === "usage") {
+                inputTokens += chunk.inputTokens
+                outputTokens += chunk.outputTokens
+                totalCost = chunk.totalCost || 0
+              }
             }
-          }
+          })(),
+          LLM_CONFIG.timeout,
+          `LLM 请求超时（${LLM_CONFIG.timeout / 1000}秒），可能是网络问题或模型响应过慢`
+        )
 
           const duration = Date.now() - startTime
 

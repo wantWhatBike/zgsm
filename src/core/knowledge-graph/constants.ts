@@ -293,7 +293,7 @@ export const LLM_CONFIG = {
   retryDelay: RETRY_CONFIG.initialDelay,
   maxTokens: 4000,
   temperature: 0.1,
-  timeout: 60000,
+  timeout: 300000,  // 5分钟超时
   ANSWER_LANGUAGE: LLM_LANGUAGE
 }
 
