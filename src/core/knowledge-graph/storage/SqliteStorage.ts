@@ -375,6 +375,68 @@ export class SqliteStorage implements IStorage {
 	}
 
 	/**
+	 * 更新数据（使用 UPSERT）
+	 * SQLite 优势：INSERT OR REPLACE 自动处理更新，无需先删除
+	 */
+	async update(table: string, data: any | any[]): Promise<void> {
+		this.ensureInitialized()
+		const db = this.db
+		if (!db) throw new StorageError('数据库未初始化', 'DB_NOT_INITIALIZED', false)
+
+		try {
+			const tableName = this.normalizeTableName(table)
+			const items = Array.isArray(data) ? data : [data]
+
+			for (const item of items) {
+				this.insertRow(tableName, item)  // insertRow 已经使用 INSERT OR REPLACE
+			}
+
+			await this.saveDatabase()
+		} catch (error) {
+			throw new StorageError(
+				`更新数据失败: ${error instanceof Error ? error.message : String(error)}`,
+				'UPDATE_ERROR'
+			)
+		}
+	}
+
+	/**
+	 * 批量更新数据
+	 */
+	async updateBatch(table: string, data: any[]): Promise<void> {
+		return this.update(table, data)  // 复用 update 方法
+	}
+
+	/**
+	 * 批量删除数据（按路径）
+	 * SQLite 优势：使用 WHERE IN 一次性删除，无需读取全表
+	 */
+	async deleteBatch(table: string, paths: string[]): Promise<void> {
+		this.ensureInitialized()
+		const db = this.db
+		if (!db) throw new StorageError('数据库未初始化', 'DB_NOT_INITIALIZED', false)
+
+		if (paths.length === 0) return
+
+		try {
+			const tableName = this.normalizeTableName(table)
+			const placeholders = paths.map(() => '?').join(',')
+
+			db.run(
+				`DELETE FROM ${tableName} WHERE path IN (${placeholders})`,
+				paths
+			)
+
+			await this.saveDatabase()
+		} catch (error) {
+			throw new StorageError(
+				`批量删除失败: ${error instanceof Error ? error.message : String(error)}`,
+				'DELETE_BATCH_ERROR'
+			)
+		}
+	}
+
+	/**
 	 * 插入行数据
 	 */
 	private insertRow(tableName: string, item: any): void {

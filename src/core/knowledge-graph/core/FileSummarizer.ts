@@ -202,7 +202,7 @@ export class FileSummarizer {
 			// 验证和清理数据
 			let batchSummaries = response.data.map((summary: FileSummary) => this.validateAndCleanFileSummary(summary))
 
-			await this.saveSummaries(batchSummaries)
+			await this.updateSummaries(batchSummaries)
 
 			const progress: BuildProgress = {
 				phase: "file_analysis" as const,
@@ -224,31 +224,32 @@ export class FileSummarizer {
 		batchFiles.length = 0
 	}
 
-	async saveSummaries(summaries: FileSummary[]): Promise<void> {
-		// 批量保存回调
+	/**
+	 * 更新文件摘要（智能处理）
+	 * - SQLite: 使用 UPSERT，自动覆盖旧数据
+	 * - JSONL: 先删除旧数据再插入新数据
+	 */
+	async updateSummaries(summaries: FileSummary[]): Promise<void> {
 		try {
-			// 批量写入到JSONL文件
-			await this.storage!.addBatch(FILE_SUMMARIES_FILE, summaries)
-			this.logger.info(`[FileSummarizer] 保存文件摘要: ${summaries.length}个`)
+			await this.storage.updateBatch(FILE_SUMMARIES_FILE, summaries)
+			this.logger.info(`[FileSummarizer] 已更新 ${summaries.length} 个文件摘要`)
 		} catch (error) {
-			this.logger.error(`[FileSummarizer] 保存摘要失败: ${error}`)
+			this.logger.error(`[FileSummarizer] 更新摘要失败: ${error}`)
+			throw error
 		}
 	}
 
 	/**
-	 * 移除指定文件的摘要
+	 * 删除指定文件的摘要
 	 */
-	async removeSummaries(filePaths: string[]): Promise<void> {
+	async deleteSummaries(filePaths: string[]): Promise<void> {
 		if (filePaths.length === 0) return
 
 		try {
-			const pathsToRemove = new Set(filePaths)
-			await this.storage.deleteItems(FILE_SUMMARIES_FILE, (item: any) => {
-				return pathsToRemove.has(item.path)
-			})
-			this.logger.info(`[FileSummarizer] 已移除 ${filePaths.length} 个文件的摘要`)
+			await this.storage.deleteBatch(FILE_SUMMARIES_FILE, filePaths)
+			this.logger.info(`[FileSummarizer] 已删除 ${filePaths.length} 个文件的摘要`)
 		} catch (error) {
-			this.logger.error(`[FileSummarizer] 移除摘要失败: ${error}`)
+			this.logger.error(`[FileSummarizer] 删除摘要失败: ${error}`)
 			throw error
 		}
 	}

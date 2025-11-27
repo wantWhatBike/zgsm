@@ -49,6 +49,42 @@ export class DirectorySummarizer {
 	}
 
 	/**
+	 * 构建受影响目录集合（基于文件变更）
+	 * 所有变更文件的目录及其所有父目录都受影响
+	 */
+	private buildAffectedDirsSet(changedFiles?: FileChanges): Set<string> {
+		const affectedDirs = new Set<string>()
+		
+		if (!changedFiles) {
+			this.logger.info(`[DirectorySummarizer] 无变更信息，全量更新`)
+			return affectedDirs
+		}
+		
+		const allChanged = [
+			...changedFiles.added,
+			...changedFiles.modified,
+			...changedFiles.deleted
+		]
+		
+		if (allChanged.length === 0) {
+			this.logger.info(`[DirectorySummarizer] 无文件变更，无受影响目录`)
+			return affectedDirs
+		}
+		
+		for (const file of allChanged) {
+			let dir = path.dirname(file.path)
+			// 向上级联到所有父目录
+			while (dir !== "." && dir !== "") {
+				affectedDirs.add(dir)
+				dir = path.dirname(dir)
+			}
+		}
+		
+		this.logger.info(`[DirectorySummarizer] 文件变更: ${allChanged.length} 个, 受影响目录: ${affectedDirs.size} 个`)
+		return affectedDirs
+	}
+
+	/**
 	 * 分析目录 - 采用自下而上的迭代方式
 	 */
 	async summarizeDirectories(
@@ -123,19 +159,13 @@ export class DirectorySummarizer {
 			// 使用 Set 存储需要更新的目录路径
 			const dirsToUpdate = new Set<string>()
 			
-			// 策略：基于时间戳和依赖关系判断是否需要更新
-			// 由于是自下而上处理，如果子目录更新了，父目录也需要更新
-			// 我们在遍历过程中动态判断
+			// ✅ 构建受影响目录集合（基于精确的文件变更）
+			const affectedDirs = this.buildAffectedDirsSet(changedFiles)
 			
 			// 准备全量文件列表字符串（仅计算一次）
 			const allFileListStr = formatFileList(files.map((f) => f.path))
 
 			let processedCount = 0
-			
-			// 预先计算总任务数（估算）
-			// 为了准确进度条，我们需要先遍历一遍判断哪些需要更新
-			// 但为了性能，我们可以在遍历时动态判断，进度条可能不是 100% 准确，但可以接受
-			// 或者我们可以先快速扫描一遍
 			
 			for (const dirPath of sortedDirs) {
 				const depth = dirDepths.get(dirPath) || 0
@@ -170,7 +200,7 @@ export class DirectorySummarizer {
 					continue
 				}
 
-				// 判断是否需要更新
+				// ✅ 判断是否需要更新（基于精确的文件变更）
 				let needsUpdate = false
 				const oldSummary = dirSummaryMap.get(dirPath)
 
@@ -180,21 +210,12 @@ export class DirectorySummarizer {
 				} else if (hasUpdatedSubDir) {
 					// 子目录有更新，父目录必须更新
 					needsUpdate = true
+				} else if (affectedDirs.size > 0 && affectedDirs.has(dirPath)) {
+					// ✅ 精确判断：该目录在受影响目录集合中
+					needsUpdate = true
 				} else {
-					// 检查子文件是否有更新（通过时间戳对比）
-					// oldSummary.timestamp 是 ISO 字符串
-					const oldTime = new Date(oldSummary.timestamp).getTime()
-					
-					// 检查是否有任何子文件的时间戳晚于目录摘要时间戳
-					const hasNewerFile = subFiles.some(f => {
-						// 注意：FileSummary 中的 timestamp 是 ISO 字符串
-						// 但我们需要的是文件修改时间。FileSummary 包含 lastModified (number)
-						return f.lastModified > oldTime
-					})
-					
-					if (hasNewerFile) {
-						needsUpdate = true
-					}
+					// 未受影响，跳过更新
+					needsUpdate = false
 				}
 
 				// 如果不需要更新，跳过
@@ -242,61 +263,31 @@ export class DirectorySummarizer {
 				})
 			}
 
-			// 6. 保存所有摘要（全量重写，确保一致性）
-			if (!this.shouldPause()) {
-				// 先清除旧文件
-				await this.clear()
+			// ✅ 6. 只更新需要更新的目录（增量更新）
+			if (!this.shouldPause() && dirsToUpdate.size > 0) {
+				const summariesToUpdate: DirectorySummary[] = []
 				
-				// 写入新数据 - 仅保存当前存在的目录（清理幽灵目录）
-				// dirSummaryMap 可能包含旧的已删除目录，我们需要过滤只保留 sortedDirs 中的目录
-				const finalSummaries: DirectorySummary[] = []
-				const validDirs = new Set(sortedDirs)
-				
-				for (const [path, summary] of dirSummaryMap.entries()) {
-					if (validDirs.has(path)) {
-						finalSummaries.push(summary)
+				for (const dirPath of dirsToUpdate) {
+					const summary = dirSummaryMap.get(dirPath)
+					if (summary) {
+						summariesToUpdate.push(summary)
 					}
 				}
 
-				// 使用批量写入
-				await this.storage!.addBatch(DIRECTORY_SUMMARIES_FILE, finalSummaries)
+				// ✅ 使用 update 接口（SQLite 用 UPSERT，JSONL 先删后加）
+				await this.updateSummaries(summariesToUpdate)
 
-				this.logger.info(`[DirectorySummarizer] 目录分析完成，共保存 ${finalSummaries.length} 个摘要`)
+				this.logger.info(`[DirectorySummarizer] 目录分析完成，已更新 ${summariesToUpdate.length} 个目录摘要`)
 			} else if (this.shouldPause()) {
-				this.logger.info(`[DirectorySummarizer] 目录分析被暂停，保留现有数据不做清空重写`)
+				this.logger.info(`[DirectorySummarizer] 目录分析被暂停`)
+			} else {
+				this.logger.info(`[DirectorySummarizer] 无需更新目录摘要`)
 			}
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "目录分析")
 		}
 	}
 
-	/**
-	 * 计算受影响的目录
-	 */
-	private getAffectedDirectories(changedFiles: FileChanges): Set<string> {
-		const affectedDirs = new Set<string>()
-		const allChangedPaths = [
-			...changedFiles.added.map((f) => f.path),
-			...changedFiles.modified.map((f) => f.path),
-			...changedFiles.deleted.map((f) => f.path),
-		]
-
-		for (const filePath of allChangedPaths) {
-			let currentDir = path.dirname(filePath)
-			// 向上冒泡直到根目录
-			while (currentDir !== "." && currentDir !== "/" && currentDir !== "") {
-				if (affectedDirs.has(currentDir)) {
-					// 已经标记过，可以停止向上冒泡（假设路径是唯一的）
-					// 但为了安全起见，还是继续，因为可能是从不同子路径汇聚上来的
-				}
-				affectedDirs.add(currentDir)
-				currentDir = path.dirname(currentDir)
-			}
-			// 确保根目录也被标记（如果需要）
-			// affectedDirs.add(".")
-		}
-		return affectedDirs
-	}
 
 	private async generateDirectorySummary(
 		dirPath: string,
@@ -338,16 +329,18 @@ export class DirectorySummarizer {
 		}
 	}
 
-	private async saveSummaries(summaries: DirectorySummary[]): Promise<void> {
-		// 由于改为逐个追加，此方法可能不再需要，或者用于全量覆盖
-		// 这里保留用于兼容旧逻辑，如果需要全量重写
+	/**
+	 * 更新目录摘要（智能处理）
+	 * - SQLite: 使用 UPSERT，自动覆盖旧数据
+	 * - JSONL: 先删除旧数据再插入新数据
+	 */
+	private async updateSummaries(summaries: DirectorySummary[]): Promise<void> {
 		try {
-			// 注意：如果上面已经 add 了，这里 overwrite 会导致重复或覆盖
-			// 建议在 summarizeDirectories 开始时 clear，然后 add
-			// 或者在这里统一 overwrite
-			// 鉴于 summarizeDirectories 中已经使用了 add，这里不再执行 overwrite，除非是想做最终的一致性保存
+			await this.storage.updateBatch(DIRECTORY_SUMMARIES_FILE, summaries)
+			this.logger.info(`[DirectorySummarizer] 已更新 ${summaries.length} 个目录摘要`)
 		} catch (error) {
-			this.logger.error(`[DirectorySummarizer] 保存摘要失败: ${error}`)
+			this.logger.error(`[DirectorySummarizer] 更新摘要失败: ${error}`)
+			throw error
 		}
 	}
 

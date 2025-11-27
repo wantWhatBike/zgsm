@@ -507,16 +507,14 @@ export class GraphBuilder {
 			return
 		}
 
-		// 处理已删除或修改的文件：从摘要库中移除旧摘要
-		// 注意：修改的文件也需要先移除旧摘要，否则追加写入会导致重复
-		const pathsToRemove = [
-			...incrementalResult.deleted.map(f => f.path),
-			...incrementalResult.modified.map(f => f.path)
-		]
-		
-		if (pathsToRemove.length > 0) {
-			await this.fileSummarizer.removeSummaries(pathsToRemove)
-			this.logger.info(`[GraphBuilder] 已清理 ${pathsToRemove.length} 个待更新/已删除文件的旧摘要`)
+		// ✅ 只删除真正被删除的文件摘要
+		// 修改的文件通过 update 接口处理（SQLite 用 UPSERT，JSONL 自动先删后加）
+		if (incrementalResult.deleted.length > 0) {
+			const deletedPaths = incrementalResult.deleted.map(f => f.path)
+			await this.fileSummarizer.deleteSummaries(deletedPaths)
+			this.logger.info(`[GraphBuilder] 已删除 ${deletedPaths.length} 个文件的摘要`)
+		} else {
+			this.logger.info(`[GraphBuilder] 无需删除文件摘要（没有文件被删除）`)
 		}
 
 		// 根据文件摘要（路径+核心功能关键词(或者核心导出函数)），重新全量生成目录摘要。

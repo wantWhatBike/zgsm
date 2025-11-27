@@ -236,6 +236,88 @@ export class JsonFileStorage implements IStorage {
 	}
 
 	/**
+	 * 更新数据（JSONL 特性：需要先删除旧数据再插入）
+	 */
+	async update(fileName: string, data: any | any[]): Promise<void> {
+		await this.ensureStoragePath()
+		const filePath = nodePath.join(this.basePath, fileName)
+		const items = Array.isArray(data) ? data : [data]
+
+		if (items.length === 0) return
+
+		try {
+			// JSONL 是追加写入，需要先删除旧数据
+			const pathsToUpdate = new Set(items.map(item => item.path))
+			
+			// 1. 读取现有数据
+			const existingItems = await this.readJsonl<any>(filePath)
+			
+			// 2. 过滤掉要更新的项（保留其他项）
+			const remainingItems = existingItems.filter(item => !pathsToUpdate.has(item.path))
+			
+			// 3. 追加新数据
+			const updatedItems = [...remainingItems, ...items]
+			
+			// 4. 重写文件
+			await this.writeJsonl(filePath, updatedItems)
+			
+			this.logger.info(`[JsonFileStorage] 已更新 ${items.length} 条记录到 ${fileName}`)
+		} catch (error) {
+			throw new StorageError(
+				`更新数据失败: ${error instanceof Error ? error.message : String(error)}`,
+				"UPDATE_ERROR",
+				true,
+			)
+		}
+	}
+
+	/**
+	 * 批量更新数据
+	 */
+	async updateBatch(fileName: string, data: any[]): Promise<void> {
+		return this.update(fileName, data)  // 复用 update 方法
+	}
+
+	/**
+	 * 批量删除数据（按路径）
+	 */
+	async deleteBatch(fileName: string, paths: string[]): Promise<void> {
+		if (paths.length === 0) return
+		
+		await this.ensureStoragePath()
+		const filePath = nodePath.join(this.basePath, fileName)
+
+		// 如果文件不存在，直接返回
+		if (!(await pathExists(filePath))) {
+			return
+		}
+
+		try {
+			const pathSet = new Set(paths)
+			
+			// 读取所有数据
+			const items = await this.readJsonl<any>(filePath)
+			
+			// 过滤掉需要删除的项
+			const remainingItems = items.filter(item => !pathSet.has(item.path))
+			
+			// 如果数量有变化，则重写文件
+			if (remainingItems.length !== items.length) {
+				await this.writeJsonl(filePath, remainingItems)
+				this.logger.info(
+					`[JsonFileStorage] 已从 ${fileName} 批量删除 ${items.length - remainingItems.length} 条记录`,
+				)
+			}
+		} catch (error) {
+			throw new StorageError(
+				`批量删除失败: ${error instanceof Error ? error.message : String(error)}`,
+				"DELETE_BATCH_ERROR",
+				true,
+			)
+		}
+	}
+
+	/**
 	 * 追加到JSONL文件 - 优化版本，使用流式写入
 	 */
 	private async appendToJsonl(filePath: string, data: any): Promise<void> {
