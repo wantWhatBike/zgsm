@@ -23,11 +23,8 @@ import {
 } from "@roo-code/types"
 
 // 前端UI常量 - 使用统一配置
-const POLLING_INTERVALS = {
-	[KNOWLEDGE_GRAPH_STATUS.RUNNING]: KNOWLEDGE_GRAPH_UI_CONFIG.POLLING_INTERVAL_RUNNING,
-	[KNOWLEDGE_GRAPH_STATUS.PAUSED]: KNOWLEDGE_GRAPH_UI_CONFIG.POLLING_INTERVAL_PAUSED,
-	default: KNOWLEDGE_GRAPH_UI_CONFIG.POLLING_INTERVAL_DEFAULT,
-} as const
+// ✅ 修改：只在 RUNNING 状态轮询，固定 2 秒间隔，不再使用复杂的轮询间隔配置
+const POLLING_INTERVAL_RUNNING = 2000 // 运行时 2 秒轮询
 
 const DEBOUNCE_DELAY = KNOWLEDGE_GRAPH_UI_CONFIG.DEBOUNCE_DELAY
 const OPERATION_TIMEOUT = KNOWLEDGE_GRAPH_UI_CONFIG.OPERATION_TIMEOUT
@@ -172,7 +169,7 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS)
 	}, [sendMessage])
 
-	// 智能轮询控制 - 使用递归 setTimeout 避免请求堆积
+	// ✅ 智能轮询控制 - 只在 RUNNING 状态轮询（2秒），终态不轮询
 	useEffect(() => {
 		let timeoutId: NodeJS.Timeout | null = null
 		let isMounted = true
@@ -180,33 +177,26 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		const poll = () => {
 			if (!isMounted) return
 
-			// 获取当前需要的轮询间隔
-			const getPollingInterval = (status: string): number | null => {
-				switch (status) {
-					case KNOWLEDGE_GRAPH_STATUS.RUNNING:
-						return POLLING_INTERVALS[KNOWLEDGE_GRAPH_STATUS.RUNNING]
-					case KNOWLEDGE_GRAPH_STATUS.PAUSED:
-						return POLLING_INTERVALS[KNOWLEDGE_GRAPH_STATUS.PAUSED]
-					case KNOWLEDGE_GRAPH_STATUS.PENDING:
-					case KNOWLEDGE_GRAPH_STATUS.COMPLETED:
-					case KNOWLEDGE_GRAPH_STATUS.ERROR:
-						return POLLING_INTERVALS.default
-					default:
-						return null
-				}
-			}
-
-			const interval = getPollingInterval(uiState.knowledgeGraphStatus.status)
-
-			if (interval && knowledgeGraphEnabled && isZgsmProvider && cwd) {
+			// ✅ 只在 RUNNING 状态轮询
+			if (
+				knowledgeGraphEnabled &&
+				isZgsmProvider &&
+				cwd &&
+				uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
+			) {
 				getStatusOnce()
-				// 递归调用
-				timeoutId = setTimeout(poll, interval)
+				// 使用配置的轮询间隔
+				timeoutId = setTimeout(poll, POLLING_INTERVAL_RUNNING)
 			}
 		}
 
-		// 初始启动
-		if (knowledgeGraphEnabled && isZgsmProvider && cwd) {
+		// 启动轮询 - 只有在 RUNNING 状态时才启动
+		if (
+			knowledgeGraphEnabled &&
+			isZgsmProvider &&
+			cwd &&
+			uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
+		) {
 			poll()
 		}
 
@@ -281,6 +271,11 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		}
 		dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.BUILD)
+		
+		// ✅ 操作后立即获取一次状态
+		// 后端已在异步任务创建前更新状态为 RUNNING，所以这里会立即看到正确状态
+		// 收到 RUNNING 状态后，useEffect 会自动启动 2 秒轮询
+		setTimeout(() => getStatusOnce(), 300)
 	}, DEBOUNCE_DELAY)
 
 	const handlePauseBuild = useDebounce(() => {
@@ -294,11 +289,16 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 
 	const handleResumeBuild = useDebounce(() => {
 		const { status } = uiState.knowledgeGraphStatus
+		// 只允许 PAUSED 状态继续
 		if (status !== KNOWLEDGE_GRAPH_STATUS.PAUSED || uiState.isOperating) {
 			return
 		}
 		dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.RESUME)
+		
+		// ✅ 操作后立即获取一次状态
+		// 后端已在异步任务创建前更新状态为 RUNNING，所以这里会立即看到正确状态
+		setTimeout(() => getStatusOnce(), 300)
 	}, DEBOUNCE_DELAY)
 
 	const handleClearBuild = useDebounce(() => {
@@ -468,22 +468,25 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 											)}
 									</div>
 
-									<div className="flex items-center gap-2">
-										{/* 左侧操作按钮组 */}
 										<div className="flex items-center gap-2">
-											{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED ||
-												uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR) && (
-												<Button
-													onClick={handleOpenGraphView}
-													variant="outline"
-													size="sm"
-													className="flex items-center gap-1"
-													disabled={shouldDisableAll || uiState.isOperating}>
-													<Network className="w-3 h-3" />
-													可视化
-												</Button>
-											)}
-											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PENDING && (
+											{/* 左侧操作按钮组 */}
+											<div className="flex items-center gap-2">
+												{/* 可视化按钮：只在 COMPLETED 状态显示 */}
+												{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED && (
+													<Button
+														onClick={handleOpenGraphView}
+														variant="outline"
+														size="sm"
+														className="flex items-center gap-1"
+														disabled={shouldDisableAll || uiState.isOperating}>
+														<Network className="w-3 h-3" />
+														可视化
+													</Button>
+												)}
+											{/* 构建按钮：PENDING, ERROR, COMPLETED 状态显示 */}
+											{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PENDING ||
+												uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.ERROR ||
+												uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED) && (
 												<Button
 													onClick={handleStartBuild}
 													variant="outline"
@@ -491,9 +494,10 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 													className="flex items-center gap-1"
 													disabled={shouldDisableAll || uiState.isOperating}>
 													<Play className="w-3 h-3" />
-													{t("knowledgegraph:start")}
+													构建
 												</Button>
 											)}
+											{/* 暂停按钮：RUNNING 状态显示 */}
 											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING && (
 												<Button
 													onClick={handlePauseBuild}
@@ -509,6 +513,7 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 													{t("knowledgegraph:pause")}
 												</Button>
 											)}
+											{/* 继续按钮：PAUSED 状态显示 */}
 											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PAUSED && (
 												<Button
 													onClick={handleResumeBuild}
@@ -518,17 +523,6 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 													disabled={shouldDisableAll || uiState.isOperating}>
 													<Play className="w-3 h-3" />
 													{t("knowledgegraph:resume")}
-												</Button>
-											)}
-											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED && (
-												<Button
-													onClick={handleStartBuild}
-													variant="outline"
-													size="sm"
-													className="flex items-center gap-1"
-													disabled={shouldDisableAll || uiState.isOperating}>
-													<Play className="w-3 h-3" />
-													重新构建
 												</Button>
 											)}
 										</div>

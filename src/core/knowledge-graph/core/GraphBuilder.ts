@@ -71,31 +71,36 @@ export class GraphBuilder {
 	/**
 	 * 开始构建知识图谱
 	 * ✅ 增强版：使用互斥锁和原子操作确保同一时间只有一个构建任务
+	 * ✅ 修复：立即返回，不等待构建完成，避免 Mutex lock timeout
 	 */
 	async start(workspacePath: string, options: BuildOptions = {}): Promise<void> {
+		if (!workspacePath) {
+			throw new Error("workspacePath is null, cannot build.")
+		}
+
+		// 1. 检查清除状态
+		if (this.isClearing) {
+			throw new Error("正在清除知识图谱，请稍后重试")
+		}
+		
+		// 2. 检查是否已有任务（双重检查）- 在锁外检查，避免重复任务
+		if (this.currentBuildPromise) {
+			this.logger.info("[GraphBuilder] 构建任务已在运行中，忽略重复请求")
+			return // ✅ 立即返回，不等待
+		}
+		
 		// ========== 原子区域：检查和任务创建 ==========
 		await this.buildMutex.lock()
 		
 		try {
-			if (!workspacePath) {
-				throw new Error("workspacePath is null, cannot build.")
-			}
-
-			// 1. 检查清除状态
-			if (this.isClearing) {
-				throw new Error("正在清除知识图谱，请稍后重试")
-			}
-			
-			// 2. 检查是否已有任务（双重检查）
+			// 3. 再次检查是否已有任务（双重检查模式）
 			if (this.currentBuildPromise) {
-				this.logger.info("[GraphBuilder] 构建任务已在运行中，等待完成")
-				// 释放锁后返回已有任务
-				this.buildMutex.unlock()
-				return this.currentBuildPromise
+				this.logger.info("[GraphBuilder] 构建任务已在运行中（双重检查），忽略重复请求")
+				return // ✅ 立即返回，不等待
 			}
 			
-			// 3. 原子性检查并更新状态
-			const canStart = await this.buildStateTracer.atomicCheckAndStartBuild()
+			// 4. 检查是否可以启动（只读检查）
+			const canStart = this.buildStateTracer.canStartBuildNow()
 			if (!canStart) {
 				const currentStatus = this.buildStateTracer.getCurrentState()?.status
 				
@@ -104,8 +109,8 @@ export class GraphBuilder {
 					this.logger.info(`[GraphBuilder] 强制重建，重置状态: ${currentStatus}`)
 					await this.buildStateTracer.forceResetState()
 					
-					// 再次尝试启动
-					const retryStart = await this.buildStateTracer.atomicCheckAndStartBuild()
+					// 再次检查
+					const retryStart = this.buildStateTracer.canStartBuildNow()
 					if (!retryStart) {
 						throw new Error(`强制重建失败，当前状态: ${currentStatus}`)
 					}
@@ -114,13 +119,22 @@ export class GraphBuilder {
 				}
 			}
 			
-			// 4. 初始化中止控制器
+			// ✅ 5. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
+			// 注意：这是简单状态，executeBuild() 会初始化完整状态
+			await this.buildStateTracer.updateBuildState({
+				status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
+				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
+				error: "正在启动构建..."
+			})
+			this.logger.info("[GraphBuilder] 状态已更新为 RUNNING")
+			
+			// 6. 初始化中止控制器
 			if (this.abortController) {
 				this.abortController.abort()
 			}
 			this.abortController = new AbortController()
 			
-			// 5. 设置各组件的统一终止检查器
+			// 7. 设置各组件的统一终止检查器
 			const stopChecker = () => {
 				return this.buildStateTracer.isPaused() || this.abortController?.signal.aborted || false
 			}
@@ -128,7 +142,7 @@ export class GraphBuilder {
 			this.fileSummarizer.setPauseChecker(stopChecker)
 			this.directorySummarizer.setPauseChecker(stopChecker)
 			
-			// 6. 创建新的构建任务（此时状态已是 RUNNING）
+			// 8. 创建新的构建任务（此时状态已是 RUNNING）
 			this.currentBuildPromise = this.executeBuild(workspacePath, options)
 				.catch(async (error) => {
 					await this.handleBuildError(error)
@@ -148,8 +162,8 @@ export class GraphBuilder {
 		
 		// ========== 原子区域结束 ==========
 		
-		// 在锁外等待任务完成
-		return this.currentBuildPromise!
+		// ✅ 立即返回，不等待 currentBuildPromise 完成
+		// 这样可以避免占用 operationMutex 锁过长时间，防止 Mutex lock timeout
 	}
 
 	/**
@@ -161,12 +175,13 @@ export class GraphBuilder {
 			throw new Error("workspacePath is null, cannot pause.")
 		}
 		
-		// ✅ 原子性检查并暂停
-		const canPause = await this.buildStateTracer.atomicCheckAndPause()
-		if (!canPause) {
+		// ✅ 使用状态机暂停（自动检查状态）
+		try {
+			await this.buildStateTracer.pauseBuild()
+		} catch (error) {
 			const currentStatus = this.buildStateTracer.getCurrentState()?.status
-			this.logger.warn(`[GraphBuilder] 当前状态 ${currentStatus} 不支持暂停操作`)
-			throw new Error(`当前状态 ${currentStatus} 不允许暂停`)
+			this.logger.warn(`[GraphBuilder] 暂停失败: ${error instanceof Error ? error.message : String(error)}`)
+			throw error
 		}
 
 		// 中断当前正在进行的耗时操作
@@ -181,29 +196,33 @@ export class GraphBuilder {
 	/**
 	 * 继续构建
 	 * ✅ 增强版：使用原子操作和互斥锁确保状态一致性
+	 * ✅ 修复：立即返回，不等待构建完成，避免 Mutex lock timeout
 	 */
 	async resume(workspacePath: string): Promise<void> {
+		if (!workspacePath) {
+			throw new Error("workspacePath is null, cannot resume.")
+		}
+		
+		// 防止重复恢复 - 在锁外检查
+		if (this.currentBuildPromise) {
+			this.logger.warn("[GraphBuilder] 构建任务已在执行中，忽略恢复请求")
+			return // ✅ 立即返回，不等待
+		}
+		
 		// ========== 原子区域：检查和任务恢复 ==========
 		await this.buildMutex.lock()
 		
 		try {
-			if (!workspacePath) {
-				throw new Error("workspacePath is null, cannot resume.")
-			}
-			
-			// 防止重复恢复
+			// 再次检查是否已有任务（双重检查模式）
 			if (this.currentBuildPromise) {
-				this.logger.warn("[GraphBuilder] 构建任务已在执行中，忽略恢复请求")
-				this.buildMutex.unlock()
-				return this.currentBuildPromise
+				this.logger.warn("[GraphBuilder] 构建任务已在执行中（双重检查），忽略恢复请求")
+				return // ✅ 立即返回，不等待
 			}
 			
-			// ✅ 原子性检查并恢复
-			const canResume = await this.buildStateTracer.atomicCheckAndResume()
-			if (!canResume) {
-				const currentStatus = this.buildStateTracer.getCurrentState()?.status
-				throw new Error(`当前状态 ${currentStatus} 不允许继续构建`)
-			}
+			// ✅ 立即更新状态为 RUNNING（在创建异步任务前）
+			// resumeBuild() 会检查状态并更新为 RUNNING
+			await this.buildStateTracer.resumeBuild()
+			this.logger.info("[GraphBuilder] 状态已更新为 RUNNING（恢复）")
 
 			// 初始化中止控制器
 			if (this.abortController) {
@@ -237,8 +256,8 @@ export class GraphBuilder {
 		
 		// ========== 原子区域结束 ==========
 		
-		// 在锁外等待任务完成
-		return this.currentBuildPromise!
+		// ✅ 立即返回，不等待 currentBuildPromise 完成
+		// 这样可以避免占用 operationMutex 锁过长时间，防止 Mutex lock timeout
 	}
 
 	/**

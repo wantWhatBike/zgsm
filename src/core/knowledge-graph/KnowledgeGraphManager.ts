@@ -558,10 +558,10 @@ export class KnowledgeGraphManager {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
 			}
 
-			// 双重检查：确保没有构建任务在运行
-			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status === "running") {
-				throw new Error("构建任务已在运行中，请等待完成或先暂停")
+			// ✅ 委托给 BuildStateTracer 检查（避免重复）
+			if (this.stateTracer && !this.stateTracer.canStartBuild()) {
+				const currentStatus = this.stateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
 			}
 
 			return await this.graphBuilder.start(this.getWorkspacePath()!, options)
@@ -578,9 +578,10 @@ export class KnowledgeGraphManager {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "暂停构建")
 			}
 
-			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status !== "running") {
-				throw new Error(`当前状态 ${currentState?.status} 不允许暂停`)
+			// ✅ 委托给 BuildStateTracer 检查
+			if (this.stateTracer && !this.stateTracer.canPause()) {
+				const currentStatus = this.stateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许暂停`)
 			}
 
 			return await this.graphBuilder.pause(this.getWorkspacePath()!)
@@ -597,9 +598,10 @@ export class KnowledgeGraphManager {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "继续构建")
 			}
 
-			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status !== "paused") {
-				throw new Error(`当前状态 ${currentState?.status} 不允许继续`)
+			// ✅ 委托给 BuildStateTracer 检查
+			if (this.stateTracer && !this.stateTracer.canResume()) {
+				const currentStatus = this.stateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许继续`)
 			}
 
 			return await this.graphBuilder.resume(this.getWorkspacePath()!)
@@ -616,9 +618,10 @@ export class KnowledgeGraphManager {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "清除知识图谱")
 			}
 
-			const currentState = this.stateTracer?.getCurrentState()
-			if (currentState?.status === "running") {
-				throw new Error("构建任务正在运行，无法清除。请先暂停构建。")
+			// ✅ 委托给 BuildStateTracer 检查
+			if (this.stateTracer && !this.stateTracer.canClear()) {
+				const currentStatus = this.stateTracer.getCurrentState()?.status
+				throw new Error(`当前状态 ${currentStatus} 不允许清除`)
 			}
 
 			return await this.graphBuilder.clear(this.getWorkspacePath()!)

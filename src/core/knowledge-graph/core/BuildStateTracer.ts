@@ -42,7 +42,6 @@ export class BuildStateTracer {
 
 	/**
 	 * 初始化构建状态
-	 * ✅ 增强版：添加前置检查，防止覆盖正在运行的任务
 	 */
 	public async initializeBuildState(
 		workspacePath: string,
@@ -60,10 +59,8 @@ export class BuildStateTracer {
 				throw new Error("workspace is empty")
 			}
 
-			// ✅ 前置检查：不允许覆盖正在运行的任务
-			if (this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
-				throw new Error("构建任务已在运行，无法初始化新任务")
-			}
+			// ✅ 移除状态检查：调用者（GraphBuilder.start）已经在更新状态前检查过了
+			// 此时状态已经是 RUNNING，不需要再检查
 
 			try {
 				const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
@@ -102,11 +99,9 @@ export class BuildStateTracer {
 					},
 				}
 
-				this.currentState = await this.createBuildState(taskState)
+				// ✅ 使用不加锁的版本，避免嵌套锁死锁
+				this.currentState = await this.createBuildStateUnlocked(taskState)
 				this.logger.info(`[BuildStateTracer] 初始化构建任务: ${taskId}, 总文件数: ${totalFiles}`)
-
-				// 更新内部状态
-				this.currentState = taskState
 			} catch (error) {
 				throw new Error(`初始化任务状态失败: ${error instanceof Error ? error.message : String(error)}`)
 			}
@@ -186,46 +181,53 @@ export class BuildStateTracer {
 	}
 
 	/**
-	 * 创建新的构建状态
+	 * 创建新的构建状态（内部方法，不使用锁，由调用者负责加锁）
+	 */
+	private async createBuildStateUnlocked(state: KnowledgeGraphBuildState): Promise<KnowledgeGraphBuildState> {
+		try {
+			const newState: KnowledgeGraphBuildState = {
+				taskId: state.taskId,
+				phase: state.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
+				progress: 0,
+				startTime: state.startTime || new Date().toISOString(),
+				lastUpdateTime: new Date().toISOString(),
+				totalDuration: state.totalDuration || 0,
+				status: state.status || KNOWLEDGE_GRAPH_STATUS.PENDING,
+				totalFiles: state.totalFiles || 0,
+				processedFiles: state.processedFiles || 0,
+				failedFiles: state.failedFiles || 0,
+				currentFile: state.currentFile || "",
+				error: state.error,
+				totalFilesToProcess: state.totalFilesToProcess || 0,
+				llmStatistics: state.llmStatistics || {
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalTokens: 0,
+					totalRequests: 0,
+					successfulRequests: 0,
+					failedRequests: 0,
+					totalDuration: 0,
+				},
+			}
+
+			newState.progress = this.calculateProgress(newState)
+			await this.storage.overwrite(BUILD_STATE_FILE, newState)
+			this.currentState = newState
+
+			this.logger.info(`[BuildStateTracer] 状态已创建: ${newState.status} (${newState.progress.toFixed(1)}%)`)
+
+			return newState
+		} catch (error) {
+			throw new Error(`创建构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
+
+	/**
+	 * 创建新的构建状态（公共方法，使用锁）
 	 */
 	private async createBuildState(state: KnowledgeGraphBuildState): Promise<KnowledgeGraphBuildState> {
 		return this.mutex.withLock(async () => {
-			try {
-				const newState: KnowledgeGraphBuildState = {
-					taskId: state.taskId,
-					phase: state.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
-					progress: 0,
-					startTime: state.startTime || new Date().toISOString(),
-					lastUpdateTime: new Date().toISOString(),
-					totalDuration: state.totalDuration || 0,
-					status: state.status || KNOWLEDGE_GRAPH_STATUS.PENDING,
-					totalFiles: state.totalFiles || 0,
-					processedFiles: state.processedFiles || 0,
-					failedFiles: state.failedFiles || 0,
-					currentFile: state.currentFile || "",
-					error: state.error,
-					totalFilesToProcess: state.totalFilesToProcess || 0,
-					llmStatistics: state.llmStatistics || {
-						totalInputTokens: 0,
-						totalOutputTokens: 0,
-						totalTokens: 0,
-						totalRequests: 0,
-						successfulRequests: 0,
-						failedRequests: 0,
-						totalDuration: 0,
-					},
-				}
-
-				newState.progress = this.calculateProgress(newState)
-				await this.storage.overwrite(BUILD_STATE_FILE, newState)
-				this.currentState = newState
-
-				this.logger.info(`[BuildStateTracer] 状态已创建: ${newState.status} (${newState.progress.toFixed(1)}%)`)
-
-				return newState
-			} catch (error) {
-				throw new Error(`创建构建状态失败: ${error instanceof Error ? error.message : String(error)}`)
-			}
+			return await this.createBuildStateUnlocked(state)
 		})
 	}
 
@@ -565,6 +567,7 @@ export class BuildStateTracer {
 
 	/**
 	 * 检查状态是否允许恢复
+	 * ✅ 只支持 PAUSED 状态（ERROR 状态应该调用 start 重新构建）
 	 */
 	public canResume(): boolean {
 		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED
@@ -579,77 +582,71 @@ export class BuildStateTracer {
 	}
 
 	/**
-	 * ✅ 原子性地检查并启动构建
-	 * 确保状态检查和更新的原子性，防止竞态条件
+	 * ✅ 检查是否可以启动构建（只读检查，不修改状态）
+	 * 职责：仅检查状态，不做任何修改
+	 * 状态修改统一由 initializeBuildState() 完成
 	 * @returns true 表示可以启动，false 表示不能启动
 	 */
-	public async atomicCheckAndStartBuild(): Promise<boolean> {
-		return this.mutex.withLock(async () => {
-			const currentStatus = this.currentState?.status
+	public canStartBuildNow(): boolean {
+		const currentStatus = this.currentState?.status
 
-			// 检查当前状态是否允许启动
-			if (currentStatus === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
-				return false // 已有任务运行
-			}
+		// 检查当前状态是否允许启动
+		if (currentStatus === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
+			return false // 已有任务运行
+		}
 
-			if (
-				currentStatus &&
-				currentStatus !== KNOWLEDGE_GRAPH_STATUS.PENDING &&
-				currentStatus !== KNOWLEDGE_GRAPH_STATUS.COMPLETED &&
-				currentStatus !== KNOWLEDGE_GRAPH_STATUS.ERROR
-			) {
-				return false // 不在允许启动的状态
-			}
+		if (
+			currentStatus &&
+			currentStatus !== KNOWLEDGE_GRAPH_STATUS.PENDING &&
+			currentStatus !== KNOWLEDGE_GRAPH_STATUS.COMPLETED &&
+			currentStatus !== KNOWLEDGE_GRAPH_STATUS.ERROR
+		) {
+			return false // 不在允许启动的状态
+		}
 
-			// 立即更新状态为 RUNNING（预占锁）
-			if (this.currentState) {
-				this.currentState.status = KNOWLEDGE_GRAPH_STATUS.RUNNING
-				this.currentState.lastUpdateTime = new Date().toISOString()
-				await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
-			}
-
-			return true
-		})
+		return true
 	}
 
 	/**
-	 * ✅ 原子性地检查并暂停构建
-	 * @returns true 表示暂停成功，false 表示当前状态不允许暂停
+	 * 暂停构建
 	 */
-	public async atomicCheckAndPause(): Promise<boolean> {
+	public async pauseBuild(): Promise<void> {
 		return this.mutex.withLock(async () => {
-			if (this.currentState?.status !== KNOWLEDGE_GRAPH_STATUS.RUNNING) {
-				return false
+			if (!this.currentState) {
+				throw new Error("构建状态不存在")
+			}
+
+			if (!this.canPause()) {
+				throw new Error(`当前状态 ${this.currentState.status} 不允许暂停`)
 			}
 
 			this.currentState.status = KNOWLEDGE_GRAPH_STATUS.PAUSED
 			this.currentState.lastUpdateTime = new Date().toISOString()
 			await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
-
-			return true
 		})
 	}
 
 	/**
-	 * ✅ 原子性地检查并继续构建
-	 * @returns true 表示继续成功，false 表示当前状态不允许继续
+	 * 继续构建
 	 */
-	public async atomicCheckAndResume(): Promise<boolean> {
+	public async resumeBuild(): Promise<void> {
 		return this.mutex.withLock(async () => {
-			if (this.currentState?.status !== KNOWLEDGE_GRAPH_STATUS.PAUSED) {
-				return false
+			if (!this.currentState) {
+				throw new Error("构建状态不存在")
+			}
+
+			if (!this.canResume()) {
+				throw new Error(`当前状态 ${this.currentState.status} 不允许继续`)
 			}
 
 			this.currentState.status = KNOWLEDGE_GRAPH_STATUS.RUNNING
 			this.currentState.lastUpdateTime = new Date().toISOString()
 			await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
-
-			return true
 		})
 	}
 
 	/**
-	 * ✅ 强制重置状态（用于 forceRebuild）
+	 * 强制重置状态（用于 forceRebuild）
 	 */
 	public async forceResetState(): Promise<void> {
 		return this.mutex.withLock(async () => {
