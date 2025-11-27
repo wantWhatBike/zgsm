@@ -351,9 +351,6 @@ export const authLimiter = rateLimit({
 
 来源: src/middleware/rateLimit.ts
 
-## 相关文档
-- [API接口文档](./04_API接口文档.md)
-- [编码规范](./06_编码规范.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

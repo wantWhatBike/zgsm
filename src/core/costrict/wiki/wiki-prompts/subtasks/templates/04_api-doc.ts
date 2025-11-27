@@ -175,10 +175,6 @@ export interface ErrorResponse {
 
 来源: src/types/api.ts
 
-## 相关文档
-- [项目概览](./01_项目概览.md)
-- [业务流程](./03_业务流程.md)
-- [数据存储](./05_数据存储.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

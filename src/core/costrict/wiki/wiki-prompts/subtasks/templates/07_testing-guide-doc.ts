@@ -262,10 +262,6 @@ describe('Order API', () => {
 
 覆盖率报告生成命令：\`npm run test:coverage\`
 
-## 相关文档
-- [编码规范](./06_编码规范.md)
-- [业务流程](./03_业务流程.md)
-
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

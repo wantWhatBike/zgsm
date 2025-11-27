@@ -197,9 +197,6 @@ export interface OrderCreatedEvent {
 | 回滚迁移 | npm run db:rollback | package.json scripts |
 | 生成迁移 | npm run db:generate -- --name create_table | package.json scripts |
 
-## 相关文档
-- [代码架构](./02_代码架构.md)
-- [API接口文档](./04_API接口文档.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

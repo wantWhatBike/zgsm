@@ -142,7 +142,7 @@ npm run dev
 | npm run test | 运行测试 |
 | npm run lint | 代码检查 |
 
-来源: package.json scripts
+来源: package.json, scripts/
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

@@ -248,10 +248,6 @@ export async function searchProducts(keyword: string) {
 | 重试与熔断 | 使用 \`retryStrategy\` (Redis) 与 Kafka 内建重试 | src/config/redis.ts, src/config/kafka.ts |
 | 本地开发 | docker-compose 提供 Redis/Kafka/ES，按需启动 | docker-compose.yml |
 
-## 相关文档
-- [数据存储](./05_数据存储.md)
-- [构建部署](./08_构建部署.md)
-
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

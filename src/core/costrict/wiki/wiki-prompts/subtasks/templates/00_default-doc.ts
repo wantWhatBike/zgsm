@@ -59,7 +59,7 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 [详细说明]
 来源: [代码文件路径]
 
-```typescript
+\`\`\`typescript
 // 摘自: src/xxx/xxx.ts
 [实际代码示例]
 \`\`\`
@@ -73,7 +73,7 @@ export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成
 ### 基本用法
 [使用方式说明]
 
-```typescript
+\`\`\`typescript
 // 摘自: src/xxx/xxx.ts
 [代码示例]
 \`\`\`

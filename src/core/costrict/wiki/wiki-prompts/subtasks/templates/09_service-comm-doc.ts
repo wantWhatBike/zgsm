@@ -292,10 +292,6 @@ async function callService<T>(fn: () => Promise<T>, serviceName: string): Promis
 \`\`\`
 
 来源: src/client/base.ts
-
-## 相关文档
-- [代码架构](./02_代码架构.md)
-- [API接口文档](./04_API接口文档.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

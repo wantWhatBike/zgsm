@@ -180,10 +180,6 @@ flowchart LR
 
 来源: middleware/, service/, repository/, internal/job/
 
-## 相关文档
-- [代码架构](./02_代码架构.md)
-- [API接口文档](./04_API接口文档.md)
-- [数据存储](./05_数据存储.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

@@ -570,12 +570,6 @@ npm run type-check
 # 清理后重新构建
 npm run clean && npm run build
 \`\`\`
-
-来源: 常见问题总结
-
-## 相关文档
-- [项目概览](./01_项目概览.md)
-- [测试指南](./07_测试指南.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}

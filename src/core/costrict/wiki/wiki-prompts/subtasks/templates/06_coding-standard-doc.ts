@@ -342,11 +342,8 @@ async function createOrder(userId: string, items: OrderItem[]): Promise<Order> {
 | 巨型函数 | 函数超过50行| 拆分为小函数 |
 | 重复代码 | 相似代码超过3行| 提取为公共函数|
 
-来源: .eslintrc.js, 代码审查规范
+来源: .eslintrc.js
 
-## 相关文档
-- [代码架构](./02_代码架构.md)
-- [测试指南](./07_测试指南.md)
 \`\`\`
 
 ${CODE_REFERENCE_RULES}
