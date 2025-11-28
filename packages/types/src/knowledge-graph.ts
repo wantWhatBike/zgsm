@@ -4,12 +4,6 @@ import { z } from "zod"
  * Knowledge Graph Constants
  */
 export const KNOWLEDGE_GRAPH_DEFAULTS = {
-	MIN_CONCURRENCY: 1,
-	MAX_CONCURRENCY: 10,
-	DEFAULT_CONCURRENCY: 5,
-	MIN_BATCH_SIZE: 1,
-	MAX_BATCH_SIZE: 100,
-	DEFAULT_BATCH_SIZE: 10,
 	MIN_MAX_FILES: 1000,
 	MAX_MAX_FILES: 100000,
 	DEFAULT_MAX_FILES: 50000,
@@ -116,16 +110,6 @@ export const KNOWLEDGE_GRAPH_FIELDS = {
 export const knowledgeGraphConfigSchema = z.object({
 	knowledgeGraphEnabled: z.boolean().optional(),
 	knowledgeGraphModel: z.string().optional(),
-	knowledgeGraphMaxConcurrency: z
-		.number()
-		.min(KNOWLEDGE_GRAPH_DEFAULTS.MIN_CONCURRENCY)
-		.max(KNOWLEDGE_GRAPH_DEFAULTS.MAX_CONCURRENCY)
-		.optional(),
-	knowledgeGraphBatchSize: z
-		.number()
-		.min(KNOWLEDGE_GRAPH_DEFAULTS.MIN_BATCH_SIZE)
-		.max(KNOWLEDGE_GRAPH_DEFAULTS.MAX_BATCH_SIZE)
-		.optional(),
 	knowledgeGraphMaxFiles: z
 		.number()
 		.min(KNOWLEDGE_GRAPH_DEFAULTS.MIN_MAX_FILES)
@@ -136,9 +120,6 @@ export const knowledgeGraphConfigSchema = z.object({
 		.min(KNOWLEDGE_GRAPH_DEFAULTS.MIN_FILE_SIZE_LIMIT)
 		.max(KNOWLEDGE_GRAPH_DEFAULTS.MAX_FILE_SIZE_LIMIT)
 		.optional(),
-	knowledgeGraphStorageType: z.enum(["file"]).optional(),
-	knowledgeGraphIncrementalUpdate: z.boolean().optional(),
-	knowledgeGraphBreakpointResume: z.boolean().optional(),
 	knowledgeGraphExportFormats: z.array(z.enum(["json", "jsonl", "markdown", "zip"])).optional(),
 })
 

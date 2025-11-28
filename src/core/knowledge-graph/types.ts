@@ -81,12 +81,9 @@ export interface RootInfo {
 // 知识图谱配置
 export interface KnowledgeGraphConfig {
   model: string
-  maxConcurrency: number
-  batchSize: number
   maxFiles: number
   fileSizeLimit: number
   fileLinesLimit: number
-  storageType: 'file' | 'database'
   cacheDir: string
   exportFormat: string
 }
@@ -165,7 +162,7 @@ export interface StorageConfig {
 
 // 搜索查询
 export interface SearchQuery {
-  type: 'exact' | 'fuzzy' | 'combined'
+  type: 'exact' | 'fuzzy'
   filePath?: string
   terms?: string[]
 }

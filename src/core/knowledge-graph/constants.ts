@@ -52,12 +52,9 @@ export const FILE_PROCESSING_CONFIG = {
 // 默认配置
 export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   model: 'auto',
-  maxConcurrency: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_CONCURRENCY,
-  batchSize: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_BATCH_SIZE,
   maxFiles: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_MAX_FILES,
   fileSizeLimit: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_FILE_SIZE_LIMIT,
   fileLinesLimit: FILE_PROCESSING_CONFIG.FILE_LINES_LIMIT,
-  storageType: 'file',
   cacheDir: '.costrict/cache/knowledge-graph',
   exportFormat: 'markdown'
 }

@@ -285,10 +285,10 @@ export interface ICostrictServiceInfo {
  */
 export interface SkeletonElement {
 	name: string
-	is_definition: boolean
-	element_type: number // 1:包, 2:函数, 3:方法, 4:调用, 5:结构体/类
+	signature: string
+	isDefinition: boolean
+	elementType: string // UNDEFINED | FUNCTION | METHOD | CALL | REFERENCE | CLASS | INTERFACE | VARIABLE | IMPORT | PACKAGE
 	range: [number, number, number, number] // [startLine, startColumn, endLine, endColumn]
-	extra_data?: Record<string, any>
 }
 
 /**
@@ -307,17 +307,15 @@ export interface SkeletonResponse {
 	path: string
 	language: string
 	timestamp: number
-	imports: Array<{
-		name: string
-		source: string
-		alias: string
+	imports?: Array<{
+		content: string
 		range: [number, number, number, number]
 	}>
 	package?: {
 		name: string
 		range: [number, number, number, number]
 	}
-	elements: SkeletonElement[]
+	elements?: SkeletonElement[]
 }
 
 // ========== CallGraph 接口 ==========

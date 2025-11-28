@@ -223,8 +223,6 @@ export class KnowledgeGraphManager {
 
 		const configMapping: Record<string, InternalConfigKey> = {
 			knowledgeGraphModel: "model",
-			knowledgeGraphMaxConcurrency: "maxConcurrency",
-			knowledgeGraphBatchSize: "batchSize",
 			knowledgeGraphMaxFiles: "maxFiles",
 			knowledgeGraphFileSizeLimit: "fileSizeLimit",
 		}
