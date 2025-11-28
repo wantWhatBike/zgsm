@@ -244,6 +244,10 @@ export interface WebviewMessage {
 		| "fixCodebase"
 		// knowledge graph
 		| "knowledgeGraphEnabled"
+		| "knowledgeGraphAutoRebuildEnabled"
+		| "knowledgeGraphAutoRebuildIntervalMinutes"
+		| "knowledgeGraphIncludeTestFiles"
+		| "knowledgeGraphMaxVisualizationFiles"
 		| "knowledgeGraphGetStatus"
 		| "knowledgeGraphBuild"
 		| "knowledgeGraphPause"

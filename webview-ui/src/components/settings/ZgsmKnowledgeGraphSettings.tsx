@@ -1,10 +1,10 @@
 import { useEffect, useRef, useCallback, useMemo, useReducer, useState } from "react"
-import { FileText, AlertCircle, Play, Pause, Trash, Loader2, Network } from "lucide-react"
+import { FileText, AlertCircle, Play, Pause, Trash, Loader2, Network, Info } from "lucide-react"
 import { format } from "date-fns"
 
-import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeCheckbox, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { vscode } from "@/utils/vscode"
-import { Button, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Badge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui"
+import { Button, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Badge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui"
 
 import { SectionHeader } from "./SectionHeader"
 import { Section } from "./Section"
@@ -124,10 +124,27 @@ const useDebounce = <T extends (...args: any[]) => void>(callback: T, delay: num
 
 interface KnowledgeGraphSettingsProps {
 	knowledgeGraphEnabled?: boolean
-	setCachedStateField?: SetCachedStateField<"knowledgeGraphEnabled">
+	knowledgeGraphAutoRebuildEnabled?: boolean
+	knowledgeGraphAutoRebuildIntervalMinutes?: number
+	knowledgeGraphIncludeTestFiles?: boolean
+	knowledgeGraphMaxVisualizationFiles?: number
+	setCachedStateField?: SetCachedStateField<
+		| "knowledgeGraphEnabled"
+		| "knowledgeGraphAutoRebuildEnabled"
+		| "knowledgeGraphAutoRebuildIntervalMinutes"
+		| "knowledgeGraphIncludeTestFiles"
+		| "knowledgeGraphMaxVisualizationFiles"
+	>
 }
 
-export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateField }: KnowledgeGraphSettingsProps) => {
+export const KnowledgeGraphSettings = ({
+	knowledgeGraphEnabled,
+	knowledgeGraphAutoRebuildEnabled,
+	knowledgeGraphAutoRebuildIntervalMinutes,
+	knowledgeGraphIncludeTestFiles,
+	knowledgeGraphMaxVisualizationFiles,
+	setCachedStateField,
+}: KnowledgeGraphSettingsProps) => {
 	const { t } = useAppTranslation()
 	const { knowledgeGraphStatus: initialStatus, apiConfiguration, cwd } = useExtensionState()
 
@@ -139,6 +156,9 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 
 	// 清空确认对话框状态
 	const [showClearConfirm, setShowClearConfirm] = useState(false)
+
+	// 高级设置折叠状态
+	const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
 
 	// 检查是否为支持的API提供者 - 使用共享常量
 	const isZgsmProvider = useMemo(
@@ -357,6 +377,117 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 		return t("knowledgegraph:disabled")
 	}, [uiState.knowledgeGraphStatus.status, isZgsmProvider, cwd, t])
 
+	// 格式化数字为千分位
+	const formatNumber = (num: number): string => {
+		return num.toLocaleString()
+	}
+
+	// 格式化耗时
+	const formatDuration = (ms: number): string => {
+		if (ms < 1000) {
+			return `${Math.round(ms)}ms`
+		}
+		if (ms < 60000) {
+			const seconds = (ms / 1000).toFixed(1)
+			return `${seconds}s`
+		}
+		const minutes = Math.floor(ms / 60000)
+		const seconds = Math.floor((ms % 60000) / 1000)
+		return `${minutes}m${seconds}s`
+	}
+
+	// 渲染统计信息
+	const renderStatistics = useCallback(() => {
+		const { llmStatistics, phaseDurations, totalDuration } = uiState.knowledgeGraphStatus
+
+		// 检查是否有任何有效的统计数据
+		const hasPhaseData = phaseDurations && (
+			phaseDurations.fileCollection ||
+			phaseDurations.rootAnalysis ||
+			phaseDurations.fileSummary ||
+			phaseDurations.directorySummary
+		)
+		const hasLLMData = llmStatistics && llmStatistics.totalRequests > 0
+		const hasTotalDuration = totalDuration && totalDuration > 0
+
+		if (!hasPhaseData && !hasLLMData && !hasTotalDuration) {
+			return (
+				<div className="text-sm p-2">
+					<div className="text-vscode-descriptionForeground">
+						{t("knowledgegraph:statusPending")}
+					</div>
+				</div>
+			)
+		}
+
+		return (
+			<div className="space-y-3 text-sm p-2 max-w-xs">
+				{/* 性能统计 */}
+				{hasPhaseData && (
+					<div>
+						<div className="font-medium mb-2">{t("knowledgegraph:performanceStats")}</div>
+						<div className="space-y-1 text-xs text-vscode-descriptionForeground">
+							{phaseDurations.fileCollection && (
+								<div>
+									{t("knowledgegraph:fileCollection")}: {formatDuration(phaseDurations.fileCollection)}
+								</div>
+							)}
+							{phaseDurations.rootAnalysis && (
+								<div>
+									{t("knowledgegraph:rootAnalysis")}: {formatDuration(phaseDurations.rootAnalysis)}
+								</div>
+							)}
+							{phaseDurations.fileSummary && (
+								<div>
+									{t("knowledgegraph:fileSummary")}: {formatDuration(phaseDurations.fileSummary)}
+								</div>
+							)}
+							{phaseDurations.directorySummary && (
+								<div>
+									{t("knowledgegraph:directorySummary")}: {formatDuration(phaseDurations.directorySummary)}
+								</div>
+							)}
+							{hasTotalDuration && (
+								<div className="font-medium pt-1 text-vscode-foreground">
+									{t("knowledgegraph:totalDuration")}: {formatDuration(totalDuration)}
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+
+				{/* LLM统计 */}
+				{hasLLMData && (
+					<div>
+						<div className="font-medium mb-2">{t("knowledgegraph:llmStats")}</div>
+						<div className="space-y-1 text-xs text-vscode-descriptionForeground">
+							<div>
+								{t("knowledgegraph:totalRequests")}: {formatNumber(llmStatistics.totalRequests)}
+							</div>
+							<div>
+								{t("knowledgegraph:successfulRequests")}: {formatNumber(llmStatistics.successfulRequests)}
+							</div>
+							{llmStatistics.failedRequests > 0 && (
+								<div className="text-vscode-errorForeground">
+									{t("knowledgegraph:failedRequests")}: {formatNumber(llmStatistics.failedRequests)}
+								</div>
+							)}
+							<div>
+								{t("knowledgegraph:totalInputTokens")}: {formatNumber(llmStatistics.totalInputTokens)}
+							</div>
+							<div>
+								{t("knowledgegraph:totalOutputTokens")}: {formatNumber(llmStatistics.totalOutputTokens)}
+							</div>
+							<div className="font-medium pt-1 text-vscode-foreground">
+								{t("knowledgegraph:totalTokens")}: {formatNumber(llmStatistics.totalTokens)}
+							</div>
+						</div>
+					</div>
+				)}
+			</div>
+		)
+	}, [uiState.knowledgeGraphStatus, t])
+
 	const handleMessage = useCallback(
 		(event: MessageEvent) => {
 			const message = event.data
@@ -376,26 +507,46 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 	return (
 		<div>
 			<SectionHeader>
-				<div className="flex items-center gap-2">
-					<TooltipProvider>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<div className="flex items-center gap-2">
-									<VSCodeCheckbox
-										checked={knowledgeGraphEnabled}
-										onChange={handleKnowledgeGraphToggle}
-										disabled={shouldDisableCheckbox}
-									/>
-									<div>{t("knowledgegraph:title")}</div>
-								</div>
-							</TooltipTrigger>
-							{shouldDisableCheckbox && (
-								<TooltipContent>
-									<p>{getDisabledTooltipText()}</p>
+				<div className="flex items-center justify-between w-full">
+					<div className="flex items-center gap-2">
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<div className="flex items-center gap-2">
+										<VSCodeCheckbox
+											checked={knowledgeGraphEnabled}
+											onChange={handleKnowledgeGraphToggle}
+											disabled={shouldDisableCheckbox}
+										/>
+										<div>{t("knowledgegraph:title")}</div>
+									</div>
+								</TooltipTrigger>
+								{shouldDisableCheckbox && (
+									<TooltipContent>
+										<p>{getDisabledTooltipText()}</p>
+									</TooltipContent>
+								)}
+							</Tooltip>
+						</TooltipProvider>
+					</div>
+
+					{/* 统计信息图标 */}
+					{isZgsmProvider && cwd && knowledgeGraphEnabled && (
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										className="p-1 hover:opacity-80 cursor-pointer"
+										onClick={(e) => e.preventDefault()}>
+										<Info className="w-4 h-4" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent side="left" className="max-w-sm">
+									{renderStatistics()}
 								</TooltipContent>
-							)}
-						</Tooltip>
-					</TooltipProvider>
+							</Tooltip>
+						</TooltipProvider>
+					)}
 				</div>
 			</SectionHeader>
 
@@ -404,12 +555,14 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 					{/* Knowledge Graph Status Section */}
 					<div
 						className={`flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background ${shouldDisableAll ? "pointer-events-none" : ""}`}>
-						<div className="flex items-center gap-4 font-bold">
-							<FileText className="w-4 h-4" />
-							<div>{t("knowledgegraph:buildStatus")}</div>
-						</div>
-						<div className="text-vscode-descriptionForeground text-sm mb-3">
-							{t("knowledgegraph:description")}
+						<div>
+							<div className="flex items-center gap-4 font-bold">
+								<FileText className="w-4 h-4" />
+								<div>{t("knowledgegraph:buildStatus")}</div>
+							</div>
+							<div className="text-vscode-descriptionForeground text-sm mb-3">
+								{t("knowledgegraph:description")}
+							</div>
 						</div>
 
 						{!isZgsmProvider || !cwd ? (
@@ -572,6 +725,88 @@ export const KnowledgeGraphSettings = ({ knowledgeGraphEnabled, setCachedStateFi
 										</div>
 									)}
 							</>
+						)}
+
+						{/* 高级设置 */}
+						{isZgsmProvider && cwd && (
+							<div className="mt-6">
+								<Collapsible open={isAdvancedSettingsOpen} onOpenChange={setIsAdvancedSettingsOpen}>
+									<CollapsibleTrigger className="flex items-center gap-1 w-full cursor-pointer hover:opacity-80 mb-2">
+										<span
+											className={`codicon codicon-chevron-${isAdvancedSettingsOpen ? "down" : "right"}`}></span>
+										<span className="font-medium">{t("knowledgegraph:advancedSettings")}</span>
+									</CollapsibleTrigger>
+									<CollapsibleContent className="space-y-4 pl-2">
+									{/* 自动构建开关 */}
+									<div className="flex flex-col gap-2">
+										<VSCodeCheckbox
+											checked={knowledgeGraphAutoRebuildEnabled ?? false}
+											onChange={(e: any) => {
+												const checked = e.target?.checked ?? false
+												setCachedStateField?.("knowledgeGraphAutoRebuildEnabled", checked)
+											}}
+											disabled={shouldDisableAll}>
+											{t("knowledgegraph:autoRebuild")}
+										</VSCodeCheckbox>
+
+										{/* 自动构建间隔 - 联动显示 */}
+										{knowledgeGraphAutoRebuildEnabled && (
+											<div className="ml-6 flex flex-col gap-1">
+												<label className="text-sm font-medium">
+													{t("knowledgegraph:autoRebuildInterval")}
+												</label>
+												<VSCodeTextField
+													value={String(knowledgeGraphAutoRebuildIntervalMinutes ?? 5)}
+													onInput={(e: any) => {
+														const value = parseInt(e.target?.value || "5", 10)
+														const validValue = Math.max(1, value)
+														setCachedStateField?.(
+															"knowledgeGraphAutoRebuildIntervalMinutes",
+															validValue,
+														)
+													}}
+													disabled={shouldDisableAll}
+													className="w-32"
+												/>
+												<span className="text-xs text-vscode-descriptionForeground">
+													{t("knowledgegraph:autoRebuildIntervalHelp")}
+												</span>
+											</div>
+										)}
+									</div>
+
+									{/* 包含测试代码文件 */}
+									<div className="flex flex-col gap-1">
+										<VSCodeCheckbox
+											checked={knowledgeGraphIncludeTestFiles ?? false}
+											onChange={(e: any) => {
+												const checked = e.target?.checked ?? false
+												setCachedStateField?.("knowledgeGraphIncludeTestFiles", checked)
+											}}
+											disabled={shouldDisableAll}>
+											{t("knowledgegraph:includeTestFiles")}
+										</VSCodeCheckbox>
+									</div>
+
+									{/* 可视化最大文件数量 */}
+									<div className="flex items-center gap-3">
+										<label className="text-sm font-medium whitespace-nowrap">
+											{t("knowledgegraph:maxVisualizationFiles")}
+										</label>
+										<VSCodeTextField
+											value={String(knowledgeGraphMaxVisualizationFiles ?? 200)}
+											onInput={(e: any) => {
+												const value = parseInt(e.target?.value || "200", 10)
+												const validValue = Math.max(1, value)
+												setCachedStateField?.("knowledgeGraphMaxVisualizationFiles", validValue)
+											}}
+											disabled={shouldDisableAll}
+											className="w-24"
+										/>
+									</div>
+									</CollapsibleContent>
+								</Collapsible>
+							</div>
 						)}
 					</div>
 				</div>

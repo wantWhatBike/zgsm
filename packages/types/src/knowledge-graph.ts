@@ -10,6 +10,13 @@ export const KNOWLEDGE_GRAPH_DEFAULTS = {
 	MIN_FILE_SIZE_LIMIT: 1024, // 1KB
 	MAX_FILE_SIZE_LIMIT: 10 * 1024 * 1024, // 10MB
 	DEFAULT_FILE_SIZE_LIMIT: 1024 * 1024, // 1MB
+	// Auto-rebuild configuration
+	DEFAULT_AUTO_REBUILD_INTERVAL: 5,
+	MIN_AUTO_REBUILD_INTERVAL: 1,
+	// Visualization configuration
+	DEFAULT_MAX_VISUALIZATION_FILES: 200,
+	// Test files configuration
+	DEFAULT_INCLUDE_TEST_FILES: false,
 } as const
 
 /**
@@ -121,6 +128,16 @@ export const knowledgeGraphConfigSchema = z.object({
 		.max(KNOWLEDGE_GRAPH_DEFAULTS.MAX_FILE_SIZE_LIMIT)
 		.optional(),
 	knowledgeGraphExportFormats: z.array(z.enum(["json", "jsonl", "markdown", "zip"])).optional(),
+	// Auto-rebuild configuration
+	knowledgeGraphAutoRebuildEnabled: z.boolean().optional(),
+	knowledgeGraphAutoRebuildIntervalMinutes: z
+		.number()
+		.min(KNOWLEDGE_GRAPH_DEFAULTS.MIN_AUTO_REBUILD_INTERVAL)
+		.optional(),
+	// Test files configuration
+	knowledgeGraphIncludeTestFiles: z.boolean().optional(),
+	// Visualization configuration
+	knowledgeGraphMaxVisualizationFiles: z.number().min(1).optional(),
 })
 
 export type KnowledgeGraphConfig = z.infer<typeof knowledgeGraphConfigSchema>

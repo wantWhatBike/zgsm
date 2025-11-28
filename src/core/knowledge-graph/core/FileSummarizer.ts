@@ -318,15 +318,15 @@ export class FileSummarizer {
 	private getFileSummarySchema(): any {
 		return [
 			{
-				path: "本文件路径",
+				path: "File path",
 				type: "source|test|config",
-				description: `150字左右，突出核心业务逻辑和架构角色（${LLM_LANGUAGE}）`,
-				keywords: [`3-5个关键词，按重要性排序（${LLM_LANGUAGE}）`],
+				description: `About 150 words, highlighting core business logic and architectural role (${LLM_LANGUAGE})`,
+				keywords: [`3-5 keywords, sorted by importance (${LLM_LANGUAGE})`],
 				functions: {
-					function_name1: `功能描述，50~100字，突出函数功能、业务价值（${LLM_LANGUAGE}）`,
-					funciton_name2: `功能描述，50~100字，突出函数功能、业务价值（${LLM_LANGUAGE}）`,
+					function_name1: `Function description, 50-100 words, highlighting function purpose and business value (${LLM_LANGUAGE})`,
+					function_name2: `Function description, 50-100 words, highlighting function purpose and business value (${LLM_LANGUAGE})`,
 				},
-				dependencies: ["本文将依赖的项目内依赖文件路径"],
+				dependencies: ["Project-internal dependency file paths"],
 			},
 		]
 	}

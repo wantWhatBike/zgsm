@@ -3441,6 +3441,33 @@ export const webviewMessageHandler = async (
 			}
 			break
 		}
+		case "knowledgeGraphEnabled": {
+			await updateGlobalState("knowledgeGraphEnabled", message.bool ?? false)
+			await provider.postStateToWebview()
+			break
+		}
+		case "knowledgeGraphAutoRebuildEnabled": {
+			await updateGlobalState("knowledgeGraphAutoRebuildEnabled" as any, message.bool ?? false)
+			await provider.postStateToWebview()
+			break
+		}
+		case "knowledgeGraphAutoRebuildIntervalMinutes": {
+			const interval = message.value ?? 5
+			await updateGlobalState("knowledgeGraphAutoRebuildIntervalMinutes" as any, Math.max(1, interval))
+			await provider.postStateToWebview()
+			break
+		}
+		case "knowledgeGraphIncludeTestFiles": {
+			await updateGlobalState("knowledgeGraphIncludeTestFiles" as any, message.bool ?? false)
+			await provider.postStateToWebview()
+			break
+		}
+		case "knowledgeGraphMaxVisualizationFiles": {
+			const maxFiles = message.value ?? 200
+			await updateGlobalState("knowledgeGraphMaxVisualizationFiles" as any, Math.max(1, maxFiles))
+			await provider.postStateToWebview()
+			break
+		}
 		case "zgsmRebuildCodebaseIndex": {
 			try {
 				const { apiConfiguration } = await provider.getState()

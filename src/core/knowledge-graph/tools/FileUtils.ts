@@ -16,6 +16,7 @@ export class FileFilter {
   private includeExts: string[]
   private maxFileSize: number
   private maxFiles: number
+  private includeTestFiles: boolean
   private logger: ILogger
 
   constructor(
@@ -23,12 +24,14 @@ export class FileFilter {
     includeExts: string[] =  INCLUDE_EXTS,
     maxFileSize: number = 1024 * 1024, // 1MB
     maxFiles: number = 50000,
-    logger?: ILogger
+    logger?: ILogger,
+    includeTestFiles: boolean = false
   ) {
     this.ignorePatterns = ignorePatterns
     this.maxFileSize = maxFileSize
     this.maxFiles = maxFiles
     this.includeExts = includeExts
+    this.includeTestFiles = includeTestFiles
     this.logger = logger || createLogger('FileFilter')
   }
 
@@ -50,8 +53,43 @@ export class FileFilter {
     files = await this.filterByExt(files)
     this.logger.info(`[FileFilter] 根据后缀过滤后，剩余文件数: ${files.length}`)
 
+    // 4. 过滤测试文件（如果不包含测试文件）
+    if (!this.includeTestFiles) {
+      files = this.filterTestFiles(files)
+      this.logger.info(`[FileFilter] 过滤测试文件后，剩余文件数: ${files.length}`)
+    }
+
     this.logger.info(`[FileFilter] 过滤完成，剩余：${files.length}个文件`)
     return files
+  }
+
+  /**
+   * 判断是否为测试文件
+   */
+  private isTestFile(filePath: string): boolean {
+    const normalizedPath = filePath.replace(/\\/g, '/')
+    const fileName = path.basename(filePath)
+
+    // 路径包含测试目录
+    const testDirPatterns = ['/test/', '/tests/', '/__tests__/', '/spec/', '/specs/']
+    if (testDirPatterns.some(pattern => normalizedPath.includes(pattern))) {
+      return true
+    }
+
+    // 文件名包含测试标识
+    const testFilePatterns = ['.test.', '.spec.', '_test.', '_spec.']
+    if (testFilePatterns.some(pattern => fileName.includes(pattern))) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * 过滤测试文件
+   */
+  private filterTestFiles(files: FileInfo[]): FileInfo[] {
+    return files.filter(file => !this.isTestFile(file.path))
   }
 
 

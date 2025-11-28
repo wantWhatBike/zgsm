@@ -131,6 +131,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 	const [cachedState, setCachedState] = useState(() => extensionState)
 
 	const {
+		knowledgeGraphAutoRebuildEnabled,
+		knowledgeGraphAutoRebuildIntervalMinutes,
+		knowledgeGraphIncludeTestFiles,
+		knowledgeGraphMaxVisualizationFiles,
 		alwaysAllowReadOnly,
 		alwaysAllowReadOnlyOutsideWorkspace,
 		allowedCommands,
@@ -353,6 +357,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		vscode.postMessage({ type: "useZgsmCustomConfig", bool: useZgsmCustomConfig })
 		vscode.postMessage({ type: "zgsmCodebaseIndexEnabled", bool: zgsmCodebaseIndexEnabled })
 		vscode.postMessage({ type: "knowledgeGraphEnabled", bool: knowledgeGraphEnabled })
+		vscode.postMessage({ type: "knowledgeGraphAutoRebuildEnabled", bool: knowledgeGraphAutoRebuildEnabled })
+		vscode.postMessage({ type: "knowledgeGraphAutoRebuildIntervalMinutes", value: knowledgeGraphAutoRebuildIntervalMinutes })
+		vscode.postMessage({ type: "knowledgeGraphIncludeTestFiles", bool: knowledgeGraphIncludeTestFiles })
+		vscode.postMessage({ type: "knowledgeGraphMaxVisualizationFiles", value: knowledgeGraphMaxVisualizationFiles })
 		vscode.postMessage({ type: "checkpointTimeout", value: checkpointTimeout })
 			vscode.postMessage({ type: "browserViewportSize", text: browserViewportSize })
 			vscode.postMessage({ type: "remoteBrowserHost", text: remoteBrowserHost })
@@ -781,6 +789,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					{activeTab === "contextManagement" && (
 						<KnowledgeGraphSettings
 							knowledgeGraphEnabled={knowledgeGraphEnabled}
+							knowledgeGraphAutoRebuildEnabled={knowledgeGraphAutoRebuildEnabled}
+							knowledgeGraphAutoRebuildIntervalMinutes={knowledgeGraphAutoRebuildIntervalMinutes}
+							knowledgeGraphIncludeTestFiles={knowledgeGraphIncludeTestFiles}
+							knowledgeGraphMaxVisualizationFiles={knowledgeGraphMaxVisualizationFiles}
 							setCachedStateField={setCachedStateField}
 						/>
 					)}

@@ -378,6 +378,10 @@ export type ExtensionState = Pick<
 
 	// Knowledge Graph settings
 	knowledgeGraphEnabled: boolean
+	knowledgeGraphAutoRebuildEnabled?: boolean
+	knowledgeGraphAutoRebuildIntervalMinutes?: number
+	knowledgeGraphIncludeTestFiles?: boolean
+	knowledgeGraphMaxVisualizationFiles?: number
 	knowledgeGraphConfig?: any // Knowledge graph configuration
 	knowledgeGraphStatus?: any // Current knowledge graph status
 

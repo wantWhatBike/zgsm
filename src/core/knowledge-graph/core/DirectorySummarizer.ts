@@ -420,11 +420,11 @@ export class DirectorySummarizer {
 	 */
 	private getDirectorySummarySchema(): any {
 		return {
-			path: "目录路径",
-			type: "功能模块/工具集/配置",
-			description: `整体定位（150字左右），详细描述目录在项目中的核心功能、架构角色、业务价值和技术特点（${LLM_LANGUAGE}）`,
-			keywords: [`2-5个核心关键词（${LLM_LANGUAGE}）`],
-			key_files: ["1-5个核心文件路径"],
+			path: "Directory path",
+			type: "module|utils|config",
+			description: `Overall positioning (about 150 words), describing the directory's core functionality, architectural role, business value, and technical characteristics in detail (${LLM_LANGUAGE})`,
+			keywords: [`2-5 core keywords (${LLM_LANGUAGE})`],
+			key_files: ["1-5 core file paths"],
 		}
 	}
 }

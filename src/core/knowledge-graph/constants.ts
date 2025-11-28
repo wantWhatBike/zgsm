@@ -56,7 +56,14 @@ export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   fileSizeLimit: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_FILE_SIZE_LIMIT,
   fileLinesLimit: FILE_PROCESSING_CONFIG.FILE_LINES_LIMIT,
   cacheDir: '.costrict/cache/knowledge-graph',
-  exportFormat: 'markdown'
+  exportFormat: 'markdown',
+  // Auto-rebuild configuration
+  autoRebuildEnabled: false,
+  autoRebuildIntervalMinutes: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_AUTO_REBUILD_INTERVAL,
+  // Test files configuration
+  includeTestFiles: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_INCLUDE_TEST_FILES,
+  // Visualization configuration
+  maxVisualizationFiles: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_MAX_VISUALIZATION_FILES,
 }
 
 
@@ -282,7 +289,7 @@ export const RETRY_CONFIG = {
 } as const
 
 // LLM 语言设置
-export const LLM_LANGUAGE = "简体中文"
+export const LLM_LANGUAGE = "English"
 
 // LLM配置
 export const LLM_CONFIG = {

@@ -768,12 +768,37 @@ export class GraphBuilder {
 			return
 		}
 		
+		// 收集 LLM 统计数据和阶段耗时
+		const llmStats = this.progressTracer.getLLMStats()
+		const phaseDurations = {
+			fileCollection: this.progressTracer.getDuration('fileCollection'),
+			rootAnalysis: this.progressTracer.getDuration('rootAnalysis'),
+			fileSummary: this.progressTracer.getDuration('fileSummary'),
+			directorySummary: this.progressTracer.getDuration('directorySummary'),
+		}
+		
+		// 计算总耗时
+		const finalState = this.buildStateTracer.getCurrentState()
+		const startTime = finalState?.startTime ? new Date(finalState.startTime).getTime() : Date.now()
+		const totalDuration = Date.now() - startTime
+		
 		// 完成构建
 		await this.buildStateTracer.updateBuildState({
 			phase: KNOWLEDGE_GRAPH_PHASE.COMPLETED,
 			status: KNOWLEDGE_GRAPH_STATUS.COMPLETED,
 			failedFiles: 0,
-			error: "构建完成"
+			error: "构建完成",
+			totalDuration,
+			llmStatistics: {
+				totalInputTokens: llmStats.totalInputTokens,
+				totalOutputTokens: llmStats.totalOutputTokens,
+				totalTokens: llmStats.totalTokens,
+				totalRequests: llmStats.totalRequests,
+				successfulRequests: llmStats.successfulRequests,
+				failedRequests: llmStats.failedRequests,
+				totalDuration: llmStats.totalDuration,
+			},
+			phaseDurations,
 		})
 		
 		this.logger.info(`[GraphBuilder] ================================================`)

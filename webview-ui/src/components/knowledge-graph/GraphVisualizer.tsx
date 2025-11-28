@@ -17,7 +17,7 @@ import type { NodeFilter } from "./ControlPanel"
 
 export const GraphVisualizer = () => {
 	// 修复 #12: 使用自定义Hook获取数据
-	const { graphData, loading, error, refetch } = useGraphData()
+	const { graphData, loading, error, refetch, isLimited, totalNodes } = useGraphData()
 	
 	// 交互状态
 	const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
@@ -221,6 +221,11 @@ export const GraphVisualizer = () => {
 				}}
 			>
 				<div>节点: {displayData.nodes.length}/{graphData.nodes.length} | 边: {displayData.links.length}</div>
+				{isLimited && (
+					<div style={{ color: "var(--vscode-textPreformat-foreground, #ffa500)", marginTop: "0.25rem" }}>
+						⚠ 显示已限制 (总计: {totalNodes})
+					</div>
+				)}
 			</div>
 			
 			{/* 节点悬浮提示 */}

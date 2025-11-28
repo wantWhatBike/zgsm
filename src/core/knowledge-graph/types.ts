@@ -86,6 +86,13 @@ export interface KnowledgeGraphConfig {
   fileLinesLimit: number
   cacheDir: string
   exportFormat: string
+  // Auto-rebuild configuration
+  autoRebuildEnabled?: boolean
+  autoRebuildIntervalMinutes?: number
+  // Test files configuration
+  includeTestFiles?: boolean
+  // Visualization configuration
+  maxVisualizationFiles?: number
 }
 
 import type { BuildProgress, KnowledgeGraphBuildState } from "@roo-code/types"

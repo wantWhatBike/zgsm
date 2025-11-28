@@ -95,6 +95,10 @@ export class KnowledgeGraphManager {
 	// 配置缓存
 	private config: KnowledgeGraphConfig = { ...DEFAULT_CONFIG }
 
+	// 自动构建定时器管理
+	private autoRebuildTimer: NodeJS.Timeout | null = null
+	private nextAutoRebuildTime: number | null = null
+
 	/**
 	 * 私有构造函数确保单例模式
 	 */
@@ -227,6 +231,10 @@ export class KnowledgeGraphManager {
 			knowledgeGraphModel: "model",
 			knowledgeGraphMaxFiles: "maxFiles",
 			knowledgeGraphFileSizeLimit: "fileSizeLimit",
+			knowledgeGraphAutoRebuildEnabled: "autoRebuildEnabled",
+			knowledgeGraphAutoRebuildIntervalMinutes: "autoRebuildIntervalMinutes",
+			knowledgeGraphIncludeTestFiles: "includeTestFiles",
+			knowledgeGraphMaxVisualizationFiles: "maxVisualizationFiles",
 		}
 
 		// 安全地映射配置
@@ -264,7 +272,7 @@ export class KnowledgeGraphManager {
 				fileSummarizer,
 				directorySummarizer,
 				fileService,
-			})
+			}, progressTracer)
 
 			// 5. 创建检索和导出器
 			this.graphRetriever = new GraphRetriever(
@@ -294,6 +302,7 @@ export class KnowledgeGraphManager {
 			this.config.fileSizeLimit,
 			this.config.maxFiles,
 			this.logger!,
+			this.config.includeTestFiles,
 		)
 		const fileService = new FileService(fileFilter, this.logger!)
 		
@@ -362,8 +371,8 @@ export class KnowledgeGraphManager {
 	/**
 	 * 创建图构建器
 	 */
-	private createGraphBuilder(stateTracer: BuildStateTracer, components: any): GraphBuilder {
-		return new GraphBuilder(this.config, {
+	private createGraphBuilder(stateTracer: BuildStateTracer, components: any, progressTracer: ProgressTracer): GraphBuilder {
+		const graphBuilder = new GraphBuilder(this.config, {
 			rootAnalyzer: components.rootAnalyzer,
 			fileAnalyzer: components.fileSummarizer,
 			directoryAnalyzer: components.directorySummarizer,
@@ -371,6 +380,9 @@ export class KnowledgeGraphManager {
 			buildStateKeeper: stateTracer,
 			logger: this.logger!,
 		})
+		// 设置共享的性能跟踪器
+		graphBuilder.setProgressTracer(progressTracer)
+		return graphBuilder
 	}
 
 	/**
@@ -427,7 +439,10 @@ export class KnowledgeGraphManager {
 	private async disable(): Promise<void> {
 		this.logger?.info("[KnowledgeGraphManager] 禁用知识图谱服务（保留实例）")
 		
-		// 1. 暂停正在运行的构建
+		// 1. 取消自动构建
+		this.cancelAutoRebuild()
+		
+		// 2. 暂停正在运行的构建
 		const workspacePath = this.getWorkspacePath()
 		if (workspacePath && this.graphBuilder) {
 			const currentState = this.getBuildStatus()
@@ -441,7 +456,7 @@ export class KnowledgeGraphManager {
 			}
 		}
 		
-		// 2. 更新启用状态
+		// 3. 更新启用状态
 		this.isEnabled = false
 		
 		this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已禁用")
@@ -462,6 +477,9 @@ export class KnowledgeGraphManager {
 	 * 仅在扩展停用时调用，日常禁用请使用 disable()
 	 */
 	public async dispose(): Promise<void> {
+		// 取消自动构建
+		this.cancelAutoRebuild()
+
 		// 暂停构建（仅当正在运行时）
 		const workspacePath = this.getWorkspacePath()
 		if (workspacePath && this.graphBuilder) {
@@ -479,6 +497,70 @@ export class KnowledgeGraphManager {
 		}
 
 		await this.stopService()
+	}
+
+	/**
+	 * 安排下次自动构建
+	 */
+	private scheduleAutoRebuild(): void {
+		// 取消现有定时器
+		this.cancelAutoRebuild()
+
+		// 检查是否启用自动构建
+		if (!this.config.autoRebuildEnabled) {
+			this.logger?.debug("[KnowledgeGraphManager] 自动构建未启用")
+			return
+		}
+
+		const intervalMinutes = this.config.autoRebuildIntervalMinutes || DEFAULT_CONFIG.autoRebuildIntervalMinutes || 5
+		const intervalMs = intervalMinutes * 60 * 1000
+
+		this.nextAutoRebuildTime = Date.now() + intervalMs
+		
+		this.logger?.info(`[KnowledgeGraphManager] 安排下次自动构建，间隔: ${intervalMinutes} 分钟`)
+
+		this.autoRebuildTimer = setTimeout(() => {
+			this.executeAutoRebuild()
+		}, intervalMs)
+	}
+
+	/**
+	 * 取消自动构建
+	 */
+	private cancelAutoRebuild(): void {
+		if (this.autoRebuildTimer) {
+			clearTimeout(this.autoRebuildTimer)
+			this.autoRebuildTimer = null
+			this.nextAutoRebuildTime = null
+			this.logger?.debug("[KnowledgeGraphManager] 已取消自动构建定时器")
+		}
+	}
+
+	/**
+	 * 执行自动构建（检查互斥）
+	 */
+	private async executeAutoRebuild(): Promise<void> {
+		this.logger?.info("[KnowledgeGraphManager] 开始执行自动构建")
+
+		try {
+			// 检查是否有操作正在执行
+			if (this.currentOperationType) {
+				this.logger?.warn(`[KnowledgeGraphManager] 自动构建跳过：${this.currentOperationType} 正在执行`)
+				// 重新安排下次构建
+				this.scheduleAutoRebuild()
+				return
+			}
+
+			// 执行构建
+			await this.startBuild({ resumeFromPrevious: false })
+			
+			this.logger?.info("[KnowledgeGraphManager] 自动构建完成")
+		} catch (error) {
+			this.logger?.error(`[KnowledgeGraphManager] 自动构建失败: ${ErrorHandler.formatError(error)}`)
+		} finally {
+			// 安排下次构建
+			this.scheduleAutoRebuild()
+		}
 	}
 
 	/**
@@ -610,7 +692,17 @@ export class KnowledgeGraphManager {
 				throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
 			}
 
-			return await this.graphBuilder.start(this.getWorkspacePath()!, options)
+			// 取消自动构建定时器（手动构建优先）
+			this.cancelAutoRebuild()
+
+			const result = await this.graphBuilder.start(this.getWorkspacePath()!, options)
+
+			// 构建完成后，如果启用了自动构建，安排下次构建
+			if (this.config.autoRebuildEnabled) {
+				this.scheduleAutoRebuild()
+			}
+
+			return result
 		})
 	}
 
@@ -629,6 +721,9 @@ export class KnowledgeGraphManager {
 				const currentStatus = this.stateTracer.getCurrentState()?.status
 				throw new Error(`当前状态 ${currentStatus} 不允许暂停`)
 			}
+
+			// 暂停时取消自动构建定时器
+			this.cancelAutoRebuild()
 
 			return await this.graphBuilder.pause(this.getWorkspacePath()!)
 		})
@@ -650,7 +745,14 @@ export class KnowledgeGraphManager {
 				throw new Error(`当前状态 ${currentStatus} 不允许继续`)
 			}
 
-			return await this.graphBuilder.resume(this.getWorkspacePath()!)
+			const result = await this.graphBuilder.resume(this.getWorkspacePath()!)
+
+			// 构建完成后，如果启用了自动构建，安排下次构建
+			if (this.config.autoRebuildEnabled) {
+				this.scheduleAutoRebuild()
+			}
+
+			return result
 		})
 	}
 
@@ -669,6 +771,9 @@ export class KnowledgeGraphManager {
 				const currentStatus = this.stateTracer.getCurrentState()?.status
 				throw new Error(`当前状态 ${currentStatus} 不允许清除`)
 			}
+
+			// 清除时取消自动构建定时器
+			this.cancelAutoRebuild()
 
 			return await this.graphBuilder.clear(this.getWorkspacePath()!)
 		})
@@ -745,6 +850,11 @@ export class KnowledgeGraphManager {
 					await this.loadUserConfig()
 					this.isEnabled = true
 					this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已启用（快速恢复）")
+				}
+
+				// 如果启用了自动构建，安排首次构建
+				if (this.config.autoRebuildEnabled) {
+					this.scheduleAutoRebuild()
 				}
 			} else {
 				// 禁用知识图谱
