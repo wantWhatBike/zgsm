@@ -400,21 +400,20 @@ export const KnowledgeGraphSettings = ({
 	const renderStatistics = useCallback(() => {
 		const { llmStatistics, phaseDurations, totalDuration } = uiState.knowledgeGraphStatus
 
-		// 检查是否有任何有效的统计数据
-		const hasPhaseData = phaseDurations && (
-			phaseDurations.fileCollection ||
-			phaseDurations.rootAnalysis ||
-			phaseDurations.fileSummary ||
-			phaseDurations.directorySummary
-		)
-		const hasLLMData = llmStatistics && llmStatistics.totalRequests > 0
-		const hasTotalDuration = totalDuration && totalDuration > 0
+		// ✅ 更严格的检查：确保数据不为空且有有效值
+		const hasPhaseData = phaseDurations && 
+			Object.values(phaseDurations).some(duration => duration && duration > 0)
+		const hasLLMData = llmStatistics && 
+			llmStatistics.totalRequests !== undefined && 
+			llmStatistics.totalRequests > 0
+		const hasTotalDuration = totalDuration !== undefined && totalDuration > 0
 
+		// 如果没有任何统计数据，显示等待中
 		if (!hasPhaseData && !hasLLMData && !hasTotalDuration) {
 			return (
 				<div className="text-sm p-2">
 					<div className="text-vscode-descriptionForeground">
-						{t("knowledgegraph:statusPending")}
+						{t("knowledgegraph:noStatisticsYet")}
 					</div>
 				</div>
 			)
@@ -507,46 +506,26 @@ export const KnowledgeGraphSettings = ({
 	return (
 		<div>
 			<SectionHeader>
-				<div className="flex items-center justify-between w-full">
-					<div className="flex items-center gap-2">
-						<TooltipProvider>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<div className="flex items-center gap-2">
-										<VSCodeCheckbox
-											checked={knowledgeGraphEnabled}
-											onChange={handleKnowledgeGraphToggle}
-											disabled={shouldDisableCheckbox}
-										/>
-										<div>{t("knowledgegraph:title")}</div>
-									</div>
-								</TooltipTrigger>
-								{shouldDisableCheckbox && (
-									<TooltipContent>
-										<p>{getDisabledTooltipText()}</p>
-									</TooltipContent>
-								)}
-							</Tooltip>
-						</TooltipProvider>
-					</div>
-
-					{/* 统计信息图标 */}
-					{isZgsmProvider && cwd && knowledgeGraphEnabled && (
-						<TooltipProvider>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<button
-										className="p-1 hover:opacity-80 cursor-pointer"
-										onClick={(e) => e.preventDefault()}>
-										<Info className="w-4 h-4" />
-									</button>
-								</TooltipTrigger>
-								<TooltipContent side="left" className="max-w-sm">
-									{renderStatistics()}
+				<div className="flex items-center gap-2">
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<div className="flex items-center gap-2">
+									<VSCodeCheckbox
+										checked={knowledgeGraphEnabled}
+										onChange={handleKnowledgeGraphToggle}
+										disabled={shouldDisableCheckbox}
+									/>
+									<div>{t("knowledgegraph:title")}</div>
+								</div>
+							</TooltipTrigger>
+							{shouldDisableCheckbox && (
+								<TooltipContent>
+									<p>{getDisabledTooltipText()}</p>
 								</TooltipContent>
-							</Tooltip>
-						</TooltipProvider>
-					)}
+							)}
+						</Tooltip>
+					</TooltipProvider>
 				</div>
 			</SectionHeader>
 
@@ -556,9 +535,28 @@ export const KnowledgeGraphSettings = ({
 					<div
 						className={`flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background ${shouldDisableAll ? "pointer-events-none" : ""}`}>
 						<div>
-							<div className="flex items-center gap-4 font-bold">
-								<FileText className="w-4 h-4" />
-								<div>{t("knowledgegraph:buildStatus")}</div>
+							<div className="flex items-center justify-between w-full">
+								<div className="flex items-center gap-4 font-bold">
+									<FileText className="w-4 h-4" />
+									<div>{t("knowledgegraph:buildStatus")}</div>
+								</div>
+								{/* 统计信息图标 - 与构建状态在同一行 */}
+								{isZgsmProvider && cwd && knowledgeGraphEnabled && (
+									<TooltipProvider>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													className="p-1 hover:opacity-80 cursor-pointer"
+													onClick={(e) => e.preventDefault()}>
+													<Info className="w-4 h-4" />
+												</button>
+											</TooltipTrigger>
+											<TooltipContent side="left" className="max-w-sm">
+												{renderStatistics()}
+											</TooltipContent>
+										</Tooltip>
+									</TooltipProvider>
+								)}
 							</div>
 							<div className="text-vscode-descriptionForeground text-sm mb-3">
 								{t("knowledgegraph:description")}
