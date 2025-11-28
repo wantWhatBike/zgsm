@@ -133,6 +133,25 @@ export class KnowledgeGraphMessageHandler {
    */
   private async handleGetStatusMessage(): Promise<void> {
     try {
+      // 检查是否已初始化
+      if (!knowledgeGraphManager.isManagerInitialized()) {
+        // 未初始化，返回默认状态
+        this.logger.debug(`[KnowledgeGraphMessageHandler] 知识图谱未初始化，返回默认状态`)
+        this.sendStatusResponse(DEFAULT_BUILD_STATE)
+        return
+      }
+      
+      // 已初始化但未启用，返回禁用状态
+      if (!knowledgeGraphManager.isServiceEnabled()) {
+        this.logger.debug(`[KnowledgeGraphMessageHandler] 知识图谱已禁用，返回禁用状态`)
+        this.sendStatusResponse({
+          ...DEFAULT_BUILD_STATE,
+          status: KNOWLEDGE_GRAPH_STATUS.PENDING,
+          lastUpdateTime: new Date().toISOString(),
+        })
+        return
+      }
+      
       // 获取实时构建状态
       const buildState = knowledgeGraphManager.getBuildStatus()
       
@@ -141,10 +160,8 @@ export class KnowledgeGraphMessageHandler {
         return
       }
       
-      // 在启用/禁用切换期间，状态跟踪器可能还未初始化，这是正常的过渡状态
-      this.logger.debug(`[KnowledgeGraphMessageHandler] 知识图谱状态未初始化，返回默认状态`)
-      
-      // 返回默认状态
+      // 兜底：返回默认状态
+      this.logger.debug(`[KnowledgeGraphMessageHandler] 无法获取状态，返回默认状态`)
       this.sendStatusResponse(DEFAULT_BUILD_STATE)
 
     } catch (error) {

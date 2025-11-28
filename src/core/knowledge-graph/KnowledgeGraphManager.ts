@@ -14,8 +14,8 @@ import {
 	RootInfo,
 	SearchQuery,
 } from "./types"
-import { DEFAULT_CONFIG } from "./constants"
-import { API_PROVIDER } from "@roo-code/types"
+import { DEFAULT_CONFIG, DEFAULT_BUILD_STATE } from "./constants"
+import { API_PROVIDER, KNOWLEDGE_GRAPH_STATUS } from "@roo-code/types"
 import { ILogger } from "../../utils/logger"
 import { FileService } from "./core/FileService"
 import { createLogger } from "../../utils/logger"
@@ -78,6 +78,7 @@ export class KnowledgeGraphManager {
 	private logger: ILogger | undefined
 	private clineProvider: ClineProvider | undefined
 	private isInitialized: boolean = false
+	private isEnabled: boolean = false  // 新增：区分"已初始化"和"已启用"
 	private graphBuilder: GraphBuilder | undefined
 	private stateTracer: BuildStateTracer | undefined
 	private graphRetriever: GraphRetriever | undefined
@@ -154,6 +155,7 @@ export class KnowledgeGraphManager {
 			await this.repairBuildStateIfNeeded()
 
 			this.isInitialized = true
+			this.isEnabled = true  // 新增：初始化完成即为启用状态
 			this.logger?.info("[KnowledgeGraphManager] 知识图谱服务初始化完成")
 		} catch (error) {
 			await this.handleInitializationError(error)
@@ -417,6 +419,35 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
+	 * 禁用服务（但不销毁组件）
+	 * 与 dispose() 的区别：
+	 * - disable(): 停止服务，保留组件实例和存储连接
+	 * - dispose(): 完全清理，用于扩展停用
+	 */
+	private async disable(): Promise<void> {
+		this.logger?.info("[KnowledgeGraphManager] 禁用知识图谱服务（保留实例）")
+		
+		// 1. 暂停正在运行的构建
+		const workspacePath = this.getWorkspacePath()
+		if (workspacePath && this.graphBuilder) {
+			const currentState = this.getBuildStatus()
+			if (currentState?.status === "running") {
+				try {
+					await this.graphBuilder.pause(workspacePath)
+					this.logger?.info("[KnowledgeGraphManager] 构建已暂停")
+				} catch (error) {
+					this.logger?.warn(`[KnowledgeGraphManager] 暂停构建失败: ${error}`)
+				}
+			}
+		}
+		
+		// 2. 更新启用状态
+		this.isEnabled = false
+		
+		this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已禁用")
+	}
+
+	/**
 	 * 停止服务
 	 */
 	private async stopService(): Promise<void> {
@@ -427,7 +458,8 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 销毁管理器
+	 * 销毁管理器（完全清理）
+	 * 仅在扩展停用时调用，日常禁用请使用 disable()
 	 */
 	public async dispose(): Promise<void> {
 		// 暂停构建（仅当正在运行时）
@@ -507,9 +539,25 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
+	 * 检查服务是否已启用
+	 */
+	public isServiceEnabled(): boolean {
+		return this.isEnabled
+	}
+
+	/**
 	 * 获取构建状态
 	 */
 	public getBuildStatus(): KnowledgeGraphBuildState | undefined {
+		// 如果未启用，返回禁用状态
+		if (this.isInitialized && !this.isEnabled) {
+			return {
+				...DEFAULT_BUILD_STATE,
+				status: KNOWLEDGE_GRAPH_STATUS.PENDING,
+				lastUpdateTime: new Date().toISOString(),
+			}
+		}
+		
 		return this.stateTracer?.getCurrentState()
 	}
 
@@ -686,17 +734,24 @@ export class KnowledgeGraphManager {
 				// 启用知识图谱
 				this.logger?.info("[KnowledgeGraphManager] 启用知识图谱服务")
 
-				// 先更新配置，确保 initialize 中的检查能通过（虽然这里用了 forceInit=true，但保持一致性更好）
+				// 先更新配置
 				await this.clineProvider.setValue("knowledgeGraphEnabled", true)
 
-				// 强制初始化
-				await this.initialize(true)
+				// 如果未初始化，进行初始化；否则只更新启用状态
+				if (!this.isInitialized) {
+					await this.initialize(true)
+				} else {
+					// 已初始化，只需更新配置和启用状态
+					await this.loadUserConfig()
+					this.isEnabled = true
+					this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已启用（快速恢复）")
+				}
 			} else {
 				// 禁用知识图谱
-				this.logger?.info("[KnowledgeGraphManager] 停止知识图谱服务")
+				this.logger?.info("[KnowledgeGraphManager] 禁用知识图谱服务")
 
-				// 先停止服务
-				await this.dispose()
+				// 调用 disable() 而不是 dispose()
+				await this.disable()
 
 				// 更新配置
 				await this.clineProvider.setValue("knowledgeGraphEnabled", false)
@@ -707,8 +762,7 @@ export class KnowledgeGraphManager {
 			// 发生错误时，如果是启用失败，回滚配置
 			if (isEnabled) {
 				await this.clineProvider.setValue("knowledgeGraphEnabled", false)
-				// 确保清理
-				await this.dispose()
+				this.isEnabled = false
 			}
 
 			const errorMessage = error instanceof Error ? error.message : "设置知识图谱状态失败"
