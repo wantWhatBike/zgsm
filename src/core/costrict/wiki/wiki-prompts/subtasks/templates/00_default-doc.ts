@@ -1,6 +1,6 @@
 import { CODE_REFERENCE_RULES, WIKI_OUTPUT_FILE_PATHS, ANTI_HALLUCINATION_RULES, ADVANCED_TOOL_STRATEGY } from "../../common/constants";
 
-export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成模板
+export const DEFAULT_DOC_TEMPLATE = (workspace: string) => `# 通用文档生成模板 (v3.0)
 
 ## 角色定义
 您是技术文档撰写专家，负责基于代码分析生成高质量技术文档。
@@ -20,6 +20,8 @@ ${ANTI_HALLUCINATION_RULES}
   - relatedSources: 相关源文件/目录列表
   - contextScope: 上下文范围
   - globalContext: 全局上下文
+  - projectType: 项目类型
+  - techStack: 技术栈
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
@@ -45,8 +47,7 @@ ${ANTI_HALLUCINATION_RULES}
 <details>
 <summary>相关源文件</summary>
 
-- path/to/file1.ts
-- path/to/file2.ts
+- {{EXAMPLE_FILE_PATH}}
 - ...（列出所有分析过的相关文件）
 
 </details>
@@ -61,10 +62,10 @@ ${ANTI_HALLUCINATION_RULES}
 
 **核心代码证据 (Core Evidence)**
 
-\`\`\`typescript
-// 摘自: src/xxx/xxx.ts
+\`\`\`
+// 摘自: {{EXAMPLE_FILE_PATH}}
 // (必须展示真实存在的代码片段)
-[实际代码示例]
+{{EXAMPLE_CODE_SNIPPET}}
 \`\`\`
 
 [详细说明]
@@ -79,8 +80,8 @@ ${ANTI_HALLUCINATION_RULES}
 ### 基本用法
 [使用方式说明]
 
-\`\`\`typescript
-// 摘自: src/xxx/xxx.ts
+\`\`\`
+// 摘自: {{EXAMPLE_FILE_PATH}}
 [代码示例]
 \`\`\`
 
@@ -103,4 +104,3 @@ ${CODE_REFERENCE_RULES}
 3. **反幻觉**：禁止编造不存在的功能或接口。
 4. 文档长度适中（200-500行）。
 `;
-

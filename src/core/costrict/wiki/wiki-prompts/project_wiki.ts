@@ -6,13 +6,7 @@ import {
   SUBTASK_FILENAMES,
   subtaskDir,
   COMMON_RULES,
-  REQUIRED_DOCS,
 } from './common/constants';
-
-// 生成必选文档列表
-const requiredDocsDisplay = REQUIRED_DOCS.map(d => 
-  `    - ${d.id}: ${d.name} → ${d.filename}`
-).join('\n');
 
 export const PROJECT_WIKI_TEMPLATE = (workspace: string) => `
 # 智能代码仓库分析和文档生成
@@ -34,14 +28,12 @@ export const PROJECT_WIKI_TEMPLATE = (workspace: string) => `
 3. **AI 构建运行**：理解构建和部署流程
 4. **人工校验**：Markdown 格式便于人工阅读和校验
 
-## 文档体系（v3 固定版）
+## 文档体系（v3 动态版）
 
-### 必选文档（8个，必须生成）
-${requiredDocsDisplay}
+文档列表不再固定，而是由 **项目分析 Agent** 根据项目类型（Web/Frontend/Lib/CLI等）动态决定。
 
-### 可选文档（模型根据项目特点自主决定）
-    - 示例：服务通信、中间件集成、安全认证、前端组件、领域模型等
-    - 可自行扩展：支付集成、定时任务、WebSocket、文件存储等
+- **必选文档**：根据项目类型自动匹配（如 Web 项目必选 API 文档，CLI 项目必选命令参考）。
+- **可选文档**：根据项目实际使用的技术组件（如 Redis, Kafka）动态推荐。
 
 ## 执行流程
 
@@ -55,8 +47,8 @@ new_task:
         项目分析专家，快速评估项目特征并确定文档列表
       ## Instructions
         1. 使用 \`read_file\` 工具读取指令文件：\`${subtaskDir}${SUBTASK_FILENAMES.PROJECT_ANALYZE_AGENT}\`
-        2. 按照指令分析项目并生成文档目录
-        3. 输出包含8个必选文档 + 可选文档的完整列表
+        2. 按照指令分析项目类型（Web/Lib/CLI等）
+        3. 根据项目类型生成对应的文档目录（必选+可选）
       ## Rules
         ${COMMON_RULES}
       ## Output
@@ -92,6 +84,8 @@ new_task:
         - relatedSources: [{相关源文件列表}]
         - contextScope: [{上下文范围}]
         - globalContext: {全局上下文对象}
+        - projectType: "{项目类型}"
+        - techStack: {技术栈对象}
       ## Rules
         ${COMMON_RULES}
         - 每个结论必须标注代码来源
@@ -102,7 +96,7 @@ new_task:
 
 **注意**：
 - 必须为每个文档创建独立的子任务
-- 文档信息（含 contextScope）和 globalContext 从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取
+- 文档信息、globalContext、projectType、techStack 均从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取
 - 按文档编号顺序执行
 
 ### 子任务4：索引文件生成
@@ -127,7 +121,7 @@ new_task:
 ## 完成标准
 
 当以下条件全部满足时，任务执行完成：
-1. ✅ 文档目录已生成（8个必选 + 可选文档）
+1. ✅ 文档目录已生成（根据项目类型动态确定的必选 + 可选文档）
 2. ✅ 所有文档已生成到 \`${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}\`
 3. ✅ 索引文件已生成
 4. ✅ 每个文档都有代码来源标注

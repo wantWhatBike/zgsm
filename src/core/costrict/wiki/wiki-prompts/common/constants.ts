@@ -9,6 +9,7 @@ export const GENERAL_RULES_OUTPUT_DIR = path.join(".roo", "rules") + path.sep
 export const subtaskDir =
 	path.join(getGlobalCommandsDir(), "costrict-project-wiki-tasks", PROJECT_WIKI_VERSION) + path.sep
 
+export const templatesDir = path.join(subtaskDir, "templates") + path.sep
 
 // Safely get home directory
 export function getHomeDir(): string {
@@ -72,38 +73,80 @@ export const MODE_THRESHOLDS = {
 	LARGE_PROJECT: 201,   // 大型项目文件数阈值
 } as const
 
-// ========== 文档体系定义 ==========
+// ========== 文档体系定义 (v3 动态策略) ==========
 
-// 必选文档（8个，必须生成）
-export const REQUIRED_DOCS = [
-	{ id: "01", name: "项目概览", filename: "01_项目概览.md", template: "01_overview-doc" },
-	{ id: "02", name: "代码架构", filename: "02_代码架构.md", template: "02_architecture-doc" },
-	{ id: "03", name: "业务流程", filename: "03_业务流程.md", template: "03_business-flow-doc" },
-	{ id: "04", name: "API接口文档", filename: "04_API接口文档.md", template: "04_api-doc" },
-	{ id: "05", name: "数据存储", filename: "05_数据存储.md", template: "05_data-storage-doc" },
-	{ id: "06", name: "编码规范", filename: "06_编码规范.md", template: "06_coding-standard-doc" },
-	{ id: "07", name: "测试指南", filename: "07_测试指南.md", template: "07_testing-guide-doc" },
-	{ id: "08", name: "构建部署", filename: "08_构建部署.md", template: "08_build-deploy-doc" },
-] as const
+export type ProjectType = "WebService" | "Frontend" | "Library" | "CLI" | "Mobile" | "Embedded" | "Unknown";
 
-// ========== 可选文档示例（仅供参考，模型可自行扩展）==========
-// 以下仅为常见示例，模型应根据项目实际情况：
-// 1. 判断这些示例是否适用
-// 2. 自行添加项目特有的、对AI生成代码有价值的文档
+export interface DocMetadata {
+    id: string;
+    name: string;
+    filename: string;
+    template: string;
+    description?: string;
+}
 
-// 常见可选文档示例
-export const OPTIONAL_DOC_EXAMPLES = [
-	{ id: "09", name: "服务通信", template: "09_service-comm-doc", 
-	  description: "微服务间的调用方式、协议定义、服务发现" },
-	{ id: "10", name: "中间件集成", template: "10_middleware-doc",
-	  description: "缓存、消息队列、搜索引擎等中间件的使用方式" },
-	{ id: "11", name: "安全认证", template: "11_security-auth-doc",
-	  description: "认证授权机制、权限模型、安全实践" },
-	{ id: "12", name: "前端组件", template: "00_default-doc",
-	  description: "前端组件库、状态管理、路由配置" },
-	{ id: "13", name: "领域模型", template: "00_default-doc",
-	  description: "DDD领域模型、聚合根、实体、值对象" },
-] as const
+export interface DocStrategy {
+    required: DocMetadata[];
+    optional: DocMetadata[];
+}
+
+// 所有可用文档定义池
+export const ALL_DOCS = {
+    OVERVIEW: { id: "01", name: "项目概览", filename: "01_项目概览.md", template: "01_overview-doc" },
+    ARCHITECTURE: { id: "02", name: "代码架构", filename: "02_代码架构.md", template: "02_architecture-doc" },
+    BUSINESS_FLOW: { id: "03", name: "业务流程", filename: "03_业务流程.md", template: "03_business-flow-doc" },
+    API: { id: "04", name: "API接口文档", filename: "04_API接口文档.md", template: "04_api-doc" },
+    INTERFACE: { id: "04", name: "接口参考", filename: "04_接口参考.md", template: "04_api-doc" }, // Library 用
+    COMMAND: { id: "04", name: "命令参考", filename: "04_命令参考.md", template: "04_api-doc" }, // CLI 用
+    DATA_STORAGE: { id: "05", name: "数据存储", filename: "05_数据存储.md", template: "05_data-storage-doc" },
+    STATE_MANAGEMENT: { id: "05", name: "状态管理", filename: "05_状态管理.md", template: "05_data-storage-doc" }, // Frontend 用
+    CODING_STANDARD: { id: "06", name: "编码规范", filename: "06_编码规范.md", template: "06_coding-standard-doc" },
+    TESTING: { id: "07", name: "测试指南", filename: "07_测试指南.md", template: "07_testing-guide-doc" },
+    BUILD_DEPLOY: { id: "08", name: "构建部署", filename: "08_构建部署.md", template: "08_build-deploy-doc" },
+    BUILD_RELEASE: { id: "08", name: "构建发布", filename: "08_构建发布.md", template: "08_build-deploy-doc" }, // Lib/CLI 用
+    // Optional
+    SERVICE_COMM: { id: "09", name: "服务通信", filename: "09_服务通信.md", template: "09_service-comm-doc", description: "微服务调用" },
+    MIDDLEWARE: { id: "10", name: "中间件集成", filename: "10_中间件集成.md", template: "10_middleware-doc", description: "Redis/MQ等" },
+    SECURITY: { id: "11", name: "安全认证", filename: "11_安全认证.md", template: "11_security-auth-doc", description: "认证授权" },
+    COMPONENTS: { id: "12", name: "前端组件", filename: "12_前端组件.md", template: "00_default-doc", description: "UI组件" },
+    DOMAIN_MODEL: { id: "13", name: "领域模型", filename: "13_领域模型.md", template: "00_default-doc", description: "DDD领域模型" },
+};
+
+// 针对不同项目类型的文档策略
+export const DOC_STRATEGIES: Record<ProjectType, DocStrategy> = {
+    WebService: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.BUSINESS_FLOW, ALL_DOCS.API, ALL_DOCS.DATA_STORAGE, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_DEPLOY],
+        optional: [ALL_DOCS.SERVICE_COMM, ALL_DOCS.MIDDLEWARE, ALL_DOCS.SECURITY, ALL_DOCS.DOMAIN_MODEL]
+    },
+    Frontend: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.BUSINESS_FLOW, ALL_DOCS.STATE_MANAGEMENT, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_DEPLOY],
+        optional: [ALL_DOCS.COMPONENTS, ALL_DOCS.SECURITY]
+    },
+    Library: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.INTERFACE, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_RELEASE],
+        optional: []
+    },
+    CLI: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.COMMAND, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_RELEASE],
+        optional: []
+    },
+    Mobile: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.BUSINESS_FLOW, ALL_DOCS.DATA_STORAGE, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_DEPLOY],
+        optional: [ALL_DOCS.SECURITY]
+    },
+    Embedded: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.INTERFACE, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_RELEASE],
+        optional: []
+    },
+    Unknown: {
+        required: [ALL_DOCS.OVERVIEW, ALL_DOCS.ARCHITECTURE, ALL_DOCS.CODING_STANDARD, ALL_DOCS.TESTING, ALL_DOCS.BUILD_DEPLOY],
+        optional: []
+    }
+};
+
+// 兼容旧版引用 (默认指向 WebService)
+export const REQUIRED_DOCS = DOC_STRATEGIES.WebService.required;
+export const OPTIONAL_DOC_EXAMPLES = DOC_STRATEGIES.WebService.optional;
 
 // 可选文档扩展说明（供提示词使用）
 export const OPTIONAL_DOC_EXTENSION_GUIDE = `

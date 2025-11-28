@@ -1,10 +1,11 @@
 import { promises as fs } from "fs"
 import * as path from "path"
-import { formatError, PROJECT_WIKI_VERSION, SUBTASK_FILENAMES, subtaskDir } from "./wiki-prompts/common/constants"
+import { formatError, PROJECT_WIKI_VERSION, SUBTASK_FILENAMES, subtaskDir, DOC_TEMPLATE_FILES, templatesDir } from "./wiki-prompts/common/constants"
 import { ILogger, createLogger } from "../../../utils/logger"
 import { PROJECT_BASIC_ANALYZE_AGENT_TEMPLATE } from "./wiki-prompts/subtasks/01_project-basic-analyze-agent"
 import { DOCUMENT_GENERATION_AGENT_TEMPLATE } from "./wiki-prompts/subtasks/02_document-generate-agent"
 import { INDEX_GENERATION_AGENT_TEMPLATE } from "./wiki-prompts/subtasks/03_index-generation-agent"
+import { DOC_TEMPLATES } from "./wiki-prompts/subtasks/templates"
 
 export const projectWikiCommandName = "project-wiki"
 export const projectWikiCommandDescription = `执行项目深度分析并创建全面的项目技术文档（v3版本）`
@@ -80,6 +81,30 @@ async function checkSubtaskDirectory(subTaskDir: string): Promise<boolean> {
 			return false
 		}
 
+		// Check if templates directory exists and has template files
+		try {
+			const templatesDirResult = await fs.stat(templatesDir)
+			if (!templatesDirResult.isDirectory()) {
+				logger.info("[projectWikiHelpers] templates directory exists but is not a directory")
+				return false
+			}
+
+			const templateFiles = await fs.readdir(templatesDir)
+			const mdFiles = templateFiles.filter((file) => file.endsWith(".md"))
+			
+			// Check if all required template files exist (now as .md files)
+			const requiredTemplateFiles = Object.keys(DOC_TEMPLATES).map(templateId => `${templateId}.md`)
+			const missingTemplateFiles = requiredTemplateFiles.filter((fileName) => !mdFiles.includes(fileName))
+
+			if (missingTemplateFiles.length > 0) {
+				logger.info(`[projectWikiHelpers] Missing template files: ${missingTemplateFiles.join(", ")}`)
+				return false
+			}
+		} catch (templatesError) {
+			logger.info("[projectWikiHelpers] templates directory not accessible:", formatError(templatesError))
+			return false
+		}
+
 		return mdFiles.length > 0
 	} catch (error) {
 		logger.info("[projectWikiHelpers] subTaskDir not accessible:", formatError(error))
@@ -104,9 +129,12 @@ async function generateSubtaskFiles(subTaskDir: string): Promise<void> {
 		// Create subtask directory
 		await fs.mkdir(subTaskDir, { recursive: true })
 
+		// Create templates subdirectory (use imported templatesDir constant)
+		await fs.mkdir(templatesDir, { recursive: true })
+
 		// Generate subtask files
 		const subTaskFiles = Object.keys(SUBTASK_TEMPLATES)
-		const generateResults = await Promise.allSettled(
+		const subtaskResults = await Promise.allSettled(
 			subTaskFiles.map(async (file) => {
 				const template = SUBTASK_TEMPLATES[file as keyof typeof SUBTASK_TEMPLATES]("${workspaceFolder}/")
 				if (!template) {
@@ -119,17 +147,46 @@ async function generateSubtaskFiles(subTaskDir: string): Promise<void> {
 			}),
 		)
 
+		// Generate template files (output template content to .md files like other subtask files)
+		const templateFiles = Object.keys(DOC_TEMPLATES)
+		const templateResults = await Promise.allSettled(
+			templateFiles.map(async (templateId) => {
+				const templateFunction = DOC_TEMPLATES[templateId]
+				if (!templateFunction) {
+					throw new Error(`Template function not found for: ${templateId}`)
+				}
+
+				const templateContent = templateFunction("${workspaceFolder}/")
+				// Generate .md file name based on template ID (like other subtask files)
+				const templateFileName = `${templateId}.md`
+				const targetFile = path.join(templatesDir, templateFileName)
+				await fs.writeFile(targetFile, templateContent, "utf-8")
+				return templateFileName
+			}),
+		)
+
 		// Count generation results
-		const successful = generateResults.filter((result) => result.status === "fulfilled")
-		const failed = generateResults.filter((result) => result.status === "rejected")
+		const successfulSubtasks = subtaskResults.filter((result) => result.status === "fulfilled")
+		const failedSubtasks = subtaskResults.filter((result) => result.status === "rejected")
+		const successfulTemplates = templateResults.filter((result) => result.status === "fulfilled")
+		const failedTemplates = templateResults.filter((result) => result.status === "rejected")
 
-		logger.info(`[projectWikiHelpers] Successfully generated ${successful.length} subtask files`)
+		logger.info(`[projectWikiHelpers] Successfully generated ${successfulSubtasks.length} subtask files and ${successfulTemplates.length} template files`)
 
-		if (failed.length > 0) {
-			logger.warn(`[projectWikiHelpers] Failed to generate ${failed.length} subtask files:`)
-			failed.forEach((result) => {
+		if (failedSubtasks.length > 0) {
+			logger.warn(`[projectWikiHelpers] Failed to generate ${failedSubtasks.length} subtask files:`)
+			failedSubtasks.forEach((result) => {
 				if (result.status === "rejected") {
-					logger.warn(`  - ${subTaskFiles[generateResults.indexOf(result)]}: ${formatError(result.reason)}`)
+					logger.warn(`  - ${subTaskFiles[subtaskResults.indexOf(result)]}: ${formatError(result.reason)}`)
+				}
+			})
+		}
+
+		if (failedTemplates.length > 0) {
+			logger.warn(`[projectWikiHelpers] Failed to generate ${failedTemplates.length} template files:`)
+			failedTemplates.forEach((result) => {
+				if (result.status === "rejected") {
+					logger.warn(`  - ${templateFiles[templateResults.indexOf(result)]}: ${formatError(result.reason)}`)
 				}
 			})
 		}
