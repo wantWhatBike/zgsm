@@ -150,24 +150,11 @@ export class GraphBuilder {
 			const canStart = this.buildStateTracer.canStartBuildNow()
 			if (!canStart) {
 				const currentStatus = this.buildStateTracer.getCurrentState()?.status
-				
-				// 如果强制重建，先重置状态
-				if (options.forceRebuild) {
-					this.logger.info(`[GraphBuilder] 强制重建，重置状态: ${currentStatus}`)
-					await this.buildStateTracer.forceResetState()
-					
-					// 再次检查
-					const retryStart = this.buildStateTracer.canStartBuildNow()
-					if (!retryStart) {
-						throw new Error(`强制重建失败，当前状态: ${currentStatus}`)
-					}
-				} else {
-					throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
-				}
+				throw new Error(`当前状态 ${currentStatus} 不允许启动构建。请先清空知识图谱后再重新构建。`)
 			}
 			
 		// ✅ 6. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
-		// 注意：这是简单状态，executeBuild() 会初始化完整状态
+		// 注意：必须同时重置 phaseProgress，避免使用旧数据导致进度计算错误
 		await this.buildStateTracer.updateBuildState({
 			status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
 			phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
@@ -175,7 +162,13 @@ export class GraphBuilder {
 			processedFiles: 0,  // ✅ 重置已处理文件数
 			totalFiles: 0,  // ✅ 重置总文件数
 			failedFiles: 0,  // ✅ 重置失败文件数
-			error: "正在启动构建..."
+			error: "正在启动构建...",
+			// ✅ 重置阶段进度，避免使用旧的 phaseProgress 导致显示错误进度（如 98.5%）
+			phaseProgress: {
+				root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+				file_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+				directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+			}
 		})
 		this.logger.info("[GraphBuilder] 状态已更新为 RUNNING，进度已重置为 0%")
 			
@@ -537,17 +530,14 @@ export class GraphBuilder {
 			}
 		}
 
-		// 如果强制重建，则必须执行
-		if (options.forceRebuild) {
-			needDoFileSummary = true
-			needDoDirectorySummary = true
-		}
-
-		if (!needDoDirectorySummary && !needDoFileSummary && !options.forceRebuild) {
+		if (!needDoDirectorySummary && !needDoFileSummary) {
 			this.logger.info("[GraphBuilder] 无需更新，构建完成")
 			await this.buildStateTracer.updateBuildState({
 				phase: "completed",
 				status: KNOWLEDGE_GRAPH_STATUS.COMPLETED,
+				totalFiles: totalFiles,           // ✅ 设置实际文件总数
+				processedFiles: totalFiles,       // ✅ 所有文件都已处理
+				totalFilesToProcess: totalFiles,  // ✅ 保持一致性
 				failedFiles: 0,
 				error: ""
 			})
@@ -727,7 +717,14 @@ export class GraphBuilder {
 					if (this.isClearing) return
 					
 					// 🔑 记录目录摘要进度（每个目录完成时）
-					this.logger.info(`[GraphBuilder] 目录摘要进度: ${progress.totalProcessedFiles}/${progress.filesToProcess} 目录`)
+					// 计算目录摘要阶段对总进度的贡献（目录摘要阶段占总进度 10%）
+					const phaseContribution = progress.filesToProcess > 0 
+						? ((progress.totalProcessedFiles / progress.filesToProcess) * 10).toFixed(1)
+						: '0.0'
+					this.logger.info(
+						`[GraphBuilder] 目录摘要进度: ${progress.totalProcessedFiles}/${progress.filesToProcess} 目录 ` +
+						`(目录摘要阶段占总进度 10%，当前贡献 ${phaseContribution}%)`
+					)
 					
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({

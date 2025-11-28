@@ -677,16 +677,4 @@ export class BuildStateTracer {
 		})
 	}
 
-	/**
-	 * 强制重置状态（用于 forceRebuild）
-	 */
-	public async forceResetState(): Promise<void> {
-		return this.mutex.withLock(async () => {
-			if (this.currentState) {
-				this.currentState.status = KNOWLEDGE_GRAPH_STATUS.PENDING
-				this.currentState.lastUpdateTime = new Date().toISOString()
-				await this.storage.overwrite(BUILD_STATE_FILE, this.currentState)
-			}
-		})
-	}
 }

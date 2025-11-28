@@ -155,18 +155,14 @@ export class DirectorySummarizer {
 				existingSummaries.forEach(s => dirSummaryMap.set(s.path, s))
 			}
 
-			// 5. 识别需要更新的目录
+			// 5. 识别需要更新的目录（第一遍遍历：确定需要更新哪些目录）
 			// 使用 Set 存储需要更新的目录路径
 			const dirsToUpdate = new Set<string>()
 			
 			// ✅ 构建受影响目录集合（基于精确的文件变更）
 			const affectedDirs = this.buildAffectedDirsSet(changedFiles)
 			
-			// 准备全量文件列表字符串（仅计算一次）
-			const allFileListStr = formatFileList(files.map((f) => f.path))
-
-			let processedCount = 0
-			
+			// 第一遍遍历：确定哪些目录需要更新
 			for (const dirPath of sortedDirs) {
 				const depth = dirDepths.get(dirPath) || 0
 				if (depth > MAX_DIR_DEPTH) continue
@@ -179,13 +175,6 @@ export class DirectorySummarizer {
 				let hasUpdatedSubDir = false
 				
 				// 查找子目录
-				// 注意：sortedDirs 是按深度降序排列的（深层在前），所以处理当前目录时，子目录应该已经处理过了
-				// 我们需要遍历 dirSummaryMap 来找子目录，或者优化查找结构
-				// 由于 dirSummaryMap key 是 path，我们可以构造子目录路径来查找？不，子目录名未知
-				// 只能遍历 dirSummaryMap 或者预先建立父子索引。
-				// 简单起见，遍历 dirSummaryMap (内存操作，速度尚可)
-				// 优化：使用预先构建的目录树结构？
-				// 这里使用简单的遍历，假设目录数不会特别巨大
 				for (const [childPath, summary] of dirSummaryMap.entries()) {
 					if (path.dirname(childPath) === dirPath) {
 						subDirs.push(summary)
@@ -218,14 +207,27 @@ export class DirectorySummarizer {
 					needsUpdate = false
 				}
 
-				// 如果不需要更新，跳过
-				if (!needsUpdate) {
+				// 如果需要更新，标记该目录
+				if (needsUpdate) {
+					dirsToUpdate.add(dirPath)
+				}
+			}
+			
+			// 准备全量文件列表字符串（仅计算一次）
+			const allFileListStr = formatFileList(files.map((f) => f.path))
+			
+			// 记录需要更新的目录数量
+			const totalDirsToUpdate = dirsToUpdate.size
+			this.logger.info(`[DirectorySummarizer] 需要更新 ${totalDirsToUpdate} 个目录（总目录数: ${sortedDirs.length}）`)
+			
+			// 第二遍遍历：实际执行更新
+			let processedCount = 0
+			for (const dirPath of sortedDirs) {
+				// 只处理需要更新的目录
+				if (!dirsToUpdate.has(dirPath)) {
 					continue
 				}
-
-				// 标记该目录为已更新
-				dirsToUpdate.add(dirPath)
-
+				
 			// 检查终止状态
 			if (this.shouldPause()) {
 				this.logger.info("[DirectorySummarizer] 分析被暂停")
@@ -233,7 +235,16 @@ export class DirectorySummarizer {
 			}
 
 			// 开始处理目录
-			this.logger.info(`[DirectorySummarizer] 开始处理目录: ${dirPath}，进度: ${processedCount + 1}/${sortedDirs.length}`)
+			this.logger.info(`[DirectorySummarizer] 开始处理目录: ${dirPath}，进度: ${processedCount + 1}/${totalDirsToUpdate}`)
+
+			// 获取子文件和子目录（重新计算，确保数据正确）
+			const subFiles = dirFiles.get(dirPath) || []
+			const subDirs: DirectorySummary[] = []
+			for (const [childPath, summary] of dirSummaryMap.entries()) {
+				if (path.dirname(childPath) === dirPath) {
+					subDirs.push(summary)
+				}
+			}
 
 			// 生成当前目录摘要
 			const summary = await this.generateDirectorySummary(
@@ -258,16 +269,16 @@ export class DirectorySummarizer {
 				onProgress?.({
 					phase: "directory_analysis",
 					message: `正在分析目录: ${dirPath}`,
-					totalFiles: sortedDirs.length, // 使用总目录数作为分母，虽然不准确但能反映整体进度
-					filesToProcess: sortedDirs.length,
-					totalProcessedFiles: processedCount, // 这里其实是已更新的数量
+					totalFiles: totalDirsToUpdate, // ✅ 使用需要更新的目录数作为分母
+					filesToProcess: totalDirsToUpdate,
+					totalProcessedFiles: processedCount, // 已更新的数量
 					batchProcessedFilePaths: [dirPath],
 					batchFailedFiles: 0,
 				})
 			}
 
-			// ✅ 6. 只更新需要更新的目录（增量更新）
-			if (!this.shouldPause() && dirsToUpdate.size > 0) {
+			// ✅ 6. 批量保存更新的目录（增量更新）
+			if (!this.shouldPause() && processedCount > 0) {
 				const summariesToUpdate: DirectorySummary[] = []
 				
 				for (const dirPath of dirsToUpdate) {

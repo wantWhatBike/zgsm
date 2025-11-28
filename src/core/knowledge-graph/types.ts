@@ -134,7 +134,6 @@ export interface BuildOptions {
   config?: KnowledgeGraphConfig
   onProgress?: (progress: BuildProgress) => void
   resumeFromPrevious?: boolean
-  forceRebuild?: boolean
   // 新增选项
   enableIncrementalUpdate?: boolean
   maxRetries?: number
