@@ -146,39 +146,71 @@ export type DocTemplateType = keyof typeof DOC_TEMPLATE_FILES
 
 export const ADVANCED_TOOL_STRATEGY = `
 ## 高级工具使用策略 (Advanced Tool Strategy)
-1. **定义查找 (search_definitions)**：
-   - **场景**：需要获取类、接口、函数、常量的完整定义和签名时。
-   - **优势**：比 read_file 更精准，能跨文件查找，消耗 Token 更少。
-   - **规则**：优先使用 search_definitions 获取类型定义 (Interface/Struct) 和函数签名。
-2. **引用追踪 (search_references)**：
-   - **场景**：分析业务流程、调用链、依赖关系时。
-   - **优势**：能找到所有调用方，构建完整的上下游链路。
-   - **规则**：在生成“业务流程”或“架构图”时，必须对核心入口函数使用 search_references。
-3. **大纲扫描 (list_code_definition_names)**：
-   - **场景**：快速了解文件结构、类/方法列表，避免读取整个大文件。
-   - **规则**：在分析陌生的大型文件前，先用此工具获取概览。
+
+### 1. 核心工具优先 (Primary Tools)
+- **定义查找 (search_definitions)**：
+  - **场景**：获取类、接口、函数、常量的完整定义。
+  - **规则**：优先使用此工具获取类型定义和签名，而非读取全文件。
+- **引用追踪 (search_references)**：
+  - **场景**：分析业务流程、调用链、依赖关系。
+  - **规则**：在生成“业务流程”或“架构图”时，必须对核心入口函数使用此工具。
+- **大纲扫描 (list_code_definition_names)**：
+  - **场景**：快速了解文件结构，避免读取大文件。
+  - **规则**：分析陌生文件前，先获取概览。
+
+### 2. 智能降级策略 (Graceful Degradation)
+**当 search_definitions / search_references 返回空、报错或不可用时，必须执行以下 Fallback 流程：**
+1. **降级 Level 1 (Regex Search)**：使用 \`search_files\` 配合精确的正则（如 \`class User\`, \`function login\`）查找定义位置。
+2. **降级 Level 2 (Direct Read)**：如果正则搜索定位到了文件，使用 \`read_file\` 读取该文件（建议使用 line_count 限制读取范围）。
+3. **降级 Level 3 (Context Inference)**：如果上述均失败，在文档中明确标注 \`[工具无法获取定义，基于上下文推断]\`，禁止编造。
+
+### 3. 上下文范围控制 (Context Scoping)
+- **分层扫描**：禁止对 \`src/\` 进行全量递归扫描。必须先扫描一级目录，再根据文档主题深入特定子目录。
+- **按需加载**：只有在确认文件与当前文档主题强相关时，才允许读取其详细内容。
 `
 
 export const ANTI_HALLUCINATION_RULES = `
 ## 反幻觉协议 (Anti-Hallucination Protocol)
-1. **零信任原则**：严禁使用任何“模板自带”的路径（如 \`src/api/user.ts\`）。所有路径必须来自 \`list_files\` 的真实输出。
-2. **验证-执行-检查**：
-   - **验证**：在引用文件前，必须确认其在文件列表中存在。
-   - **执行**：读取文件内容或查找定义，确保函数/类/变量名真实存在。
-   - **检查**：输出前再次核对路径拼写。
-3. **置信度标记**：
-   - 如果逻辑不清晰或代码缺失，必须标注 \`[待人工核实]\` 或 \`[逻辑推断]\`。
-   - 禁止使用“可能”、“大概”等模糊词汇，要么是事实，要么是“未知”。
-4. **禁止幽灵依赖**：严禁在 Mermaid 图或调用链中引用不存在的文件节点。
-5. **工具验证**：对于关键的类型定义和函数调用，必须通过 \`search_definitions\` 或 \`read_file\` 获取确凿证据，禁止仅凭文件名猜测内容。
+
+### 1. 严格路径验证 (Strict Path Verification - SPV)
+- **Pre-Check**：在生成文档正文前，必须先输出一个 JSON 列表，列出所有计划引用的文件路径。
+- **Verification**：强制将该列表与 \`list_files\` 的结果进行比对。
+- **Action**：如果发现路径不存在，**立即**从计划中移除，严禁在文档中引用。
+
+### 2. 零信任原则
+- 严禁使用任何“模板自带”的路径（如 \`src/api/user.ts\`）。
+- 所有路径必须来自 \`list_files\` 的真实输出。
+
+### 3. 幽灵依赖清除
+- 严禁在 Mermaid 图或调用链中引用不存在的文件节点。
+- 如果某层级（如 Repository 层）在项目中不存在，禁止在架构图中画出。
+
+### 4. 置信度标记
+- 确凿证据：\`> 💡 来源: [src/path/to/file.ts]\`
+- 推断内容：\`> ⚠️ [逻辑推断] 未找到直接定义，根据文件名推测\`
+- 缺失内容：\`> ❌ [信息缺失] 工具无法获取该部分实现\`
 `
 
 export const DEEP_ANALYSIS_RULES = `
 ## 深度分析协议 (Deep Analysis Protocol)
-1. **透视隐式逻辑**：不要只翻译代码表面意思。要提取代码背后的业务规则（如：状态必须为 ACTIVE 才能登录、金额必须大于 0）。
-2. **追踪调用链 (DFS)**：遇到函数调用时，必须说明“调用了谁”以及“对方做了什么”，而不是简单说“调用服务层”。
-3. **识别领域术语**：提取代码中的业务术语（Ubiquitous Language），如 \`OrderPlaced\` (下单), \`InventoryReserved\` (库存预占)。
-4. **关注异常路径**：不仅要描述成功流程，必须描述失败时的处理逻辑（回滚、重试、报错）。
+
+### 1. 基于证据的推理 (Evidence-Based Reasoning - EBR)
+在撰写任何“业务规则”或“架构决策”前，必须先在思维链中构建 **<EvidenceBlock>**：
+- **定位**：找到具体的代码行（如 \`if (balance < amount)\`）。
+- **提取**：复制该逻辑片段。
+- **结论**：基于该片段总结规则（如“余额不足时禁止支付”）。
+**没有 EvidenceBlock，就不允许写结论。**
+
+### 2. 深度优先追踪 (DFS)
+- 遇到函数调用时，必须说明“调用了谁”以及“对方做了什么”。
+- 禁止使用“调用服务层处理”这种空洞描述，必须精确到“调用 OrderService.create 方法”。
+
+### 3. 隐式逻辑显性化
+- 必须提取代码中隐含的业务规则（校验、状态流转、权限控制）。
+- 必须描述失败时的处理逻辑（回滚、重试、报错）。
+
+### 4. 领域语言提取
+- 提取代码中的业务术语（Ubiquitous Language），如 \`OrderPlaced\` (下单)。
 `
 
 export const EVIDENCE_FORMAT = `

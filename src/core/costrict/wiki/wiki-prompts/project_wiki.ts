@@ -90,6 +90,8 @@ new_task:
         - template: "{模板ID}"
         - description: "{文档描述}"
         - relatedSources: [{相关源文件列表}]
+        - contextScope: [{上下文范围}]
+        - globalContext: {全局上下文对象}
       ## Rules
         ${COMMON_RULES}
         - 每个结论必须标注代码来源
@@ -100,7 +102,7 @@ new_task:
 
 **注意**：
 - 必须为每个文档创建独立的子任务
-- 文档信息从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取
+- 文档信息（含 contextScope）和 globalContext 从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取
 - 按文档编号顺序执行
 
 ### 子任务4：索引文件生成

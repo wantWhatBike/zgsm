@@ -17,14 +17,21 @@ ${ADVANCED_TOOL_STRATEGY}
 - docName: "测试指南"
 - docFilename: "07_测试指南.md"
 - relatedSources: 测试目录、配置文件、脚本、工具
+- contextScope: 上下文范围
+- globalContext: 全局上下文
 - 项目分析结果：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
-1. **配置分析**：读取测试配置（jest.config.js / vitest.config.ts / package.json scripts 等）。
-2. **结构扫描**：使用 \`list_code_definition_names\` 扫描测试目录（test/, __tests__/），快速了解测试文件的组织结构和命名规范。
-3. **辅助类识别**：使用 \`search_definitions\` 查找测试基类、Mock 工具或 Fixture 定义，理解测试辅助工具链。
-4. **写作前规划**：列出章节与证据映射，确保每节都引用真实文件。
-5. 按模板输出 Markdown，并执行 CODE_REFERENCE_RULES 自检
+1. **配置分析**：读取测试配置（jest.config.js / vitest.config.ts 等）。
+2. **提取真实用例证据 (EBR)**：
+   - 基于 \`contextScope\`，使用 \`list_files\` 找到典型的单元测试和集成测试文件。
+   - 使用 \`read_file\` 读取 1-2 个完整的测试文件。
+   - **证据要求**：必须提取完整的 \`describe\`, \`it\`, \`expect\` 代码块，展示真实的测试写法。
+3. **辅助类识别**：
+   - 使用 \`search_definitions\` 提取 Mock 工具或 Fixture 的定义。
+4. **生成文档**：
+   - **强制**：在“测试用例规范”章节，必须展示提取到的真实代码片段。
+   - 按模板输出 Markdown，并执行 CODE_REFERENCE_RULES 自检。
 
 ## 输出格式
 
@@ -136,8 +143,11 @@ test/
 
 ### 基本结构
 
+**真实用例证据 (Real Test Case Evidence)**
+
 \`\`\`typescript
 // 摘自: test/unit/service/userService.test.ts
+// (此处必须展示项目中真实存在的测试代码片段)
 describe('UserService', () => {
   let service: UserService;
 
@@ -268,9 +278,9 @@ describe('Order API', () => {
 ${CODE_REFERENCE_RULES}
 
 ## 质量检查
-1. 所有章节均引用真实文件且在 <details> 中列出
-2. 命令/代码块均可直接执行或复制
-3. 无 TODO/占位符/臆造内容
-4. 控制篇幅 300–500 行，保持 Markdown 结构清晰
+1. **真实性**：所有测试用例示例必须直接摘自项目中的真实文件，禁止手写伪代码。
+2. **配置实证**：必须展示真实的配置文件内容。
+3. 所有章节均引用真实文件且在 <details> 中列出。
+4. 控制篇幅 300–500 行，保持 Markdown 结构清晰。
 `;
 

@@ -19,25 +19,32 @@ ${ADVANCED_TOOL_STRATEGY}
   - docName: "构建部署"
   - docFilename: "08_构建部署.md"
   - relatedSources: 构建部署相关文件
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
 
-### 步骤1：分析构建配置
-1. **脚本分析**：读取 package.json (scripts) 或 Makefile，提取核心构建命令。
-2. **容器化分析**：使用 \`read_file\` 读取 Dockerfile / docker-compose.yml，理解镜像构建和容器编排逻辑。
-3. **自定义脚本**：使用 \`list_files\` 扫描 scripts/ 目录，识别自定义构建/部署脚本。
+### 步骤1：提取构建证据 (EBR)
+1. **脚本分析**：
+   - 读取 \`package.json\` 或 \`Makefile\`。
+   - **证据要求**：必须提取 \`scripts\` 区块或 Makefile target 定义。
+2. **容器化分析**：
+   - 读取 \`Dockerfile\` 或 \`docker-compose.yml\`。
+   - **证据要求**：提取 \`FROM\`, \`RUN build\` 等关键指令。
 
-### 步骤2：分析CI/CD配置
-1. **流程扫描**：使用 \`list_files\` 扫描 .github/workflows/, .gitlab-ci.yml 等目录。
-2. **逻辑提取**：读取核心 CI 配置文件，提取 Build -> Test -> Deploy 的流水线逻辑。
+### 步骤2：提取 CI/CD 证据
+1. **流程扫描**：基于 \`contextScope\` 扫描 \`.github/workflows/\` 等目录。
+2. **逻辑提取**：
+   - 读取核心 CI 配置文件。
+   - **证据要求**：提取定义 Build/Test/Deploy 步骤的 YAML 片段。
 
 ### 步骤3：分析环境配置
-1. **变量提取**：读取 .env.example等配置文件，提取必需的环境变量。
-2. **配置扫描**：使用 \`list_code_definition_names\` 扫描 config/ 目录，快速了解配置结构。
+1. **变量提取**：读取 \`.env.example\`，提取环境变量列表。
 
 ### 步骤4：生成文档
-输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}08_构建部署.md\`
+- 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}08_构建部署.md\`
+- **强制**：在描述构建流程前，先展示提取到的脚本/配置片段。
 
 ## 输出格式
 
@@ -143,8 +150,11 @@ npm run clean
 
 ### 构建配置
 
+**构建脚本证据 (Build Script Evidence)**
+
 \`\`\`json
-// 摘自: package.json scripts
+// 摘自: package.json
+// (必须展示真实存在的 scripts 配置)
 {
   "scripts": {
     "build": "tsc && npm run copy-assets",
@@ -573,11 +583,10 @@ ${CODE_REFERENCE_RULES}
 - 图表必须标注关联的配置文件
 
 ## 质量要求
-1. 所有命令必须可执行且来自实际脚本/README
-2. 环境变量必须与 .env.example 或 config/** 文件一致
-3. Docker/K8s/Helm 配置必须来自真实文件（不存在就不要生成）
-4. CI/CD 配置必须与实际 workflow 一致
-5. 若检测不到某配置文件，需输出“未检测到 {文件}，来源: list_files 结果”
-6. 文档长度控制在 300-500 行
+1. **证据优先**：必须先展示构建脚本/配置文件片段，再描述流程。
+2. **真实性**：所有命令和配置必须来自实际文件，禁止编造。
+3. **环境一致性**：环境变量必须与 .env.example 一致。
+4. 若检测不到某配置文件，需输出“未检测到 {文件}”。
+5. 文档长度控制在 300-500 行。
 `;
 

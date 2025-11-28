@@ -18,19 +18,22 @@ ${ADVANCED_TOOL_STRATEGY}
   - docName: "数据存储"
   - docFilename: "05_数据存储.md"
   - relatedSources: models/, entity/, migrations/, config/database.ts, config/redis.ts, config/mq.ts 等
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
 1. **扫描模型定义**：
-   - 使用 \`list_code_definition_names\` 扫描模型目录（如 src/models, src/entity），快速获取所有模型类名。
-   - 使用 \`search_definitions\` 查找核心模型类的定义，获取完整的字段、类型和注解（Decorators）。
-2. **分析数据库结构**：
-   - 结合模型定义和迁移文件（migrations/），提取表定义、字段、索引和外键关系。
+   - 基于 \`contextScope\`，使用 \`list_code_definition_names\` 扫描模型目录。
+2. **提取结构证据 (EBR)**：
+   - **优先**：使用 \`search_definitions\` 获取 ORM Model 类的完整定义（含 Decorators）。
+   - **补充**：使用 \`read_file\` 读取 \`migrations/\` 下的 SQL DDL 语句。
+   - **证据要求**：必须获取完整的字段定义、主键、外键和索引信息。
 3. **分析中间件配置**：
-   - 读取缓存配置（Redis）与 Key 约定，列出命名规则。
-   - 读取消息队列配置（Kafka/RabbitMQ），列出 topic/queue。
+   - 提取 Redis/MQ 的配置文件内容作为证据。
 4. **输出文档**：
    - 生成文档并输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}05_数据存储.md\`
+   - **强制**：在描述表结构前，先展示提取到的 Model/DDL 代码块。
 
 ## 输出格式
 
@@ -79,7 +82,19 @@ ${ADVANCED_TOOL_STRATEGY}
 
 #### 示例：users 表
 
-**DDL（截取）**
+**结构定义证据 (Structure Evidence)**
+
+\`\`\`typescript
+// 摘自: src/models/user.ts
+@Entity("users")
+export class User {
+  @PrimaryGeneratedColumn("uuid")
+  id: string
+  // ...
+}
+\`\`\`
+
+**DDL 证据 (可选)**
 
 \`\`\`sql
 -- 摘自: prisma/migrations/20240101010101_create_users/migration.sql
@@ -208,10 +223,10 @@ export interface OrderCreatedEvent {
 ${CODE_REFERENCE_RULES}
 
 ## 质量要求
-1. 表结构、字段、索引、关系必须源自模型或迁移文件
-2. 若文件中存在 DDL，需截取核心片段展示
-3. 缓存/MQ/S3 等章节仅在真实存在时输出，否则标注“未检测到相关配置（来源: …）”
-4. 所有来源引用仅使用文件/目录路径
-5. 文档长度控制在 300-600 行
+1. **证据优先**：必须先展示 Model 定义或 DDL 代码块，再列出字段表格。
+2. **准确性**：字段类型和约束必须与代码证据完全一致。
+3. **真实性**：缓存/MQ/S3 等章节仅在真实存在时输出。
+4. 所有来源引用仅使用文件/目录路径。
+5. 文档长度控制在 300-600 行。
 `
 

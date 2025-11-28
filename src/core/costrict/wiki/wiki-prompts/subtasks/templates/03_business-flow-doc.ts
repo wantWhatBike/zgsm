@@ -19,26 +19,29 @@ ${DEEP_ANALYSIS_RULES}
   - docName: "业务流程"
   - docFilename: "03_业务流程.md"
   - relatedSources: 相关业务代码目录
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
 
 ### 步骤1：识别核心业务
-- 根据项目类型挑选 3-5 个最关键业务流程（用户、订单、支付、同步等）
-- 每个流程都需要真实入口（API/Job/CLI）与终点（DB/外部服务）
+- 基于 \`globalContext.entryPoints\` 挑选 3-5 个最关键业务流程。
+- 确保每个流程都有明确的入口（API/Job）和终点（DB/External）。
 
-### 步骤2：深度优先追踪 (DFS)
-1. **定位入口**：找到 Controller/Handler 中的具体函数（如 \`register\`）。
+### 步骤2：深度优先追踪 (DFS) 与证据提取 (EBR)
+1. **定位入口**：从 \`entryPoints\` 开始，找到 Controller/Handler。
 2. **利用工具追踪**：
-   - 使用 \`search_references\` 查找该函数的调用者，确认入口触发点。
-   - 使用 \`search_definitions\` 查看该函数内部调用的 Service/Utils 方法定义，理解其功能。
-   - **仅在**需要查看具体逻辑实现（如复杂的 if/else 业务判断）时，使用 \`read_file\` 读取函数体。
-3. **逐层深入**：
-   - **提取校验**：在 Controller/Service 层，寻找参数校验和权限检查逻辑。
-   - **提取规则**：在 Service 层，寻找 \`if/else\` 判断，提取业务规则（如状态流转、金额限制）。
-   - **数据落地**：追踪到 Repository 层，查看具体的 SQL/ORM 操作。
-   - **异常处理**：记录 \`try/catch\` 块中的错误处理逻辑。
-4. **记录链路**：记录完整的调用栈：\`File A (func a) -> File B (func b) -> File C (func c)\`。
+   - 优先使用 \`search_definitions\` 获取函数体。
+   - 如果工具失败，使用正则搜索 \`function xxx\` 定位并读取。
+3. **提取证据块 (Evidence Block)**：
+   - **必须**提取具体的代码片段作为业务规则的证据。
+   - 例如：找到 \`if (order.status !== 'PENDING') throw ...\`，记录为“状态流转规则”。
+4. **逐层深入**：
+   - **提取校验**：参数校验、权限检查。
+   - **提取规则**：核心业务逻辑判断。
+   - **数据落地**：必须追踪到 Repository 层的具体 DB 操作。
+5. **记录链路**：构建完整的调用栈。
 
 ### 步骤3：绘制流程图
 - 使用 Mermaid 时序图。
@@ -70,6 +73,16 @@ ${DEEP_ANALYSIS_RULES}
 ## 核心业务流程
 
 ### 1. [业务名称] 流程
+
+#### 证据块 (Evidence Block)
+**在绘制图表前，先展示提取到的核心逻辑证据：**
+
+\`\`\`typescript
+// 来源: src/service/userService.ts:45
+if (existingUser) {
+  throw new UserExistsError(); // 证据：邮箱唯一性校验
+}
+\`\`\`
 
 #### 流程时序图
 
@@ -179,7 +192,7 @@ ${CODE_REFERENCE_RULES}
 
 ## 质量要求
 1. **深度优先**：必须追踪到数据库操作或外部 API 调用为止，禁止中途截断。
-2. **规则显性化**：必须提取 \`if/else\` 中的业务含义，填入“核心业务规则”表。
+2. **证据支撑**：每个业务规则必须对应一个“证据块”代码片段。
 3. **真实性**：时序图中的每个参与者必须是真实存在的文件。
 4. **异常覆盖**：时序图和规则表必须包含异常路径（Alt/Opt）。
 5. 文档长度控制在 300-600 行。

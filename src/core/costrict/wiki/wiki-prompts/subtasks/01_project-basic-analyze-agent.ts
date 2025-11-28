@@ -32,11 +32,12 @@ ${DEEP_ANALYSIS_RULES}
    - **package.json / requirements.txt / go.mod** - 依赖信息
 2. 使用 \`list_code_definition_names\` 工具扫描核心目录（如 \`src/core\`, \`src/models\`），快速获取核心类和接口列表，无需读取所有文件内容。
 
-### 步骤3：技术栈识别
-从依赖文件中识别：
-- 编程语言和框架
-- 数据库、缓存、消息队列
-- 其他中间件
+### 步骤3：技术栈与入口识别
+1. **技术栈识别**：从依赖文件中识别语言、框架、中间件。
+2. **入口点识别 (Entry Points)**：
+   - 查找程序的启动入口（如 \`src/main.ts\`, \`cmd/main.go\`, \`app.py\`, \`index.js\`）。
+   - 查找核心配置入口（如 \`src/config/\`, \`settings.py\`）。
+   - **目的**：为后续 Agent 提供“抓手”，避免盲目搜索。
 
 ### 步骤4：领域词汇提取 (Ubiquitous Language)
 1. 基于步骤2获取的类名/接口名，识别核心业务实体（如 \`Order\`, \`User\`, \`Payment\`）。
@@ -64,8 +65,15 @@ ${DEEP_ANALYSIS_RULES}
 
 **注意**：不要用 list_files 递归统计或写代码统计
 
-### 步骤7：确定可选文档
-**自主思考**项目需要哪些可选文档。
+### 步骤7：确定可选文档与上下文范围
+**自主思考**项目需要哪些可选文档，并为每个文档划定**上下文范围 (Context Scope)**。
+
+#### 上下文范围策略 (Context Scoping Strategy)
+为了防止 Token 溢出，必须为每个文档指定 \`contextScope\`（只扫描哪些目录）：
+- **API文档**：\`["src/api/", "src/dto/", "src/routes/"]\`
+- **数据存储**：\`["src/models/", "src/entity/", "prisma/"]\`
+- **业务流程**：\`["src/service/", "src/logic/"]\`
+- **全局文档**：\`["src/"]\` (仅限概览类文档)
 
 #### 必选文档（8个，必须全部生成）
 ${requiredDocsStr}
@@ -78,10 +86,10 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
 **思考要点**：
 1. 项目有哪些独特/复杂的模块值得单独文档？
 2. 哪些内容对AI生成代码有重要参考价值？
-3. 可以添加示例中没有的文档，只要对AI有价值
+3. 为每个文档指定最精简的 \`contextScope\`。
 
 ### 步骤8：生成文档目录
-输出最终的文档列表。
+输出最终的文档列表，包含 \`globalContext\` 和每个文档的 \`contextScope\`。
 
 ## 输出要求
 
@@ -102,6 +110,11 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
     "cache": ["Redis"],
     "messageQueue": ["Kafka"],
     "otherDeps": []
+  },
+  "globalContext": {
+    "entryPoints": ["src/main.ts", "src/app.module.ts"],
+    "configDir": "src/config/",
+    "testDir": "test/"
   },
   "domainVocabulary": [
     { "term": "OrderPlaced", "meaning": "订单已创建但未支付", "source": "src/events/order.ts" },
@@ -134,7 +147,8 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
       "template": "01_overview-doc",
       "required": true,
       "description": "项目基础信息、技术栈、快速上手",
-      "relatedSources": ["README.md", "package.json", "src/"]
+      "relatedSources": ["README.md", "package.json", "src/"],
+      "contextScope": ["src/", "config/"]
     },
     {
       "id": "02",
@@ -143,7 +157,8 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
       "template": "02_architecture-doc",
       "required": true,
       "description": "目录结构、模块划分、依赖关系",
-      "relatedSources": ["src/"]
+      "relatedSources": ["src/"],
+      "contextScope": ["src/"]
     },
     {
       "id": "03",
@@ -161,7 +176,8 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
       "template": "04_api-doc",
       "required": true,
       "description": "所有对外/内部API定义",
-      "relatedSources": ["src/api/", "src/routes/"]
+      "relatedSources": ["src/api/", "src/routes/"],
+      "contextScope": ["src/api/", "src/routes/", "src/dto/"]
     },
     {
       "id": "05",
@@ -220,11 +236,13 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
 ### 必选文档
 - 8个必选文档**必须全部包含**在 documents 数组中
 - relatedSources 填写项目中**实际存在**的目录/文件（**严禁使用模板示例路径**）
+- **contextScope** 必须根据文档主题进行精简，禁止无脑填 "src/"
 - analysisEvidence 至少覆盖3个不同维度，每条证据引用真实路径
 
 ### 可选文档
 - 根据项目特点**自主决定**需要哪些
 - 每个可选文档必须有 **reason** 说明价值
+- 必须为每个可选文档指定 **contextScope**
 - 编号接续必选文档之后（09、10、11...）
 - 如有专用模板则使用，否则用 "00_default-doc"
 - **可以添加示例中没有的文档**
@@ -238,7 +256,8 @@ ${OPTIONAL_DOC_EXTENSION_GUIDE}
 输出前检查：
 1. [ ] documents 包含全部8个必选文档？
 2. [ ] relatedSources 都是真实存在的路径？（请再次核对 list_files 结果）
-3. [ ] 每个可选文档都有明确的 reason？
-4. [ ] techStack 信息完整准确？
-5. [ ] domainVocabulary 是否提取了至少 5 个核心术语？
+3. [ ] 每个文档都指定了合理的 contextScope？
+4. [ ] globalContext.entryPoints 是否已识别？
+5. [ ] techStack 信息完整准确？
+6. [ ] domainVocabulary 是否提取了至少 5 个核心术语？
 `;

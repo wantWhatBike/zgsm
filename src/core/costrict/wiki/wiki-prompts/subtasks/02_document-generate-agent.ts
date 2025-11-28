@@ -17,12 +17,14 @@ ${ANTI_HALLUCINATION_RULES}
 
 ## 输入参数
 由调度器传入的文档信息（从 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\` 中提取）：
-- **docId**: 文档编号（如 "01", "02"）
-- **docName**: 文档名称（如 "项目概览"）
-- **docFilename**: 输出文件名（如 "01_项目概览.md"）
-- **template**: 模板ID（如 "01_overview-doc"）
+- **docId**: 文档编号
+- **docName**: 文档名称
+- **docFilename**: 输出文件名
+- **template**: 模板ID
 - **description**: 文档描述
 - **relatedSources**: 相关源文件/目录列表
+- **contextScope**: 上下文范围（允许扫描的目录列表，如 \`["src/api/", "src/dto/"]\`）
+- **globalContext**: 全局上下文（包含 \`entryPoints\` 等关键信息）
 
 ## 模板路由表
 
@@ -54,46 +56,35 @@ ${ANTI_HALLUCINATION_RULES}
 缺失/无效：{字段名}
 \`\`\`
 
-### 步骤1：解析输入参数
-从调度器传入的信息中提取：
-\`\`\`
-docId: {文档编号}
-docName: {文档名称}
-docFilename: {输出文件名}
-template: {模板ID}
-description: {文档描述}
-relatedSources: {相关源文件列表}
-\`\`\`
+### 步骤1：解析输入参数与上下文
+从调度器传入的信息中提取参数，并加载 \`contextScope\`。
 
 ### 步骤2：行动前规划与验证 (CoT)
 在读取模板和代码之前，必须完成 **Planning & Verification**：
 
-1. **验证源文件存在性**：
+1. **上下文隔离检查 (Context Isolation)**：
+   - 确认 \`relatedSources\` 中的所有路径均在 \`contextScope\` 允许的范围内。
+   - 如果发现越界路径（如 API 文档试图扫描 \`src/ui/\`），**立即剔除**。
+
+2. **验证源文件存在性**：
    - 检查 \`relatedSources\` 中的文件是否真实存在。
-   - 如果包含目录（如 \`src/api/\`），使用 \`list_files\` 获取该目录下的具体文件列表。
-   - **严禁**假设文件存在。如果 \`relatedSources\` 包含 \`src/api/user.ts\` 但实际不存在，必须将其移除。
+   - 如果包含目录，使用 \`list_files\` 获取该目录下的具体文件列表。
 
-2. **制定工具使用策略**：
-   - **定义查找**：对于 API、数据模型、配置类，计划使用 \`search_definitions\` 获取精确定义。
-   - **链路追踪**：对于业务流程、架构依赖，计划使用 \`search_references\` 追踪调用链。
-   - **大纲扫描**：对于大型文件，计划先用 \`list_code_definition_names\` 获取概览。
-   - **细节读取**：仅在需要具体实现逻辑时使用 \`read_file\`。
+3. **制定工具使用策略**：
+   - **入口优先**：优先分析 \`globalContext.entryPoints\` 中与当前文档相关的入口。
+   - **按需加载**：严格遵循 \`ADVANCED_TOOL_STRATEGY\`，优先使用 \`search_definitions\`。
+   - **降级准备**：如果高级工具失败，准备好使用正则搜索作为 Fallback。
 
-3. **制定证据收集计划**：
-   - 针对文档目标，列出必须分析的具体文件或符号。
-   - 确保覆盖完整的调用链路（如 API -> Service -> Repo）。
-
-4. **章节规划**：
-   - 列出预期的文档章节。
-   - 为每个章节分配“证据来源”和“工具策略”。
+4. **制定证据收集计划 (EBR)**：
+   - 针对文档目标，列出必须寻找的“证据块”（如：必须找到 \`OrderService.create\` 方法中的事务开启代码）。
 
 **输出规划日志**（在思考过程中）：
 \`\`\`text
 [Planning Log]
-- 原始输入源: [...]
-- 验证后有效源: [...] (剔除了 x, y)
-- 工具策略: [API使用search_definitions, 流程使用search_references]
-- 计划分析路径: [...]
+- Context Scope: [...]
+- Validated Sources: [...] (剔除了越界/不存在的文件)
+- Entry Points: [...]
+- Tool Strategy: [Primary: search_definitions, Fallback: regex]
 \`\`\`
 
 ### 步骤3：选择模板
@@ -106,11 +97,19 @@ relatedSources: {相关源文件列表}
 
 ### 步骤5：执行文档生成
 按照模板中的指令执行：
-1. **优先使用高级工具**：根据规划，优先使用 \`search_definitions\` 和 \`search_references\` 获取精准信息。
-2. **按需读取文件**：仅在高级工具无法满足需求（如需要阅读具体算法实现、注释细节）时，使用 \`read_file\`。
-3. 分析代码结构和逻辑，提取关键信息。
-4. 按照模板格式生成文档。
-5. **实时验证**：每写下一个结论或代码引用，立即检查是否已通过工具获取过该信息。
+
+1. **严格路径验证 (SPV - Pre-Generation)**：
+   - 在正式生成文档内容前，先输出一个 JSON 列表：\`{"plannedFiles": ["src/api/user.ts", ...]}\`
+   - 再次调用 \`list_files\` 验证这些文件是否存在。
+   - **Action**：剔除不存在的文件，确保文档中引用的每一个路径都是 100% 真实的。
+
+2. **基于证据的分析 (EBR)**：
+   - 执行分析时，必须先找到代码证据（行号/逻辑片段），再下结论。
+   - 遇到工具失败时，执行 **Graceful Degradation** 流程（正则搜索 -> 读取文件）。
+
+3. **生成文档**：
+   - 按照模板格式生成文档。
+   - 确保所有结论都有 \`> 💡 来源: [...]\` 支撑。
 
 ### 步骤6：输出文档
 将生成的文档输出到：
@@ -125,15 +124,13 @@ ${CODE_REFERENCE_RULES}
 在输出文档前，执行三轮自检：
 
 ### A. 技术一致性
-1. [ ] 文档头部包含 <details> 并列出实际引用文件
-2. [ ] 每个结论均标注来源路径
-3. [ ] 代码示例标注原始文件位置
-4. [ ] 图表节点均对应真实目录/文件
+1. [ ] **SPV 通过**：所有引用路径均已通过 Pre-Generation 验证？
+2. [ ] **EBR 执行**：关键结论是否都有代码证据支撑？
+3. [ ] **上下文合规**：是否未引用 \`contextScope\` 之外的文件？
 
 ### B. 规划对齐
-1. [ ] 最终章节与行动前规划一致（或明确记录调整理由）
-2. [ ] 长度与图表数量符合预算范围
-3. [ ] 所有 planned evidence 均已在文中引用或说明缺失原因
+1. [ ] 最终章节与行动前规划一致
+2. [ ] 所有 planned evidence 均已在文中引用
 
 ### C. 完整性
 1. [ ] 文档格式符合模板（标题层级、表格等）
@@ -173,6 +170,11 @@ relatedSources:
   - package.json
   - src/index.ts
   - config/
+contextScope:
+  - src/
+  - config/
+globalContext:
+  entryPoints: ["src/index.ts"]
 \`\`\`
 
 执行后输出：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}01_项目概览.md\`

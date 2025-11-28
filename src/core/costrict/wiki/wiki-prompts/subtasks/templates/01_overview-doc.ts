@@ -17,21 +17,23 @@ ${ANTI_HALLUCINATION_RULES}
   - docName: "项目概览"
   - docFilename: "01_项目概览.md"
   - relatedSources: 相关源文件列表
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
 
-### 步骤1：读取关键文件
-必须读取的文件（按优先级）：
-1. README.md - 项目说明
-2. package.json / requirements.txt / Cargo.toml / go.mod - 依赖配置
-3. 主入口文件（main.ts/index.js/app.py等）
-4. 配置文件（config/、.env.example等）
+### 步骤1：提取技术栈证据 (EBR)
+1. **依赖分析**：
+   - 读取 \`package.json\`, \`go.mod\`, \`requirements.txt\` 等文件。
+   - **证据要求**：必须提取核心依赖（框架、DB驱动）的版本号定义行。
+2. **入口分析**：
+   - 读取 \`globalContext.entryPoints\` 指定的文件。
+   - **证据要求**：提取应用启动代码（如 \`app.listen\`, \`http.ListenAndServe\`）。
 
 ### 步骤2：提取核心信息
-1. **配置分析**：从 package.json / go.mod 等文件中提取精确的技术栈版本。
-2. **入口分析**：使用 \`list_code_definition_names\` 扫描主入口文件（如 main.ts, app.py），快速识别核心启动逻辑和顶层模块。
-3. **功能提取**：结合 README 和入口分析结果，总结核心功能列表。
+1. **功能提取**：结合 README 和入口代码，总结核心功能。
+2. **配置分析**：读取 \`.env.example\` 或 \`config/\`，提取关键配置项。
 
 ### 步骤3：生成文档
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}01_项目概览.md\`
@@ -58,12 +60,26 @@ ${ANTI_HALLUCINATION_RULES}
 
 ## 技术栈
 
+**依赖版本证据 (Dependency Evidence)**
+
+\`\`\`json
+// 摘自: package.json
+{
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  }
+}
+\`\`\`
+
 | 类别 | 技术 | 版本 | 用途 | 来源文件 |
 |-----|-----|-----|-----|----------|
-| 语言 | TypeScript | 5.x | 主要开发语言 | package.json |
-| 框架 | Express | 4.x | Web服务框架 | package.json |
+| 语言 | TypeScript | ^5.2.2 | 主要开发语言 | package.json |
+| 框架 | Express | ^4.18.2 | Web服务框架 | package.json |
 | 数据库 | PostgreSQL | 14.x | 主数据存储 | docker-compose.yml |
-| 缓存 | Redis | 7.x | 会话和缓存 | docker-compose.yml |
 
 > 💡 来源: [package.json, docker-compose.yml]
 
@@ -150,9 +166,9 @@ ${CODE_REFERENCE_RULES}
 - 图表必须标注关联的代码目录
 
 ## 质量要求
-1. **真实性**：技术栈版本必须精确匹配配置文件（如 package.json 中的 dependencies）。
-2. **准确性**：项目结构树必须基于 \`list_files\` 的真实输出，禁止手动补全不存在的目录。
-3. **可执行性**：快速开始步骤必须经过逻辑验证。
-4. **配置完整性**：配置项必须从 .env.example 或 config 文件中提取，禁止臆造环境变量。
+1. **证据优先**：必须先展示依赖配置文件片段，再列出技术栈表格。
+2. **真实性**：技术栈版本必须精确匹配配置文件。
+3. **准确性**：项目结构树必须基于 \`list_files\` 的真实输出。
+4. **配置完整性**：配置项必须从真实文件提取。
 `;
 

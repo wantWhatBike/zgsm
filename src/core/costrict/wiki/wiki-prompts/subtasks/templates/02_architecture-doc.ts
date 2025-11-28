@@ -8,9 +8,9 @@ export const ARCHITECTURE_DOC_TEMPLATE = (workspace: string) => `# 代码架构�
 ## 核心原则
 ${ADVANCED_TOOL_STRATEGY}
 ${ANTI_HALLUCINATION_RULES}
-- **基于事实绘图**：Mermaid 图中的每个节点必须对应真实存在的目录或文件，严禁套用“标准分层图”模板。
-- **物理映射**：架构图中的每个组件必须标注其对应的物理路径（如 \`[User Service] (src/service/user)\`）。
-- **文档优先服务AI**（生成代码时知道代码该放哪、该依赖什么）。
+- **基于事实绘图**：Mermaid 图中的每个节点必须对应真实存在的目录或文件。
+- **依赖实证 (Evidence-Based Dependency)**：架构图中的每一条连线（A -> B）必须有代码级的引用证据（import/call）。
+- **物理映射**：架构图中的每个组件必须标注其对应的物理路径。
 
 ## 输入参数
 - **文档信息**：
@@ -18,6 +18,8 @@ ${ANTI_HALLUCINATION_RULES}
   - docName: "代码架构"
   - docFilename: "02_代码架构.md"
   - relatedSources: 相关源目录列表
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
@@ -26,15 +28,17 @@ ${ANTI_HALLUCINATION_RULES}
 1. 使用 \`list_files\` 工具获取完整目录结构，重点关注 src/, lib/, config/ 等核心目录。
 2. 使用 \`list_code_definition_names\` 扫描核心模块入口文件（如 index.ts, mod.rs, main.go），快速识别模块导出的核心类/接口，构建模块地图。
 
-### 步骤2：分析模块依赖
-1. 挑选核心模块的入口文件或核心类。
-2. 使用 \`search_references\` 或读取 import 语句，分析模块间的依赖关系。
-3. 确定分层架构（如 API -> Service -> Repo）。
+### 步骤2：构建依赖证据矩阵 (EBR)
+1. **挑选核心节点**：基于 \`globalContext.entryPoints\` 和核心目录，确定架构图的关键节点。
+2. **收集依赖证据**：
+   - 对每个节点，使用 \`search_files\` (regex: \`import .* from .*\`) 或 \`read_file\` 提取导入语句。
+   - **记录证据**：\`Node A imports Node B (file: src/a.ts, line: 10)\`。
+   - 如果找不到引用证据，**严禁**在架构图中画线。
 
 ### 步骤3：生成文档
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}02_代码架构.md\`
 
-## 输出格式（至少包含：目录树 + 分层架构图 + 交互序列图 + 组件职责表。所有图表下方必须列出实际目录/文件来源。）
+## 输出格式
 
 \`\`\`markdown
 # 代码架构
@@ -51,8 +55,16 @@ ${ANTI_HALLUCINATION_RULES}
 </details>
 
 ## 架构概述
-[简述项目采用的架构模式（分层架构/DDD/微服务等），50字以内。必须引用 README 或入口文件。]
+[简述项目采用的架构模式（分层架构/DDD/微服务等）。必须引用 README 或入口文件。]
 > 💡 来源: [README.md, cmd/main.ts]
+
+## 依赖证据矩阵 (Dependency Evidence)
+**在绘制架构图前，先列出核心依赖证据：**
+
+| 调用方 | 被调用方 | 证据类型 | 来源文件 |
+|--------|----------|----------|----------|
+| API Layer | Service Layer | import | src/api/user.ts |
+| Service Layer | Repository | injection | src/service/user.ts |
 
 ## 目录结构
 
@@ -214,9 +226,9 @@ ${CODE_REFERENCE_RULES}
 - 每个图表下方必须写明 \`相关代码: ...\`
 
 ## 质量要求
-1. **真实性**：目录结构必须与 \`list_files\` 结果完全一致，禁止手动补全。
-2. **准确性**：Mermaid 图中的节点名称必须是真实的文件名或目录名。
-3. **依赖验证**：依赖关系必须基于 \`import\` 语句分析，禁止臆测。
+1. **真实性**：目录结构必须与 \`list_files\` 结果完全一致。
+2. **实证性**：架构图中的每一条连线，都必须能在“依赖证据矩阵”中找到对应的行。
+3. **准确性**：Mermaid 图中的节点名称必须是真实的文件名或目录名。
 4. **图表有效性**：如果某个层级（如 Repository 层）在项目中不存在，禁止在图中画出该层。
 5. 文档长度控制在 200-400 行。
 `;

@@ -19,25 +19,28 @@ ${ANTI_HALLUCINATION_RULES}
   - docName: "编码规范"
   - docFilename: "06_编码规范.md"
   - relatedSources: 配置和典型代码文件
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
 
 ### 步骤1：分析代码规范配置
-读取规范相关文件：
-- .eslintrc / .eslintrc.js / eslint.config.js
-- .prettierrc / prettier.config.js
-- tsconfig.json
-- .editorconfig
+读取规范相关文件（.eslintrc, tsconfig.json 等）。
 
-### 步骤2：分析代码实现
-1. **命名规范分析**：使用 \`list_code_definition_names\` 扫描核心目录，快速获取大量类名、函数名、变量名，分析命名风格（CamelCase/PascalCase）。
-2. **代码模式提取**：使用 \`search_files\` 扫描特定模式（如 \`TODO:\`, \`FIXME:\`, \`console.log\`），分析注释和调试习惯。
-3. **复用模式识别**：使用 \`list_files\` 扫描 \`utils/\`, \`common/\`, \`base/\` 等目录，识别公共组件。
-4. **细节提取**：从多个实际代码文件中提取代码组织方式、错误处理模式。
+### 步骤2：提取真实代码证据 (EBR)
+1. **命名规范分析**：基于 \`contextScope\`，使用 \`list_code_definition_names\` 扫描核心目录。
+2. **复用组件识别**：
+   - 扫描 \`utils/\`, \`common/\` 等目录。
+   - 使用 \`search_definitions\` 提取核心工具函数（如 \`httpClient\`, \`logger\`）的签名。
+   - **证据要求**：必须获取函数签名和注释，作为“强制复用”的证据。
+3. **代码模式提取**：
+   - 使用 \`read_file\` 读取典型的 Service/Controller 文件。
+   - **提取片段**：截取一段“完美符合规范”的代码（包含导入、类定义、方法、错误处理）作为正例。
 
 ### 步骤3：生成文件
 输出到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}06_编码规范.md\`
+- **强制**：所有示例代码必须标注 \`// 摘自: src/path/to/real/file.ts\`。
 
 ## 输出格式
 
@@ -139,19 +142,15 @@ module.exports = {
 
 ### 示例
 
+**真实代码证据 (Real Code Evidence)**
+
 \`\`\`typescript
-// 正确示例 - 摘自: src/service/userService.ts
-const MAX_LOGIN_ATTEMPTS = 5;
-
-interface IUserService {
-  findById(id: string): Promise<User>;
-}
-
-class UserServiceImpl implements IUserService {
-  private _userRepo: UserRepository;
-
-  async findById(id: string): Promise<User> {
-    const cacheKey = \`user:\${id}\`;
+// 摘自: src/service/userService.ts
+// (此处必须展示项目中真实存在的代码片段，包含变量命名、类结构等)
+export class UserService {
+  private readonly MAX_RETRIES = 3; // 常量命名证据
+  
+  async getUser(id: string): Promise<User> { // 方法命名证据
     // ...
   }
 }
@@ -380,8 +379,8 @@ ${CODE_REFERENCE_RULES}
 - 必须列出项目中应该复用的模块
 
 ## 质量要求
-1. 规范必须和ESLint/Prettier 配置一致
-2. 示例代码必须从实际文件中提取
-3. 必须覆盖命名、组织、错误处理、复用等方面
-4. 文档长度控制在300-500 行
+1. **真实性**：所有“正确示例”必须直接摘自项目中的真实文件，禁止手写伪代码。
+2. **复用强制**：必须列出项目中实际存在的工具函数及其签名。
+3. 规范必须和 ESLint/Prettier 配置一致。
+4. 文档长度控制在 300-500 行。
 `;

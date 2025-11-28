@@ -18,24 +18,26 @@ ${ANTI_HALLUCINATION_RULES}
   - docFilename: 输出文件名
   - description: 文档描述
   - relatedSources: 相关源文件/目录列表
+  - contextScope: 上下文范围
+  - globalContext: 全局上下文
 - **项目分析结果**：\`${WIKI_OUTPUT_FILE_PATHS.PROJECT_BASIC_ANALYZE_JSON}\`
 
 ## 执行流程
 
 ### 步骤1：代码概览与定义查找
-1. **大纲扫描**：使用 \`list_code_definition_names\` 扫描 relatedSources 中的核心目录，快速理解代码结构和类/函数列表。
-2. **定义查找**：对于核心概念（类、接口、关键函数），使用 \`search_definitions\` 获取其完整定义和注释。
+1. **大纲扫描**：基于 \`contextScope\`，使用 \`list_code_definition_names\` 扫描核心目录。
+2. **定义查找**：对于核心概念，使用 \`search_definitions\` 获取其完整定义。
 
-### 步骤2：深入分析与提取
-1. **细节阅读**：仅在需要理解具体实现逻辑（如算法细节、复杂流程）时，使用 \`read_file\` 读取文件内容。
-2. **信息提取**：
-   - 核心概念和定义
-   - 关键实现逻辑
-   - 使用方式和示例
-   - 注意事项和约束
+### 步骤2：提取核心证据 (EBR)
+1. **逻辑提取**：
+   - 针对文档主题，提取关键的实现逻辑代码块。
+   - **证据要求**：必须找到具体的代码行（如核心算法、配置定义）。
+2. **示例提取**：
+   - 必须从项目中找到真实的使用示例（如单元测试中的调用代码）。
 
 ### 步骤3：生成文档
 按以下结构输出文档到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR}\${docFilename}\`：
+- **强制**：在“核心内容”部分，先展示提取到的代码证据。
 
 \`\`\`markdown
 # {docName}
@@ -56,13 +58,17 @@ ${ANTI_HALLUCINATION_RULES}
 ## 核心内容
 
 ### [主题1]
-[详细说明]
-> 💡 来源: [代码文件路径]
+
+**核心代码证据 (Core Evidence)**
 
 \`\`\`typescript
 // 摘自: src/xxx/xxx.ts
+// (必须展示真实存在的代码片段)
 [实际代码示例]
 \`\`\`
+
+[详细说明]
+> 💡 来源: [代码文件路径]
 
 ### [主题2]
 [详细说明]
