@@ -135,6 +135,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		knowledgeGraphAutoRebuildIntervalMinutes,
 		knowledgeGraphIncludeTestFiles,
 		knowledgeGraphMaxVisualizationFiles,
+		knowledgeGraphContextWindowSize,
+		knowledgeGraphContextWindowThreshold,
+		knowledgeGraphLlmTimeoutMs,
+		knowledgeGraphLlmMaxRetries,
 		alwaysAllowReadOnly,
 		alwaysAllowReadOnlyOutsideWorkspace,
 		allowedCommands,
@@ -356,11 +360,23 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		vscode.postMessage({ type: "enableCheckpoints", bool: enableCheckpoints })
 		vscode.postMessage({ type: "useZgsmCustomConfig", bool: useZgsmCustomConfig })
 		vscode.postMessage({ type: "zgsmCodebaseIndexEnabled", bool: zgsmCodebaseIndexEnabled })
-		vscode.postMessage({ type: "knowledgeGraphEnabled", bool: knowledgeGraphEnabled })
-		vscode.postMessage({ type: "knowledgeGraphAutoRebuildEnabled", bool: knowledgeGraphAutoRebuildEnabled })
-		vscode.postMessage({ type: "knowledgeGraphAutoRebuildIntervalMinutes", value: knowledgeGraphAutoRebuildIntervalMinutes })
-		vscode.postMessage({ type: "knowledgeGraphIncludeTestFiles", bool: knowledgeGraphIncludeTestFiles })
-		vscode.postMessage({ type: "knowledgeGraphMaxVisualizationFiles", value: knowledgeGraphMaxVisualizationFiles })
+		
+		// 知识图谱配置：统一发送所有配置项，减少消息数量和代码侵入性
+		vscode.postMessage({ 
+			type: "updateKnowledgeGraphConfig", 
+			config: {
+				enabled: knowledgeGraphEnabled,
+				autoRebuildEnabled: knowledgeGraphAutoRebuildEnabled,
+				autoRebuildIntervalMinutes: knowledgeGraphAutoRebuildIntervalMinutes,
+				includeTestFiles: knowledgeGraphIncludeTestFiles,
+				maxVisualizationFiles: knowledgeGraphMaxVisualizationFiles,
+				contextWindowSize: knowledgeGraphContextWindowSize,
+				contextWindowThreshold: knowledgeGraphContextWindowThreshold,
+				llmTimeoutMs: knowledgeGraphLlmTimeoutMs,
+				llmMaxRetries: knowledgeGraphLlmMaxRetries,
+			}
+		})
+		
 		vscode.postMessage({ type: "checkpointTimeout", value: checkpointTimeout })
 			vscode.postMessage({ type: "browserViewportSize", text: browserViewportSize })
 			vscode.postMessage({ type: "remoteBrowserHost", text: remoteBrowserHost })

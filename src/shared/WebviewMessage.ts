@@ -28,6 +28,22 @@ export interface KnowledgeGraphStatusInfo {
 	stageProgress: number
 }
 
+/**
+ * 知识图谱配置更新接口
+ * 统一管理所有知识图谱配置项，减少消息数量和代码侵入性
+ */
+export interface KnowledgeGraphConfigUpdate {
+	enabled?: boolean
+	autoRebuildEnabled?: boolean
+	autoRebuildIntervalMinutes?: number
+	includeTestFiles?: boolean
+	maxVisualizationFiles?: number
+	contextWindowSize?: number
+	contextWindowThreshold?: number
+	llmTimeoutMs?: number
+	llmMaxRetries?: number
+}
+
 
 export type ClineAskResponse = "yesButtonClicked" | "noButtonClicked" | "messageResponse" | "objectResponse"
 
@@ -243,6 +259,7 @@ export interface WebviewMessage {
 		| "fetchZgsmInviteCode"
 		| "fixCodebase"
 		// knowledge graph
+		| "updateKnowledgeGraphConfig" // 统一配置更新消息
 		| "knowledgeGraphEnabled"
 		| "knowledgeGraphAutoRebuildEnabled"
 		| "knowledgeGraphAutoRebuildIntervalMinutes"
@@ -328,7 +345,7 @@ export interface WebviewMessage {
 	url?: string // For openExternal
 	mpItem?: MarketplaceItem
 	mpInstallOptions?: InstallMarketplaceItemOptions
-	config?: Record<string, any> // Add config to the payload
+	config?: Record<string, any> | KnowledgeGraphConfigUpdate // Add config to the payload
 	visibility?: ShareVisibility // For share visibility
 	hasContent?: boolean // For checkRulesDirectoryResult
 	checkOnly?: boolean // For deleteCustomMode check

@@ -217,11 +217,12 @@ export class KnowledgeGraphManager {
 		if (!provider) return
 
 		const state = await provider.getState()
-		if (!state.knowledgeGraphConfig) {
+		if (!state) {
 			return
 		}
 
-		const userConfig = state.knowledgeGraphConfig
+		// 配置字段直接在 state 上，不在 knowledgeGraphConfig 中
+		const userConfig = state
 
 		// 类型安全的配置映射
 		type UserConfigKey = keyof typeof userConfig
@@ -710,6 +711,20 @@ export class KnowledgeGraphManager {
 		}
 		
 		return this.stateTracer?.getCurrentState()
+	}
+
+	/**
+	 * 应用配置变更（用于配置热更新）
+	 * 直接应用配置，无需重新读取，避免异步时序问题
+	 */
+	public applyConfigChanges(changes: Partial<KnowledgeGraphConfig>): void {
+		if (!this.isInitialized || !this.isEnabled) {
+			return
+		}
+
+		this.config = { ...this.config, ...changes }
+		this.scheduleAutoRebuild()
+		this.logger?.info("[KnowledgeGraphManager] ✓ 配置已应用")
 	}
 
 	/**

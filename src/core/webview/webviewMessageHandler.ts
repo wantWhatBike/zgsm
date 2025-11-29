@@ -74,6 +74,7 @@ import { writeCostrictAccessToken } from "../costrict/codebase-index/utils"
 import { workspaceEventMonitor } from "../costrict/codebase-index/workspace-event-monitor"
 import { fetchZgsmQuotaInfo, fetchZgsmInviteCode } from "../../api/providers/fetchers/zgsm"
 import { getKnowledgeGraphMessageHandler, isKnowledgeGraphMessageHandlerInitialized } from "../knowledge-graph/knowledgeGraphMessageHandler"
+import { KnowledgeGraphManager } from "../knowledge-graph/KnowledgeGraphManager"
 import { KNOWLEDGE_GRAPH_MESSAGES } from "@roo-code/types"
 
 /**
@@ -3441,6 +3442,100 @@ export const webviewMessageHandler = async (
 			}
 			break
 		}
+		case "updateKnowledgeGraphConfig": {
+			// 统一处理知识图谱配置更新，减少代码侵入性
+			const config = message.config as import("../../shared/WebviewMessage").KnowledgeGraphConfigUpdate | undefined
+			
+			if (config) {
+				// 1. 保存到 GlobalState（持久化）
+				if (config.enabled !== undefined) {
+					await updateGlobalState("knowledgeGraphEnabled", config.enabled)
+				}
+				if (config.autoRebuildEnabled !== undefined) {
+					await updateGlobalState("knowledgeGraphAutoRebuildEnabled" as any, config.autoRebuildEnabled)
+				}
+				if (config.autoRebuildIntervalMinutes !== undefined) {
+					await updateGlobalState(
+						"knowledgeGraphAutoRebuildIntervalMinutes" as any,
+						Math.max(1, config.autoRebuildIntervalMinutes)
+					)
+				}
+				if (config.includeTestFiles !== undefined) {
+					await updateGlobalState("knowledgeGraphIncludeTestFiles" as any, config.includeTestFiles)
+				}
+				if (config.maxVisualizationFiles !== undefined) {
+					await updateGlobalState(
+						"knowledgeGraphMaxVisualizationFiles" as any,
+						Math.max(10, Math.min(500, config.maxVisualizationFiles))
+					)
+				}
+				if (config.contextWindowSize !== undefined) {
+					await updateGlobalState(
+						"knowledgeGraphContextWindowSize" as any,
+						Math.max(1000, config.contextWindowSize)
+					)
+				}
+				if (config.contextWindowThreshold !== undefined) {
+					await updateGlobalState(
+						"knowledgeGraphContextWindowThreshold" as any,
+						Math.max(10, Math.min(100, config.contextWindowThreshold))
+					)
+				}
+				if (config.llmTimeoutMs !== undefined) {
+					await updateGlobalState(
+						"knowledgeGraphLlmTimeoutMs" as any,
+						Math.max(60000, config.llmTimeoutMs)
+					)
+				}
+				if (config.llmMaxRetries !== undefined) {
+					await updateGlobalState(
+						"knowledgeGraphLlmMaxRetries" as any,
+						Math.max(1, Math.min(10, config.llmMaxRetries))
+					)
+				}
+				
+				// 2. 如果知识图谱已启用，直接应用配置（无需重新读取）
+				const isEnabled = await getGlobalState("knowledgeGraphEnabled")
+				if (isEnabled) {
+					const manager = KnowledgeGraphManager.getInstance()
+					
+					// 构建内部配置对象（映射字段名）
+					const internalConfig: Partial<import("../knowledge-graph/types").KnowledgeGraphConfig> = {}
+					if (config.autoRebuildEnabled !== undefined) {
+						internalConfig.autoRebuildEnabled = config.autoRebuildEnabled
+					}
+					if (config.autoRebuildIntervalMinutes !== undefined) {
+						internalConfig.autoRebuildIntervalMinutes = Math.max(1, config.autoRebuildIntervalMinutes)
+					}
+					if (config.includeTestFiles !== undefined) {
+						internalConfig.includeTestFiles = config.includeTestFiles
+					}
+					if (config.maxVisualizationFiles !== undefined) {
+						internalConfig.maxVisualizationFiles = Math.max(10, Math.min(500, config.maxVisualizationFiles))
+					}
+					if (config.contextWindowSize !== undefined) {
+						internalConfig.contextWindowSize = Math.max(1000, config.contextWindowSize)
+					}
+					if (config.contextWindowThreshold !== undefined) {
+						internalConfig.contextWindowThreshold = Math.max(10, Math.min(100, config.contextWindowThreshold))
+					}
+					if (config.llmTimeoutMs !== undefined) {
+						internalConfig.llmTimeoutMs = Math.max(60000, config.llmTimeoutMs)
+					}
+					if (config.llmMaxRetries !== undefined) {
+						internalConfig.llmMaxRetries = Math.max(1, Math.min(10, config.llmMaxRetries))
+					}
+					
+					// 直接应用配置，无需重新读取
+					manager.applyConfigChanges(internalConfig)
+				}
+			}
+			
+			await provider.postStateToWebview()
+			break
+		}
+		// ⚠️ Deprecated: 以下独立配置消息已废弃，请使用 updateKnowledgeGraphConfig
+		// 保留这些处理器仅用于向后兼容
 		case "knowledgeGraphEnabled": {
 			await updateGlobalState("knowledgeGraphEnabled", message.bool ?? false)
 			await provider.postStateToWebview()
