@@ -1,7 +1,8 @@
 {
 	"title": "知識圖譜",
-	"description": "使用LLM分析生成結構化項目摘要和依賴關係圖",
+	"description": "使用LLM分析項目形成知識圖譜",
 	"enable": "啟用知識圖譜",
+	"confirmEnable": "知識圖譜功能需要調用大模型（auto）進行項目分析，確認開啟嗎？",
 	"status": "狀態",
 	"progress": "進度",
 	"fileCount": "檔案數",

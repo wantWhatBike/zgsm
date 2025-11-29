@@ -1,7 +1,8 @@
 {
 	"title": "知识图谱",
-	"description": "使用LLM分析生成结构化项目摘要和依赖关系图",
+	"description": "使用LLM分析项目形成知识图谱",
 	"enable": "启用知识图谱",
+	"confirmEnable": "知识图谱功能需要调用大模型（auto）进行项目分析，确认开启吗？",
 	"status": "状态",
 	"progress": "进度",
 	"fileCount": "文件数",

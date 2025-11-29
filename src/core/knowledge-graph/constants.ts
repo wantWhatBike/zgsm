@@ -44,6 +44,17 @@ export const FILE_PROCESSING_CONFIG = {
   BREAKPOINT_RESUME: true,
 } as const
 
+// 关键文件检测配置常量
+export const KEY_FILE_DETECTION_CONFIG = {
+  // 关键文件 hash 计算超时时间（毫秒）
+  // 配置文件通常很小，1 秒足够；超时则跳过以避免阻塞构建启动
+  HASH_TIMEOUT_MS: 1000,
+  // 关键文件最大大小（字节）
+  // 配置文件通常 < 1MB，超过 10MB 可能是误放的二进制文件
+  // 注意：实际使用时优先使用 config.fileSizeLimit（如果配置了更小的值）
+  MAX_KEY_FILE_SIZE: 10 * 1024 * 1024,  // 10MB
+} as const
+
 // 注意：知识图谱使用混合存储模式
 // - 文件摘要、目录摘要：SQLite（支持增量更新和全文搜索）
 // - 根信息、构建状态、文件列表：JSON 文件（轻量级配置数据）

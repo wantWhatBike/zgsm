@@ -404,11 +404,11 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		vscode.postMessage({ type: "useZgsmCustomConfig", bool: useZgsmCustomConfig })
 		vscode.postMessage({ type: "zgsmCodebaseIndexEnabled", bool: zgsmCodebaseIndexEnabled })
 		
-		// 知识图谱配置：统一发送所有配置项（独立管理）
+		// ✅ 方案 C：知识图谱启用状态已立即生效，保存时只发送配置更新
+		// 注意：启用/禁用通过 setKnowledgeGraphEnabled 消息独立触发（不在保存时）
 		vscode.postMessage({ 
 			type: "updateKnowledgeGraphConfig", 
 			config: {
-				enabled: knowledgeGraphEnabled,
 				autoRebuildEnabled: kgSettings.autoRebuildEnabled,
 				autoRebuildIntervalMinutes: kgSettings.autoRebuildIntervalMinutes,
 				includeTestFiles: kgSettings.includeTestFiles,
@@ -846,19 +846,18 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					)}
 					{/* Knowledge Graph Section - Moved to bottom */}
 					{activeTab === "contextManagement" && (
-						<KnowledgeGraphSettings
-							knowledgeGraphEnabled={knowledgeGraphEnabled}
-							knowledgeGraphAutoRebuildEnabled={kgSettings.autoRebuildEnabled}
-							knowledgeGraphAutoRebuildIntervalMinutes={kgSettings.autoRebuildIntervalMinutes}
-							knowledgeGraphIncludeTestFiles={kgSettings.includeTestFiles}
-							knowledgeGraphMaxVisualizationFiles={kgSettings.maxVisualizationFiles}
-							knowledgeGraphContextWindowSize={kgSettings.contextWindowSize}
-							knowledgeGraphContextWindowThreshold={kgSettings.contextWindowThreshold}
-							knowledgeGraphLlmTimeoutMs={kgSettings.llmTimeoutMs}
-							knowledgeGraphLlmMaxRetries={kgSettings.llmMaxRetries}
-							setCachedStateField={setCachedStateField}
-							setKgSettings={setKgSettingsWithChangeDetection}
-						/>
+					<KnowledgeGraphSettings
+						knowledgeGraphEnabled={knowledgeGraphEnabled}
+						knowledgeGraphAutoRebuildEnabled={kgSettings.autoRebuildEnabled}
+						knowledgeGraphAutoRebuildIntervalMinutes={kgSettings.autoRebuildIntervalMinutes}
+						knowledgeGraphIncludeTestFiles={kgSettings.includeTestFiles}
+						knowledgeGraphMaxVisualizationFiles={kgSettings.maxVisualizationFiles}
+						knowledgeGraphContextWindowSize={kgSettings.contextWindowSize}
+						knowledgeGraphContextWindowThreshold={kgSettings.contextWindowThreshold}
+						knowledgeGraphLlmTimeoutMs={kgSettings.llmTimeoutMs}
+						knowledgeGraphLlmMaxRetries={kgSettings.llmMaxRetries}
+						setKgSettings={setKgSettingsWithChangeDetection}
+					/>
 					)}
 
 					{/* Terminal Section */}

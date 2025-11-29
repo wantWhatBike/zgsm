@@ -3466,82 +3466,52 @@ export const webviewMessageHandler = async (
 			break
 		}
 		
+		// ✅ 设置知识图谱启用/禁用状态（独立消息）
+	case "setKnowledgeGraphEnabled": {
+		const enabled = message.enabled ?? false
+		
+		// 1. 更新 GlobalState（用于插件重启后恢复）
+		await updateGlobalState("knowledgeGraphEnabled", enabled)
+		
+		// 2. 委托给 Manager 执行启用/禁用
+		const manager = KnowledgeGraphManager.getInstance()
+		await manager.setKnowledgeGraphEnabled(enabled)
+		
+		// 注：不再调用 postStateToWebview，前端采用乐观更新，不依赖后端状态同步
+		break
+	}
+		
 		// ✅ 更新知识图谱配置（前端保存）
+		// 注意：不处理 enabled 状态，使用 setKnowledgeGraphEnabled 消息
 		case "updateKnowledgeGraphConfig": {
 			const config = message.config as import("../../shared/WebviewMessage").KnowledgeGraphConfigUpdate | undefined
 			
 			if (config) {
-				// 1. 处理总开关（仍需保存到 GlobalState 的顶层，供 activate 时检测）
-				if (config.enabled !== undefined) {
-					await updateGlobalState("knowledgeGraphEnabled", config.enabled)
-				}
-				
-				// 2. 其他配置交给 KnowledgeGraphManager 管理（单一数据源）
+				// ✅ 只在知识图谱已启用且已初始化时更新配置
 				const isEnabled = await getGlobalState("knowledgeGraphEnabled")
 				if (isEnabled) {
 					const manager = KnowledgeGraphManager.getInstance()
 					
-					// 构建内部配置对象（带校验）
-					const internalConfig: Partial<import("../knowledge-graph/types").KnowledgeGraphConfig> = {}
-					if (config.autoRebuildEnabled !== undefined) {
-						internalConfig.autoRebuildEnabled = config.autoRebuildEnabled
+					if (manager.isServiceEnabled()) {
+						// ✅ 直接传递配置，让 Manager 负责校验和应用
+						await manager.applyConfigChanges(config)
 					}
-					if (config.autoRebuildIntervalMinutes !== undefined) {
-						internalConfig.autoRebuildIntervalMinutes = Math.max(1, config.autoRebuildIntervalMinutes)
-					}
-					if (config.includeTestFiles !== undefined) {
-						internalConfig.includeTestFiles = config.includeTestFiles
-					}
-					if (config.maxVisualizationFiles !== undefined) {
-						internalConfig.maxVisualizationFiles = Math.max(10, Math.min(500, config.maxVisualizationFiles))
-					}
-					if (config.contextWindowSize !== undefined) {
-						internalConfig.contextWindowSize = Math.max(1000, config.contextWindowSize)
-					}
-					if (config.contextWindowThreshold !== undefined) {
-						internalConfig.contextWindowThreshold = Math.max(10, Math.min(100, config.contextWindowThreshold))
-					}
-					if (config.llmTimeoutMs !== undefined) {
-						internalConfig.llmTimeoutMs = Math.max(60000, config.llmTimeoutMs)
-					}
-					if (config.llmMaxRetries !== undefined) {
-						internalConfig.llmMaxRetries = Math.max(1, Math.min(10, config.llmMaxRetries))
-					}
-					
-					// ✅ KnowledgeGraphManager 自己负责持久化
-					await manager.applyConfigChanges(internalConfig)
 				}
 			}
 			
 			await provider.postStateToWebview()
 			break
 		}
-		// ⚠️ Deprecated: 以下独立配置消息已废弃，请使用 updateKnowledgeGraphConfig
-		// 保留这些处理器仅用于向后兼容
+		// ⚠️ Deprecated: knowledgeGraphEnabled 已废弃，请使用 setKnowledgeGraphEnabled
+		// 保留仅用于向后兼容（如果有旧版前端）
 		case "knowledgeGraphEnabled": {
-			await updateGlobalState("knowledgeGraphEnabled", message.bool ?? false)
-			await provider.postStateToWebview()
-			break
-		}
-		case "knowledgeGraphAutoRebuildEnabled": {
-			await updateGlobalState("knowledgeGraphAutoRebuildEnabled" as any, message.bool ?? false)
-			await provider.postStateToWebview()
-			break
-		}
-		case "knowledgeGraphAutoRebuildIntervalMinutes": {
-			const interval = message.value ?? 5
-			await updateGlobalState("knowledgeGraphAutoRebuildIntervalMinutes" as any, Math.max(1, interval))
-			await provider.postStateToWebview()
-			break
-		}
-		case "knowledgeGraphIncludeTestFiles": {
-			await updateGlobalState("knowledgeGraphIncludeTestFiles" as any, message.bool ?? false)
-			await provider.postStateToWebview()
-			break
-		}
-		case "knowledgeGraphMaxVisualizationFiles": {
-			const maxFiles = message.value ?? 200
-			await updateGlobalState("knowledgeGraphMaxVisualizationFiles" as any, Math.max(1, maxFiles))
+			const enabled = message.bool ?? false
+			await updateGlobalState("knowledgeGraphEnabled", enabled)
+			
+			// ✅ 同样需要调用 Manager 触发初始化/禁用
+			const manager = KnowledgeGraphManager.getInstance()
+			await manager.setKnowledgeGraphEnabled(enabled)
+			
 			await provider.postStateToWebview()
 			break
 		}

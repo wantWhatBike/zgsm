@@ -294,6 +294,9 @@ export class KnowledgeGraphManager {
 				directorySummarizer,
 				fileService,
 			}, progressTracer)
+			
+			// ✅ 4.1 注入启用状态检查函数
+			this.graphBuilder.setIsEnabledCheck(() => this.isEnabled)
 
 			// 5. 创建检索和导出器
 			this.graphRetriever = new GraphRetriever(
@@ -696,9 +699,39 @@ export class KnowledgeGraphManager {
 			return
 		}
 
-		// ✅ 修复：直接修改属性，保持对象引用不变
-		// 这样所有持有 this.config 引用的组件都能自动获取最新配置
-		Object.assign(this.config, changes)
+		// ✅ 校验并应用配置（保持对象引用不变）
+		const validatedConfig: Partial<KnowledgeGraphConfig> = {}
+		
+		// 布尔类型配置（直接应用）
+		if (changes.autoRebuildEnabled !== undefined) {
+			validatedConfig.autoRebuildEnabled = changes.autoRebuildEnabled
+		}
+		if (changes.includeTestFiles !== undefined) {
+			validatedConfig.includeTestFiles = changes.includeTestFiles
+		}
+		
+		// 数值类型配置（带校验）
+		if (changes.autoRebuildIntervalMinutes !== undefined) {
+			validatedConfig.autoRebuildIntervalMinutes = Math.max(1, changes.autoRebuildIntervalMinutes)
+		}
+		if (changes.maxVisualizationFiles !== undefined) {
+			validatedConfig.maxVisualizationFiles = Math.max(10, Math.min(500, changes.maxVisualizationFiles))
+		}
+		if (changes.contextWindowSize !== undefined) {
+			validatedConfig.contextWindowSize = Math.max(1000, changes.contextWindowSize)
+		}
+		if (changes.contextWindowThreshold !== undefined) {
+			validatedConfig.contextWindowThreshold = Math.max(10, Math.min(100, changes.contextWindowThreshold))
+		}
+		if (changes.llmTimeoutMs !== undefined) {
+			validatedConfig.llmTimeoutMs = Math.max(60000, changes.llmTimeoutMs)
+		}
+		if (changes.llmMaxRetries !== undefined) {
+			validatedConfig.llmMaxRetries = Math.max(1, Math.min(10, changes.llmMaxRetries))
+		}
+		
+		// 应用校验后的配置
+		Object.assign(this.config, validatedConfig)
 		
 		// ✅ 立即持久化配置
 		await this.saveConfig()
@@ -939,17 +972,17 @@ export class KnowledgeGraphManager {
 				// 如果未初始化，进行初始化；否则只更新启用状态
 				if (!this.isInitialized) {
 					await this.initialize(true)
-			} else {
-				// 已初始化，只需更新配置和启用状态
-				await this.loadUserConfig()
-				this.isEnabled = true
-				this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已启用（快速恢复）")
-			}
+				} else {
+					// 已初始化，只需更新配置和启用状态
+					await this.loadUserConfig()
+					this.isEnabled = true
+					this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已启用（快速恢复）")
+				}
 
-			// ✅ 如果启用了自动构建，启动定时器
-			if (this.config.autoRebuildEnabled) {
-				this.autoRebuildScheduler?.start(this.config.autoRebuildIntervalMinutes || 5)
-			}
+				// ✅ 如果启用了自动构建，启动定时器
+				if (this.config.autoRebuildEnabled) {
+					this.autoRebuildScheduler?.start(this.config.autoRebuildIntervalMinutes || 5)
+				}
 			} else {
 				// 禁用知识图谱
 				this.logger?.info("[KnowledgeGraphManager] 禁用知识图谱服务")

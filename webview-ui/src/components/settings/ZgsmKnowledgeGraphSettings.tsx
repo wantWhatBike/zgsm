@@ -10,7 +10,6 @@ import { SectionHeader } from "./SectionHeader"
 import { Section } from "./Section"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useAppTranslation } from "@/i18n/TranslationContext"
-import { SetCachedStateField } from "./types"
 import { useEvent } from "react-use"
 import {
 	KnowledgeGraphBuildState,
@@ -18,7 +17,6 @@ import {
 	API_PROVIDER,
 	KNOWLEDGE_GRAPH_STATUS,
 	KNOWLEDGE_GRAPH_PHASE,
-	KNOWLEDGE_GRAPH_FIELDS,
 	KNOWLEDGE_GRAPH_UI_CONFIG,
 } from "@roo-code/types"
 
@@ -137,7 +135,7 @@ interface KnowledgeGraphSettingsProps {
 	knowledgeGraphContextWindowThreshold?: number
 	knowledgeGraphLlmTimeoutMs?: number
 	knowledgeGraphLlmMaxRetries?: number
-	setCachedStateField?: SetCachedStateField<"knowledgeGraphEnabled"> // 只保留总开关
+	// ✅ 方案 C: 不再使用 setCachedStateField，直接发送消息
 	setKgSettings?: React.Dispatch<React.SetStateAction<{
 		autoRebuildEnabled: boolean
 		autoRebuildIntervalMinutes: number
@@ -160,7 +158,6 @@ export const KnowledgeGraphSettings = ({
 	knowledgeGraphContextWindowThreshold,
 	knowledgeGraphLlmTimeoutMs,
 	knowledgeGraphLlmMaxRetries,
-	setCachedStateField,
 	setKgSettings,
 }: KnowledgeGraphSettingsProps) => {
 	const { t } = useAppTranslation()
@@ -174,6 +171,9 @@ export const KnowledgeGraphSettings = ({
 
 	// 清空确认对话框状态
 	const [showClearConfirm, setShowClearConfirm] = useState(false)
+	
+	// ✅ 启用确认对话框状态
+	const [showEnableConfirm, setShowEnableConfirm] = useState(false)
 
 	// 高级设置折叠状态
 	const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
@@ -196,8 +196,8 @@ export const KnowledgeGraphSettings = ({
 
 	// Use useMemo to avoid unnecessary state updates
 	const shouldDisableAll = useMemo(
-		() => !isZgsmProvider || !cwd || !knowledgeGraphEnabled || showClearConfirm,
-		[isZgsmProvider, cwd, knowledgeGraphEnabled, showClearConfirm],
+		() => !isZgsmProvider || !cwd || !knowledgeGraphEnabled || showClearConfirm || showEnableConfirm,
+		[isZgsmProvider, cwd, knowledgeGraphEnabled, showClearConfirm, showEnableConfirm],
 	)
 
 	// 统一的消息发送函数
@@ -230,13 +230,16 @@ export const KnowledgeGraphSettings = ({
 			}
 		}
 
-		// 启动轮询
-		if (
+		// 启动轮询（如果状态是 RUNNING 或启用了自动构建）
+		const shouldStartPolling = 
 			knowledgeGraphEnabled &&
 			isZgsmProvider &&
 			cwd &&
 			(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING || knowledgeGraphAutoRebuildEnabled)
-		) {
+
+		if (shouldStartPolling) {
+			// 注：这里不延迟，因为只有在已经 RUNNING 或自动构建时才轮询
+			// 初始状态获取已经在上面的 useEffect 中延迟了
 			poll()
 		}
 
@@ -259,44 +262,65 @@ export const KnowledgeGraphSettings = ({
 		return () => clearTimeout(timeoutId)
 	}, [uiState.isOperating])
 
-	// 初始状态获取 - 仅在组件挂载和关键状态变化时执行
+	// 初始状态获取 - 延迟 2 秒给后台初始化时间
 	useEffect(() => {
-		// 仅在知识图谱启用且满足条件时获取初始状态
-		if (knowledgeGraphEnabled && isZgsmProvider && cwd) {
-			getStatusOnce()
+		if (!knowledgeGraphEnabled || !isZgsmProvider || !cwd) {
+			return
 		}
+		
+		// 延迟 2 秒后获取初始状态，避免后台未初始化完成
+		const timer = setTimeout(() => {
+			getStatusOnce()
+		}, 2000)
+		
+		return () => clearTimeout(timer)
 	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, getStatusOnce])
 
-	// 知识图谱开关处理 - 使用统一的状态管理机制
+	// ✅ 知识图谱开关状态（受控组件）
+	const [localChecked, setLocalChecked] = useState(knowledgeGraphEnabled)
+	
+	// 仅在挂载时从 props 初始化，之后由用户操作驱动
+	useEffect(() => {
+		setLocalChecked(knowledgeGraphEnabled)
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [])
+	
+	// ✅ 统一的状态设置函数（DRY 原则）
+	const updateKnowledgeGraphEnabled = useCallback((enabled: boolean) => {
+		setLocalChecked(enabled)
+		vscode.postMessage({ 
+			type: "setKnowledgeGraphEnabled", 
+			enabled 
+		})
+	}, [])
+	
+	// ✅ 知识图谱开关处理 - 点击立即生效
 	const handleKnowledgeGraphToggle = useCallback(
 		(e: any) => {
-			// e.preventDefault may not exist in tests
-			if (e && e.preventDefault) {
-				e.preventDefault()
-			}
-			if (e && e.stopPropagation) {
-				e.stopPropagation()
-			}
+			e?.preventDefault?.()
+			e?.stopPropagation?.()
 
-			if (!setCachedStateField) {
+			const newState = !localChecked
+
+			// 启用操作：先弹出确认对话框
+			if (!localChecked && newState) {
+				setShowEnableConfirm(true)
 				return
 			}
 
-			// 获取新的状态 - VSCode复选框使用_checked属性
-			// 注意：VSCodeCheckbox 的 onChange 事件参数可能不同，这里做兼容处理
-			const target = e.target as any
-			const newChecked =
-				target.checked !== undefined
-					? target.checked
-					: target._checked !== undefined
-						? target._checked
-						: !knowledgeGraphEnabled
-
-			// 更新缓存状态，等待用户点击 Save 按钮
-			setCachedStateField(KNOWLEDGE_GRAPH_FIELDS.ENABLED, newChecked)
+			// 禁用操作：立即生效
+			if (localChecked && !newState) {
+				updateKnowledgeGraphEnabled(false)
+			}
 		},
-		[knowledgeGraphEnabled, setCachedStateField],
+		[localChecked, updateKnowledgeGraphEnabled],
 	)
+	
+	// ✅ 确认启用后的操作
+	const handleConfirmEnable = useCallback(() => {
+		updateKnowledgeGraphEnabled(true)
+		setShowEnableConfirm(false)
+	}, [updateKnowledgeGraphEnabled])
 
 	// 防抖的操作函数 - 统一状态检查和防重复点击
 	const handleStartBuild = useDebounce(() => {
@@ -542,12 +566,12 @@ export const KnowledgeGraphSettings = ({
 		(event: MessageEvent) => {
 			const message = event.data
 
-			if (message.type === KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE && message.payload?.status) {
-				const statusInfo = message.payload.status as KnowledgeGraphBuildState
-
-				// 更新状态 - 使用状态机
-				dispatch({ type: UI_ACTIONS.UPDATE_STATUS, payload: statusInfo })
-			}
+		// 只处理构建状态更新（轮询获取）
+		if (message.type === KNOWLEDGE_GRAPH_MESSAGES.STATUS_RESPONSE && message.payload?.status) {
+			const statusInfo = message.payload.status as KnowledgeGraphBuildState
+			dispatch({ type: UI_ACTIONS.UPDATE_STATUS, payload: statusInfo })
+		}
+		// 注：启用开关状态不监听后端消息，由前端乐观更新驱动
 		},
 		[],
 	)
@@ -563,8 +587,8 @@ export const KnowledgeGraphSettings = ({
 							<TooltipTrigger asChild>
 								<div className="flex items-center gap-2">
 									<VSCodeCheckbox
-										checked={knowledgeGraphEnabled}
-										onChange={handleKnowledgeGraphToggle}
+										checked={localChecked}
+										onClick={handleKnowledgeGraphToggle}
 										disabled={shouldDisableCheckbox}
 									/>
 									<div>{t("knowledgegraph:title")}</div>
@@ -959,6 +983,21 @@ export const KnowledgeGraphSettings = ({
 							<AlertDialogAction
 								onClick={handleConfirmClear}
 								className="bg-red-600 hover:bg-red-700 text-white">
+								{t("knowledgegraph:confirm")}
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+
+				{/* ✅ 启用确认对话框 */}
+				<AlertDialog open={showEnableConfirm} onOpenChange={setShowEnableConfirm}>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>{t("knowledgegraph:confirmEnable")}</AlertDialogTitle>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>{t("knowledgegraph:cancel")}</AlertDialogCancel>
+							<AlertDialogAction onClick={handleConfirmEnable}>
 								{t("knowledgegraph:confirm")}
 							</AlertDialogAction>
 						</AlertDialogFooter>

@@ -1,7 +1,8 @@
 {
 	"title": "Knowledge Graph",
-	"description": "Generate structured project summaries and dependency graphs using LLM analysis",
+	"description": "Analyze projects using LLM to form knowledge graphs",
 	"enable": "Enable Knowledge Graph",
+	"confirmEnable": "Knowledge Graph feature requires calling the LLM (auto) to analyze the project. Confirm to enable?",
 	"status": "Status",
 	"progress": "Progress",
 	"fileCount": "File Count",

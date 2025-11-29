@@ -6,12 +6,13 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { LLMClient } from "../llm/LLMClient"
 import { ROOT_ANALYSIS_PROMPT, buildPrompt, formatFileContents, formatFileList } from "../llm/PromptTemplates"
-import { RootInfo, KnowledgeGraphConfig, FileInfo } from "../types"
-import { KEY_FILE_PATTERNS, LLM_LANGUAGE, IGNORE_PATTERNS } from "../constants"
+import { RootInfo, KnowledgeGraphConfig, FileInfo, KeyFileSnapshot } from "../types"
+import { KEY_FILE_PATTERNS, LLM_LANGUAGE, IGNORE_PATTERNS, KEY_FILE_DETECTION_CONFIG } from "../constants"
 import { ErrorHandler } from "../errors/ErrorHandler"
 import { IStorage } from "../storage/IStorage"
 import { ILogger } from "../../../utils/logger"
 import { StorageUtils } from "../storage/StorageUtils"
+import { getFileHash } from "../tools/FileUtils"
 
 const ROOT_INFO_FILE = "root_info.json"
 const MAX_DEPTH = 4 // 增加扫描深度，支持 Monorepo 结构
@@ -44,12 +45,15 @@ export class RootAnalyzer {
 		try {
 			this.logger.info("[RootAnalyzer] 开始根目录分析")
 
-			// 1. 收集关键文件
+			// ✅ 1. 收集关键文件路径（只收集一次）
 			const keyFiles = await this.collectKeyFiles(workspacePath)
 			this.logger.info(`[RootAnalyzer] 收集关键文件: ${keyFiles.length}个`)
 
-			// 2. 读取文件内容
+			// ✅ 2. 读取文件内容
 			const fileContents = await this.readKeyFiles(keyFiles)
+			
+			// ✅ 3. 生成关键文件快照（复用 keyFiles，只计算 hash）
+			const snapshot = await this.generateKeyFilesSnapshot(keyFiles)
 
 			// 3. 获取项目文件列表
 			const fileList = files.map((f) => f.path)
@@ -81,11 +85,18 @@ export class RootAnalyzer {
 				throw ErrorHandler.createInvalidResponseError(`根目录分析失败: ${response.error || "未知错误"}`)
 			}
 
-			// 6. 验证和清理数据
-			const rootInfo = this.validateAndCleanRootInfo(response.data)
-			await this.storage.overwrite(ROOT_INFO_FILE, rootInfo)
-			this.logger.info("[RootAnalyzer] 根目录分析完成")
-			return rootInfo
+		// 6. 验证和清理数据
+		const rootInfo = this.validateAndCleanRootInfo(response.data)
+		
+		// ✅ 7. 保存关键文件快照（已在 readKeyFilesWithSnapshot 中生成）
+		rootInfo.keyFilesSnapshot = snapshot
+		rootInfo.lastAnalyzedTime = new Date().toISOString()
+		
+		this.logger.info(`[RootAnalyzer] 关键文件快照已生成: ${Object.keys(snapshot).length} 个文件`)
+		
+		await this.storage.overwrite(ROOT_INFO_FILE, rootInfo)
+		this.logger.info("[RootAnalyzer] 根目录分析完成")
+		return rootInfo
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "根目录分析")
 		}
@@ -105,9 +116,16 @@ export class RootAnalyzer {
 
 	/**
 	 * 按优先级收集关键文件（文档 > 依赖配置 > 项目配置 > 构建部署）
-	 * @returns 关键文件绝对路径数组（数量 ≤ maxKeyFiles）
+	 * ✅ 在收集时就过滤：大小、数量限制
+	 * 
+	 * @returns 关键文件绝对路径数组（数量 ≤ maxKeyFiles，大小 ≤ fileSizeLimit）
 	 */
 	private async collectKeyFiles(workspace: string): Promise<string[]> {
+		// ✅ 文件大小限制（用于过滤）
+		const MAX_KEY_FILE_SIZE = Math.min(
+			this.config.fileSizeLimit,
+			KEY_FILE_DETECTION_CONFIG.MAX_KEY_FILE_SIZE
+		)
 
 		// 2. 大小写不敏感的模式匹配函数
 		const isMatch = (filename: string, patterns: string[]): boolean => {
@@ -151,7 +169,19 @@ export class RootAnalyzer {
 
 					if (entry.isFile()) {
 						if (isMatch(entry.name, patterns)) {
-							found.push(fullPath)
+							// ✅ 在收集时就检查文件大小
+							try {
+								const stats = await fs.stat(fullPath)
+								if (stats.size <= MAX_KEY_FILE_SIZE) {
+									found.push(fullPath)
+								} else {
+									this.logger.warn(
+										`[RootAnalyzer] 关键文件 ${entry.name} 过大 (${(stats.size / 1024 / 1024).toFixed(2)}MB)，跳过收集`
+									)
+								}
+							} catch (error) {
+								this.logger.warn(`[RootAnalyzer] 无法检查文件 ${fullPath}，已跳过`)
+							}
 						}
 					} else if (entry.isDirectory()) {
 						const subFound = await findFilesByPatterns(fullPath, patterns, depth + 1)
@@ -281,6 +311,128 @@ export class RootAnalyzer {
 			this.logger.warn("[RootAnalyzer] 获取项目根信息失败:", error)
 			throw new Error(`get root info failed： ${error}`)
 		}
+	}
+
+	/**
+	 * 生成关键文件快照（基于已收集的文件列表）
+	 * ✅ 单一职责：只负责计算 hash，不负责查找和过滤
+	 * ✅ DRY 原则：复用 collectKeyFiles() 的结果（已过滤）
+	 * 
+	 * @param keyFilePaths 已收集且已过滤的关键文件路径列表
+	 * @returns 文件路径 → KeyFileSnapshot 的映射
+	 */
+	private async generateKeyFilesSnapshot(keyFilePaths: string[]): Promise<Record<string, KeyFileSnapshot>> {
+		const snapshot: Record<string, KeyFileSnapshot> = {}
+		const HASH_TIMEOUT = KEY_FILE_DETECTION_CONFIG.HASH_TIMEOUT_MS
+		
+		// ✅ 遍历已过滤的文件列表，只需计算 hash
+		for (const filePath of keyFilePaths) {
+			try {
+				const stats = await fs.stat(filePath)
+				
+				// 带超时的 hash 计算
+				const hashPromise = getFileHash(filePath)
+				const timeoutPromise = new Promise<never>((_, reject) => 
+					setTimeout(() => reject(new Error('Hash calculation timeout')), HASH_TIMEOUT)
+				)
+				
+				const hash = await Promise.race([hashPromise, timeoutPromise])
+				
+				snapshot[filePath] = {
+					hash,
+					exists: true,
+					size: stats.size
+				}
+			} catch (error) {
+				if (error instanceof Error && error.message === 'Hash calculation timeout') {
+					this.logger.warn(`[RootAnalyzer] 计算 ${filePath} hash 超时，跳过`)
+					snapshot[filePath] = {
+						hash: 'timeout',
+						exists: true
+					}
+				} else {
+					this.logger.warn(`[RootAnalyzer] 处理文件 ${filePath} 失败:`, error)
+					snapshot[filePath] = {
+						hash: null,
+						exists: false
+					}
+				}
+			}
+		}
+		
+		return snapshot
+	}
+
+	/**
+	 * 检查关键文件是否发生变更
+	 * @returns true 表示需要重新分析，false 表示可以使用缓存
+	 */
+	private hasKeyFilesChanged(
+		oldSnapshot: Record<string, KeyFileSnapshot> | undefined,
+		newSnapshot: Record<string, KeyFileSnapshot>
+	): boolean {
+		// 首次构建或旧版本数据（没有 snapshot）
+		if (!oldSnapshot) {
+			this.logger.info("[RootAnalyzer] 首次构建或旧版本数据，需要分析")
+			return true
+		}
+		
+		const oldKeys = Object.keys(oldSnapshot)
+		const newKeys = Object.keys(newSnapshot)
+		
+		// 检查关键文件列表是否变化（理论上不会，但防御性检查）
+		if (oldKeys.length !== newKeys.length) {
+			this.logger.info("[RootAnalyzer] 关键文件列表长度变化，需要重新分析")
+			return true
+		}
+		
+		// 检查每个关键文件
+		for (const key of newKeys) {
+			const oldFile = oldSnapshot[key]
+			const newFile = newSnapshot[key]
+			
+			if (!oldFile) {
+				this.logger.info(`[RootAnalyzer] 检测到新的关键文件: ${key}`)
+				return true
+			}
+			
+			// 文件存在性变化（新增或删除）
+			if (oldFile.exists !== newFile.exists) {
+				this.logger.info(`[RootAnalyzer] 关键文件存在性变化: ${key} (${oldFile.exists} → ${newFile.exists})`)
+				return true
+			}
+			
+			// 文件内容变化（hash 不同）
+			if (oldFile.exists && newFile.exists && oldFile.hash !== newFile.hash) {
+				this.logger.info(`[RootAnalyzer] 关键文件内容变化: ${key}`)
+				return true
+			}
+		}
+		
+		this.logger.info("[RootAnalyzer] 关键文件未发生变化，可使用缓存")
+		return false
+	}
+
+	/**
+	 * 判断是否需要重新分析 root
+	 * @param workspacePath 工作区路径
+	 * @param oldRootInfo 旧的 root 信息
+	 * @returns true 表示需要重新分析
+	 */
+	async shouldReanalyzeRoot(workspacePath: string, oldRootInfo: RootInfo | undefined): Promise<boolean> {
+		// 没有旧数据，需要分析
+		if (!oldRootInfo) {
+			return true
+		}
+		
+		// ✅ 收集关键文件路径（复用 collectKeyFiles 逻辑）
+		const keyFiles = await this.collectKeyFiles(workspacePath)
+		
+		// ✅ 生成当前快照
+		const newSnapshot = await this.generateKeyFilesSnapshot(keyFiles)
+		
+		// 检查是否有变化
+		return this.hasKeyFilesChanged(oldRootInfo.keyFilesSnapshot, newSnapshot)
 	}
 
 	/**

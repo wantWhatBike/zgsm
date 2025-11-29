@@ -142,17 +142,19 @@ export class BuildStateTracer {
 					await this.updateFileList(filePaths, fileStatus)
 				}
 
-				// 3. 计算新状态
-				const updatedState: KnowledgeGraphBuildState = {
-					...this.currentState,
-					...updates,
-					lastUpdateTime: new Date().toISOString(),
-				}
+			// 3. 计算新状态
+			const updatedState: KnowledgeGraphBuildState = {
+				...this.currentState,
+				...updates,
+				lastUpdateTime: new Date().toISOString(),
+			}
 
-				// 统一进度计算
-				if (updates.processedFiles !== undefined || updates.phase !== undefined) {
-					updatedState.progress = this.calculateProgress(updatedState)
-				}
+			// ✅ 统一进度计算（基于 phaseProgress 单一数据源，除非是 completed 状态）
+			if (updatedState.status !== KNOWLEDGE_GRAPH_STATUS.COMPLETED) {
+				updatedState.progress = this.calculateProgress(updatedState)
+			} else {
+				updatedState.progress = 100
+			}
 
 				// 4. 保存状态到磁盘（原子操作）
 				await this.storage.overwrite(BUILD_STATE_FILE, updatedState)
@@ -333,7 +335,7 @@ export class BuildStateTracer {
 			try {
 				// 初始化文件历史记录（若为空则设为默认空对象）
 				const previousFileList = (await this.getFilesList()) || {}
-				const result: FileChanges = { added: [], modified: [], deleted: [], unchangedCount: 0 }
+				const result: FileChanges = { added: [], modified: [], deleted: [], unchangedCount: 0, successCount: 0 }
 
 				// 提取当前文件路径集合，用于快速判断删除的文件
 				const currentFilePaths = new Set(files.map((file) => file.path))
@@ -357,6 +359,8 @@ export class BuildStateTracer {
 					} else {
 						// 无变化且已处理成功 → 不处理
 						result.unchangedCount = (result.unchangedCount || 0) + 1
+						// 统计 success 状态的文件（单一数据源）
+						result.successCount++
 						continue
 					}
 
@@ -464,7 +468,8 @@ export class BuildStateTracer {
 		try {
 			let fileList = await this.getFilesList()
 			if (!fileList) {
-				throw new Error("file.json not exists, cannot update.")
+				// ✅ 优化：明确错误原因（清空操作）
+				throw new Error("Build interrupted: knowledge graph was cleared")
 			}
 			// 处理已完成的文件路径（更新状态为 success）
 			if (processedFilesPaths && processedFilesPaths.length > 0) {

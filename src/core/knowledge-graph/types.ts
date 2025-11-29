@@ -68,6 +68,13 @@ export interface DependencyRelation {
   timestamp: string
 }
 
+// 关键文件快照（用于检测项目配置变更）
+export interface KeyFileSnapshot {
+  hash: string | null  // 文件内容 hash，不存在时为 null
+  exists: boolean      // 文件是否存在
+  size?: number        // 文件大小（字节）
+}
+
 // 项目根信息
 export interface RootInfo {
   project_description: string
@@ -76,6 +83,9 @@ export interface RootInfo {
   core_dependencies: string[]
   environment_requirements: string[]
   build_steps: string[]
+  // ✅ 新增：关键文件快照，用于检测项目配置变更
+  keyFilesSnapshot?: Record<string, KeyFileSnapshot>
+  lastAnalyzedTime?: string  // 最后分析时间
 }
 
 // 知识图谱配置
@@ -112,6 +122,7 @@ export interface FileChanges {
   modified: FileInfo[];
   deleted: FileInfo[];
   unchangedCount?: number; // 未变更且已成功处理的文件数量
+  successCount: number; // files.json 中状态为 success 的文件数量（单一数据源）
 }
 
 

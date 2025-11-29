@@ -260,6 +260,7 @@ export interface WebviewMessage {
 		| "fixCodebase"
 		// knowledge graph
 		| "getKnowledgeGraphSettings" // 获取知识图谱配置（新）
+		| "setKnowledgeGraphEnabled" // 设置知识图谱启用/禁用状态（独立消息）
 		| "updateKnowledgeGraphConfig" // 统一配置更新消息
 		| "knowledgeGraphEnabled"
 		| "knowledgeGraphAutoRebuildEnabled" // @deprecated 使用 updateKnowledgeGraphConfig
@@ -321,6 +322,7 @@ export interface WebviewMessage {
 	toolName?: string
 	alwaysAllow?: boolean
 	isEnabled?: boolean
+	enabled?: boolean  // for setKnowledgeGraphEnabled
 	mode?: Mode
 	promptMode?: PromptMode
 	customPrompt?: PromptComponent
