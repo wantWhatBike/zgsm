@@ -132,17 +132,17 @@ interface KnowledgeGraphSettingsProps {
 	knowledgeGraphContextWindowThreshold?: number
 	knowledgeGraphLlmTimeoutMs?: number
 	knowledgeGraphLlmMaxRetries?: number
-	setCachedStateField?: SetCachedStateField<
-		| "knowledgeGraphEnabled"
-		| "knowledgeGraphAutoRebuildEnabled"
-		| "knowledgeGraphAutoRebuildIntervalMinutes"
-		| "knowledgeGraphIncludeTestFiles"
-		| "knowledgeGraphMaxVisualizationFiles"
-		| "knowledgeGraphContextWindowSize"
-		| "knowledgeGraphContextWindowThreshold"
-		| "knowledgeGraphLlmTimeoutMs"
-		| "knowledgeGraphLlmMaxRetries"
-	>
+	setCachedStateField?: SetCachedStateField<"knowledgeGraphEnabled"> // 只保留总开关
+	setKgSettings?: React.Dispatch<React.SetStateAction<{
+		autoRebuildEnabled: boolean
+		autoRebuildIntervalMinutes: number
+		includeTestFiles: boolean
+		maxVisualizationFiles: number
+		contextWindowSize: number
+		contextWindowThreshold: number
+		llmTimeoutMs: number
+		llmMaxRetries: number
+	}>>
 }
 
 export const KnowledgeGraphSettings = ({
@@ -156,6 +156,7 @@ export const KnowledgeGraphSettings = ({
 	knowledgeGraphLlmTimeoutMs,
 	knowledgeGraphLlmMaxRetries,
 	setCachedStateField,
+	setKgSettings,
 }: KnowledgeGraphSettingsProps) => {
 	const { t } = useAppTranslation()
 	const { knowledgeGraphStatus: initialStatus, apiConfiguration, cwd } = useExtensionState()
@@ -787,7 +788,7 @@ export const KnowledgeGraphSettings = ({
 											checked={knowledgeGraphAutoRebuildEnabled ?? false}
 											onChange={(e: any) => {
 												const checked = e.target?.checked ?? false
-												setCachedStateField?.("knowledgeGraphAutoRebuildEnabled", checked)
+												setKgSettings?.((prev) => ({ ...prev, autoRebuildEnabled: checked }))
 											}}
 											disabled={shouldDisableAll}>
 											{t("knowledgegraph:autoRebuild")}
@@ -804,10 +805,7 @@ export const KnowledgeGraphSettings = ({
 													onInput={(e: any) => {
 														const value = parseInt(e.target?.value || "5", 10)
 														const validValue = Math.max(1, value)
-														setCachedStateField?.(
-															"knowledgeGraphAutoRebuildIntervalMinutes",
-															validValue,
-														)
+														setKgSettings?.((prev) => ({ ...prev, autoRebuildIntervalMinutes: validValue }))
 													}}
 													disabled={shouldDisableAll}
 													className="w-32"
@@ -825,7 +823,7 @@ export const KnowledgeGraphSettings = ({
 											checked={knowledgeGraphIncludeTestFiles ?? false}
 											onChange={(e: any) => {
 												const checked = e.target?.checked ?? false
-												setCachedStateField?.("knowledgeGraphIncludeTestFiles", checked)
+												setKgSettings?.((prev) => ({ ...prev, includeTestFiles: checked }))
 											}}
 											disabled={shouldDisableAll}>
 											{t("knowledgegraph:includeTestFiles")}
@@ -843,7 +841,7 @@ export const KnowledgeGraphSettings = ({
 												max={500}
 												step={10}
 												value={[knowledgeGraphMaxVisualizationFiles ?? 200]}
-												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphMaxVisualizationFiles", value)}
+												onValueChange={([value]) => setKgSettings?.((prev) => ({ ...prev, maxVisualizationFiles: value }))}
 												disabled={shouldDisableAll}
 											/>
 											<span className="w-16">{knowledgeGraphMaxVisualizationFiles ?? 200}个</span>
@@ -858,13 +856,13 @@ export const KnowledgeGraphSettings = ({
 										<label className="block font-medium mb-1">
 											{t("knowledgegraph:contextWindowSize")}
 										</label>
-										<VSCodeTextField
-											value={String(knowledgeGraphContextWindowSize ?? 128000)}
-											onInput={(e: any) => {
-												const value = parseInt(e.target?.value || "128000", 10)
-												const validValue = Math.max(1000, value)
-												setCachedStateField?.("knowledgeGraphContextWindowSize", validValue)
-											}}
+											<VSCodeTextField
+												value={String(knowledgeGraphContextWindowSize ?? 128000)}
+												onInput={(e: any) => {
+													const value = parseInt(e.target?.value || "128000", 10)
+													const validValue = Math.max(1000, value)
+													setKgSettings?.((prev) => ({ ...prev, contextWindowSize: validValue }))
+												}}
 											disabled={shouldDisableAll}
 											className="w-32"
 										/>
@@ -884,7 +882,7 @@ export const KnowledgeGraphSettings = ({
 												max={100}
 												step={1}
 												value={[knowledgeGraphContextWindowThreshold ?? 50]}
-												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphContextWindowThreshold", value)}
+												onValueChange={([value]) => setKgSettings?.((prev) => ({ ...prev, contextWindowThreshold: value }))}
 												disabled={shouldDisableAll}
 											/>
 											<span className="w-10">{knowledgeGraphContextWindowThreshold ?? 50}%</span>
@@ -905,7 +903,7 @@ export const KnowledgeGraphSettings = ({
 												max={60}
 												step={1}
 												value={[(knowledgeGraphLlmTimeoutMs ?? 300000) / 60000]}
-												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphLlmTimeoutMs", value * 60000)}
+												onValueChange={([value]) => setKgSettings?.((prev) => ({ ...prev, llmTimeoutMs: value * 60000 }))}
 												disabled={shouldDisableAll}
 											/>
 											<span className="w-16">{(knowledgeGraphLlmTimeoutMs ?? 300000) / 60000}分钟</span>
@@ -926,7 +924,7 @@ export const KnowledgeGraphSettings = ({
 												max={10}
 												step={1}
 												value={[knowledgeGraphLlmMaxRetries ?? 5]}
-												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphLlmMaxRetries", value)}
+												onValueChange={([value]) => setKgSettings?.((prev) => ({ ...prev, llmMaxRetries: value }))}
 												disabled={shouldDisableAll}
 											/>
 											<span className="w-10">{knowledgeGraphLlmMaxRetries ?? 5}次</span>

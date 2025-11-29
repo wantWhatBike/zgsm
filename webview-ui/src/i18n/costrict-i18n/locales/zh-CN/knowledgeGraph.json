@@ -98,7 +98,7 @@
 	"llmTimeoutHelp": "默认5分钟，最小1分钟",
 	"llmMaxRetries": "LLM请求重试次数",
 	"llmMaxRetriesHelp": "默认5次，范围1-10次",
-	"processedFilesStats": "本次处理文件",
+	"processedFilesStats": "处理文件",
 	"addedFiles": "新增",
 	"modifiedFiles": "修改",
 	"deletedFiles": "删除",

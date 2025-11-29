@@ -49,6 +49,18 @@ export interface IndexingStatus {
 	workspacePath?: string
 }
 
+// Knowledge Graph settings state (独立管理，不放在 ExtensionState 中)
+export interface KnowledgeGraphSettingsState {
+	autoRebuildEnabled: boolean
+	autoRebuildIntervalMinutes: number
+	includeTestFiles: boolean
+	maxVisualizationFiles: number
+	contextWindowSize: number
+	contextWindowThreshold: number
+	llmTimeoutMs: number
+	llmMaxRetries: number
+}
+
 export interface IndexingStatusUpdateMessage {
 	type: "indexingStatusUpdate"
 	values: IndexingStatus
@@ -98,6 +110,7 @@ export interface ExtensionMessage {
 		| "updateCustomMode"
 		| "deleteCustomMode"
 		| "exportModeResult"
+		| "knowledgeGraphSettings" // 知识图谱配置（独立消息）
 		| "importModeResult"
 		| "checkRulesDirectoryResult"
 		| "deleteCustomModeCheck"
@@ -253,6 +266,7 @@ export interface ExtensionMessage {
 	queuedMessages?: QueuedMessage[]
 	list?: string[] // For dismissedUpsells
 	organizationId?: string | null // For organizationSwitchResult
+	knowledgeGraphSettings?: KnowledgeGraphSettingsState // 知识图谱配置（独立）
 }
 
 export type ExtensionState = Pick<
@@ -377,16 +391,7 @@ export type ExtensionState = Pick<
 	toolRequirements?: Record<string, boolean> // Map of tool names to their requirements (e.g. {"apply_diff": true} if diffEnabled)
 
 	// Knowledge Graph settings
-	knowledgeGraphEnabled: boolean
-	knowledgeGraphAutoRebuildEnabled?: boolean
-	knowledgeGraphAutoRebuildIntervalMinutes?: number
-	knowledgeGraphIncludeTestFiles?: boolean
-	knowledgeGraphMaxVisualizationFiles?: number
-	knowledgeGraphContextWindowSize?: number
-	knowledgeGraphContextWindowThreshold?: number
-	knowledgeGraphLlmTimeoutMs?: number
-	knowledgeGraphLlmMaxRetries?: number
-	knowledgeGraphConfig?: any // Knowledge graph configuration
+	knowledgeGraphEnabled: boolean // 知识图谱总开关
 	knowledgeGraphStatus?: any // Current knowledge graph status
 
 	cwd?: string // Current working directory

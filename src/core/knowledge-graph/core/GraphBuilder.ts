@@ -473,20 +473,6 @@ export class GraphBuilder {
 		this.logger.info(`[GraphBuilder] 工作区: ${workspacePath}`)
 		this.logger.info(`[GraphBuilder] 模式: ${options.resumeFromPrevious ? '恢复构建' : '新建构建'}`)
 		this.logger.info(`[GraphBuilder] ================================================`)
-		this.logger.info(`[GraphBuilder] ========== 当前配置信息 ==========`)
-		this.logger.info(`[GraphBuilder] 模型: ${this.config.model}`)
-		this.logger.info(`[GraphBuilder] 上下文窗口大小: ${this.config.contextWindowSize || 128000}`)
-		this.logger.info(`[GraphBuilder] 上下文窗口阈值: ${this.config.contextWindowThreshold || 50}%`)
-		this.logger.info(`[GraphBuilder] LLM超时时间: ${(this.config.llmTimeoutMs || 300000) / 60000}分钟`)
-		this.logger.info(`[GraphBuilder] LLM重试次数: ${this.config.llmMaxRetries || 5}次`)
-		this.logger.info(`[GraphBuilder] 最大文件数: ${this.config.maxFiles}`)
-		this.logger.info(`[GraphBuilder] 文件大小限制: ${this.config.fileSizeLimit} bytes`)
-		this.logger.info(`[GraphBuilder] 包含测试文件: ${this.config.includeTestFiles ? '是' : '否'}`)
-		this.logger.info(`[GraphBuilder] 自动构建: ${this.config.autoRebuildEnabled ? '启用' : '禁用'}`)
-		if (this.config.autoRebuildEnabled) {
-			this.logger.info(`[GraphBuilder] 自动构建间隔: ${this.config.autoRebuildIntervalMinutes}分钟`)
-		}
-		this.logger.info(`[GraphBuilder] ================================================`)
 		
 		// 重置性能跟踪器
 		this.progressTracer.reset()
@@ -549,14 +535,31 @@ export class GraphBuilder {
 			await this.buildStateTracer.updateBuildState({
 				phase: "completed",
 				status: KNOWLEDGE_GRAPH_STATUS.COMPLETED,
-				totalFiles: totalFiles,           // ✅ 设置实际文件总数
-				processedFiles: totalFiles,       // ✅ 所有文件都已处理
-				totalFilesToProcess: totalFiles,  // ✅ 保持一致性
+				totalFiles: totalFiles,
+				processedFiles: 0,
+				totalFilesToProcess: 0,
 				failedFiles: 0,
 				error: "",
 				addedFiles: incrementalResult.added.length,
 				modifiedFiles: incrementalResult.modified.length,
 				deletedFiles: incrementalResult.deleted.length,
+				// ✅ 清空本次LLM统计（本次无LLM调用）
+				llmStatistics: {
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalTokens: 0,
+					totalRequests: 0,
+					successfulRequests: 0,
+					failedRequests: 0,
+					totalDuration: 0,
+				},
+				// ✅ 清空本次阶段耗时（本次无处理）
+				phaseDurations: {
+					fileCollection: 0,
+					rootAnalysis: 0,
+					fileSummary: 0,
+					directorySummary: 0,
+				},
 			})
 			return
 		}

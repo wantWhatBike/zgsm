@@ -3442,64 +3442,46 @@ export const webviewMessageHandler = async (
 			}
 			break
 		}
+		// ✅ 获取知识图谱配置（前端请求）
+		case "getKnowledgeGraphSettings": {
+			const manager = KnowledgeGraphManager.getInstance()
+			const config = manager.getConfig()
+			
+			// 映射到前端使用的格式
+			const settings: import("../../shared/ExtensionMessage").KnowledgeGraphSettingsState = {
+				autoRebuildEnabled: config.autoRebuildEnabled || false,
+				autoRebuildIntervalMinutes: config.autoRebuildIntervalMinutes || 5,
+				includeTestFiles: config.includeTestFiles || false,
+				maxVisualizationFiles: config.maxVisualizationFiles || 200,
+				contextWindowSize: config.contextWindowSize || 128000,
+				contextWindowThreshold: config.contextWindowThreshold || 50,
+				llmTimeoutMs: config.llmTimeoutMs || 300000,
+				llmMaxRetries: config.llmMaxRetries || 5,
+			}
+			
+			await provider.postMessageToWebview({
+				type: "knowledgeGraphSettings",
+				knowledgeGraphSettings: settings,
+			})
+			break
+		}
+		
+		// ✅ 更新知识图谱配置（前端保存）
 		case "updateKnowledgeGraphConfig": {
-			// 统一处理知识图谱配置更新，减少代码侵入性
 			const config = message.config as import("../../shared/WebviewMessage").KnowledgeGraphConfigUpdate | undefined
 			
 			if (config) {
-				// 1. 保存到 GlobalState（持久化）
+				// 1. 处理总开关（仍需保存到 GlobalState 的顶层，供 activate 时检测）
 				if (config.enabled !== undefined) {
 					await updateGlobalState("knowledgeGraphEnabled", config.enabled)
 				}
-				if (config.autoRebuildEnabled !== undefined) {
-					await updateGlobalState("knowledgeGraphAutoRebuildEnabled" as any, config.autoRebuildEnabled)
-				}
-				if (config.autoRebuildIntervalMinutes !== undefined) {
-					await updateGlobalState(
-						"knowledgeGraphAutoRebuildIntervalMinutes" as any,
-						Math.max(1, config.autoRebuildIntervalMinutes)
-					)
-				}
-				if (config.includeTestFiles !== undefined) {
-					await updateGlobalState("knowledgeGraphIncludeTestFiles" as any, config.includeTestFiles)
-				}
-				if (config.maxVisualizationFiles !== undefined) {
-					await updateGlobalState(
-						"knowledgeGraphMaxVisualizationFiles" as any,
-						Math.max(10, Math.min(500, config.maxVisualizationFiles))
-					)
-				}
-				if (config.contextWindowSize !== undefined) {
-					await updateGlobalState(
-						"knowledgeGraphContextWindowSize" as any,
-						Math.max(1000, config.contextWindowSize)
-					)
-				}
-				if (config.contextWindowThreshold !== undefined) {
-					await updateGlobalState(
-						"knowledgeGraphContextWindowThreshold" as any,
-						Math.max(10, Math.min(100, config.contextWindowThreshold))
-					)
-				}
-				if (config.llmTimeoutMs !== undefined) {
-					await updateGlobalState(
-						"knowledgeGraphLlmTimeoutMs" as any,
-						Math.max(60000, config.llmTimeoutMs)
-					)
-				}
-				if (config.llmMaxRetries !== undefined) {
-					await updateGlobalState(
-						"knowledgeGraphLlmMaxRetries" as any,
-						Math.max(1, Math.min(10, config.llmMaxRetries))
-					)
-				}
 				
-				// 2. 如果知识图谱已启用，直接应用配置（无需重新读取）
+				// 2. 其他配置交给 KnowledgeGraphManager 管理（单一数据源）
 				const isEnabled = await getGlobalState("knowledgeGraphEnabled")
 				if (isEnabled) {
 					const manager = KnowledgeGraphManager.getInstance()
 					
-					// 构建内部配置对象（映射字段名）
+					// 构建内部配置对象（带校验）
 					const internalConfig: Partial<import("../knowledge-graph/types").KnowledgeGraphConfig> = {}
 					if (config.autoRebuildEnabled !== undefined) {
 						internalConfig.autoRebuildEnabled = config.autoRebuildEnabled
@@ -3526,8 +3508,8 @@ export const webviewMessageHandler = async (
 						internalConfig.llmMaxRetries = Math.max(1, Math.min(10, config.llmMaxRetries))
 					}
 					
-					// 直接应用配置，无需重新读取
-					manager.applyConfigChanges(internalConfig)
+					// ✅ KnowledgeGraphManager 自己负责持久化
+					await manager.applyConfigChanges(internalConfig)
 				}
 			}
 			

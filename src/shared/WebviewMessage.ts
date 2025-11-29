@@ -259,12 +259,13 @@ export interface WebviewMessage {
 		| "fetchZgsmInviteCode"
 		| "fixCodebase"
 		// knowledge graph
+		| "getKnowledgeGraphSettings" // 获取知识图谱配置（新）
 		| "updateKnowledgeGraphConfig" // 统一配置更新消息
 		| "knowledgeGraphEnabled"
-		| "knowledgeGraphAutoRebuildEnabled"
-		| "knowledgeGraphAutoRebuildIntervalMinutes"
-		| "knowledgeGraphIncludeTestFiles"
-		| "knowledgeGraphMaxVisualizationFiles"
+		| "knowledgeGraphAutoRebuildEnabled" // @deprecated 使用 updateKnowledgeGraphConfig
+		| "knowledgeGraphAutoRebuildIntervalMinutes" // @deprecated 使用 updateKnowledgeGraphConfig
+		| "knowledgeGraphIncludeTestFiles" // @deprecated 使用 updateKnowledgeGraphConfig
+		| "knowledgeGraphMaxVisualizationFiles" // @deprecated 使用 updateKnowledgeGraphConfig
 		| "knowledgeGraphGetStatus"
 		| "knowledgeGraphBuild"
 		| "knowledgeGraphPause"

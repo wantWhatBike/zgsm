@@ -130,15 +130,28 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 	const [cachedState, setCachedState] = useState(() => extensionState)
 
+	// ✅ 知识图谱配置独立管理（从后端加载）
+	const [kgSettings, setKgSettings] = useState<{
+		autoRebuildEnabled: boolean
+		autoRebuildIntervalMinutes: number
+		includeTestFiles: boolean
+		maxVisualizationFiles: number
+		contextWindowSize: number
+		contextWindowThreshold: number
+		llmTimeoutMs: number
+		llmMaxRetries: number
+	}>({
+		autoRebuildEnabled: false,
+		autoRebuildIntervalMinutes: 5,
+		includeTestFiles: false,
+		maxVisualizationFiles: 200,
+		contextWindowSize: 128000,
+		contextWindowThreshold: 50,
+		llmTimeoutMs: 300000,
+		llmMaxRetries: 5,
+	})
+
 	const {
-		knowledgeGraphAutoRebuildEnabled,
-		knowledgeGraphAutoRebuildIntervalMinutes,
-		knowledgeGraphIncludeTestFiles,
-		knowledgeGraphMaxVisualizationFiles,
-		knowledgeGraphContextWindowSize,
-		knowledgeGraphContextWindowThreshold,
-		knowledgeGraphLlmTimeoutMs,
-		knowledgeGraphLlmMaxRetries,
 		alwaysAllowReadOnly,
 		alwaysAllowReadOnlyOutsideWorkspace,
 		allowedCommands,
@@ -237,6 +250,23 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		}
 	}, [settingsImportedAt, extensionState])
 
+	// ✅ 加载知识图谱配置（独立管理）
+	useEffect(() => {
+		// 请求知识图谱配置
+		vscode.postMessage({ type: "getKnowledgeGraphSettings" })
+
+		// 监听配置响应
+		const handleMessage = (event: MessageEvent) => {
+			const message = event.data
+			if (message.type === "knowledgeGraphSettings" && message.knowledgeGraphSettings) {
+				setKgSettings(message.knowledgeGraphSettings)
+			}
+		}
+
+		window.addEventListener("message", handleMessage)
+		return () => window.removeEventListener("message", handleMessage)
+	}, []) // 只在组件加载时执行一次
+
 	const setCachedStateField: SetCachedStateField<keyof ExtensionStateContextType> = useCallback((field, value) => {
 		setCachedState((prevState) => {
 			if (isEqual(prevState[field], value)) {
@@ -245,6 +275,19 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 			setChangeDetected(true)
 			return { ...prevState, [field]: value }
+		})
+	}, [])
+
+	// ✅ 包装 setKgSettings，触发变更检测
+	const setKgSettingsWithChangeDetection = useCallback((
+		updater: React.SetStateAction<typeof kgSettings>
+	) => {
+		setKgSettings((prev) => {
+			const newValue = typeof updater === "function" ? updater(prev) : updater
+			if (!isEqual(prev, newValue)) {
+				setChangeDetected(true)
+			}
+			return newValue
 		})
 	}, [])
 
@@ -361,19 +404,19 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		vscode.postMessage({ type: "useZgsmCustomConfig", bool: useZgsmCustomConfig })
 		vscode.postMessage({ type: "zgsmCodebaseIndexEnabled", bool: zgsmCodebaseIndexEnabled })
 		
-		// 知识图谱配置：统一发送所有配置项，减少消息数量和代码侵入性
+		// 知识图谱配置：统一发送所有配置项（独立管理）
 		vscode.postMessage({ 
 			type: "updateKnowledgeGraphConfig", 
 			config: {
 				enabled: knowledgeGraphEnabled,
-				autoRebuildEnabled: knowledgeGraphAutoRebuildEnabled,
-				autoRebuildIntervalMinutes: knowledgeGraphAutoRebuildIntervalMinutes,
-				includeTestFiles: knowledgeGraphIncludeTestFiles,
-				maxVisualizationFiles: knowledgeGraphMaxVisualizationFiles,
-				contextWindowSize: knowledgeGraphContextWindowSize,
-				contextWindowThreshold: knowledgeGraphContextWindowThreshold,
-				llmTimeoutMs: knowledgeGraphLlmTimeoutMs,
-				llmMaxRetries: knowledgeGraphLlmMaxRetries,
+				autoRebuildEnabled: kgSettings.autoRebuildEnabled,
+				autoRebuildIntervalMinutes: kgSettings.autoRebuildIntervalMinutes,
+				includeTestFiles: kgSettings.includeTestFiles,
+				maxVisualizationFiles: kgSettings.maxVisualizationFiles,
+				contextWindowSize: kgSettings.contextWindowSize,
+				contextWindowThreshold: kgSettings.contextWindowThreshold,
+				llmTimeoutMs: kgSettings.llmTimeoutMs,
+				llmMaxRetries: kgSettings.llmMaxRetries,
 			}
 		})
 		
@@ -805,11 +848,16 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					{activeTab === "contextManagement" && (
 						<KnowledgeGraphSettings
 							knowledgeGraphEnabled={knowledgeGraphEnabled}
-							knowledgeGraphAutoRebuildEnabled={knowledgeGraphAutoRebuildEnabled}
-							knowledgeGraphAutoRebuildIntervalMinutes={knowledgeGraphAutoRebuildIntervalMinutes}
-							knowledgeGraphIncludeTestFiles={knowledgeGraphIncludeTestFiles}
-							knowledgeGraphMaxVisualizationFiles={knowledgeGraphMaxVisualizationFiles}
+							knowledgeGraphAutoRebuildEnabled={kgSettings.autoRebuildEnabled}
+							knowledgeGraphAutoRebuildIntervalMinutes={kgSettings.autoRebuildIntervalMinutes}
+							knowledgeGraphIncludeTestFiles={kgSettings.includeTestFiles}
+							knowledgeGraphMaxVisualizationFiles={kgSettings.maxVisualizationFiles}
+							knowledgeGraphContextWindowSize={kgSettings.contextWindowSize}
+							knowledgeGraphContextWindowThreshold={kgSettings.contextWindowThreshold}
+							knowledgeGraphLlmTimeoutMs={kgSettings.llmTimeoutMs}
+							knowledgeGraphLlmMaxRetries={kgSettings.llmMaxRetries}
 							setCachedStateField={setCachedStateField}
+							setKgSettings={setKgSettingsWithChangeDetection}
 						/>
 					)}
 

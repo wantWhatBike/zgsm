@@ -30,6 +30,7 @@ import { ErrorHandler } from "./errors/ErrorHandler"
 import { ProgressTracer } from "./tools/ProgressTracer"
 import { isKnowledgeGraphSupported, getKnowledgeGraphEnabledState } from "./utils"
 import { Mutex } from "./utils/Mutex"
+import { AutoRebuildScheduler } from "./AutoRebuildScheduler"
 
 /**
  * 激活知识图谱功能
@@ -95,14 +96,15 @@ export class KnowledgeGraphManager {
 	// 配置缓存
 	private config: KnowledgeGraphConfig = { ...DEFAULT_CONFIG }
 
-	// 自动构建定时器管理
-	private autoRebuildTimer: NodeJS.Timeout | null = null
-	private nextAutoRebuildTime: number | null = null
+	// 自动构建调度器
+	private autoRebuildScheduler: AutoRebuildScheduler
 
 	/**
 	 * 私有构造函数确保单例模式
 	 */
-	private constructor() {}
+	private constructor() {
+		this.autoRebuildScheduler = new AutoRebuildScheduler(this.logger)
+	}
 
 	/**
 	 * 获取单例实例
@@ -212,45 +214,19 @@ export class KnowledgeGraphManager {
 	 * 加载用户配置 - 简化版本，使用配置映射表
 	 * 修复 #8: 使用类型安全的方式处理配置映射
 	 */
+	/**
+	 * 从 GlobalState 加载配置（单一数据源）
+	 * 配置存储在 GlobalState["knowledgeGraphConfig"] 中
+	 */
 	private async loadUserConfig(): Promise<void> {
 		const provider = this.clineProvider
 		if (!provider) return
 
-		const state = await provider.getState()
-		if (!state) {
-			return
-		}
+		// ✅ 从单一的 GlobalState key 读取配置
+		const savedConfig = provider.contextProxy?.getValue("knowledgeGraphConfig" as any) as Partial<KnowledgeGraphConfig> | undefined
 
-		// 配置字段直接在 state 上，不在 knowledgeGraphConfig 中
-		const userConfig = state
-
-		// 类型安全的配置映射
-		type UserConfigKey = keyof typeof userConfig
-		type InternalConfigKey = keyof KnowledgeGraphConfig
-
-		const configMapping: Record<string, InternalConfigKey> = {
-			knowledgeGraphModel: "model",
-			knowledgeGraphMaxFiles: "maxFiles",
-			knowledgeGraphFileSizeLimit: "fileSizeLimit",
-			knowledgeGraphAutoRebuildEnabled: "autoRebuildEnabled",
-			knowledgeGraphAutoRebuildIntervalMinutes: "autoRebuildIntervalMinutes",
-			knowledgeGraphIncludeTestFiles: "includeTestFiles",
-			knowledgeGraphMaxVisualizationFiles: "maxVisualizationFiles",
-			knowledgeGraphContextWindowSize: "contextWindowSize",
-			knowledgeGraphContextWindowThreshold: "contextWindowThreshold",
-			knowledgeGraphLlmTimeoutMs: "llmTimeoutMs",
-			knowledgeGraphLlmMaxRetries: "llmMaxRetries",
-		}
-
-		// 安全地映射配置
-		this.config = { ...DEFAULT_CONFIG }
-		for (const [userKey, internalKey] of Object.entries(configMapping)) {
-			const userValue = userConfig[userKey as UserConfigKey]
-			if (userValue !== undefined) {
-				// 类型安全的赋值
-				;(this.config[internalKey] as typeof userValue) = userValue
-			}
-		}
+		// 合并默认配置和用户配置
+		this.config = { ...DEFAULT_CONFIG, ...(savedConfig || {}) }
 
 		this.logger?.info(`[KnowledgeGraphManager] ========== 用户配置已加载 ==========`)
 		this.logger?.info(`[KnowledgeGraphManager] 模型: ${this.config.model}`)
@@ -263,9 +239,25 @@ export class KnowledgeGraphManager {
 		this.logger?.info(`[KnowledgeGraphManager] 包含测试文件: ${this.config.includeTestFiles ? '是' : '否'}`)
 		this.logger?.info(`[KnowledgeGraphManager] 自动构建: ${this.config.autoRebuildEnabled ? '启用' : '禁用'}`)
 		if (this.config.autoRebuildEnabled) {
-			this.logger?.info(`[KnowledgeGraphManager] 自动构建间隔: ${this.config.autoRebuildIntervalMinutes}分钟`)
+			this.logger?.info(`[KnowledgeGraphManager] 自动构建间隔: ${this.config.autoRebuildIntervalMinutes || 5}分钟`)
 		}
 		this.logger?.info(`[KnowledgeGraphManager] ===================================`)
+	}
+
+	/**
+	 * 保存配置到 GlobalState（持久化）
+	 */
+	private async saveConfig(): Promise<void> {
+		if (!this.clineProvider?.contextProxy) return
+		await this.clineProvider.contextProxy.setValue("knowledgeGraphConfig" as any, this.config)
+		this.logger?.debug(`[KnowledgeGraphManager] 配置已保存到 GlobalState`)
+	}
+
+	/**
+	 * 获取当前配置（供前端调用）
+	 */
+	public getConfig(): KnowledgeGraphConfig {
+		return { ...this.config }
 	}
 
 	/**
@@ -505,8 +497,8 @@ export class KnowledgeGraphManager {
 	 * 仅在扩展停用时调用，日常禁用请使用 disable()
 	 */
 	public async dispose(): Promise<void> {
-		// 取消自动构建
-		this.cancelAutoRebuild()
+		// ✅ 清理自动构建调度器
+		this.autoRebuildScheduler.dispose()
 
 		// 暂停构建（仅当正在运行时）
 		const workspacePath = this.getWorkspacePath()
@@ -531,9 +523,6 @@ export class KnowledgeGraphManager {
 	 * 安排下次自动构建
 	 */
 	private scheduleAutoRebuild(): void {
-		// 取消现有定时器
-		this.cancelAutoRebuild()
-
 		// 检查是否启用自动构建
 		if (!this.config.autoRebuildEnabled) {
 			this.logger?.debug("[KnowledgeGraphManager] 自动构建未启用")
@@ -541,94 +530,46 @@ export class KnowledgeGraphManager {
 		}
 
 		const intervalMinutes = this.config.autoRebuildIntervalMinutes || DEFAULT_CONFIG.autoRebuildIntervalMinutes || 5
-		const intervalMs = intervalMinutes * 60 * 1000
 
-		this.nextAutoRebuildTime = Date.now() + intervalMs
-		
-		// 格式化下次构建时间
-		const nextBuildTime = new Date(this.nextAutoRebuildTime).toLocaleString('zh-CN', {
-			year: 'numeric',
-			month: '2-digit',
-			day: '2-digit',
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-			hour12: false
-		})
-		
-		this.logger?.info(`[KnowledgeGraphManager] ========== 自动构建定时器已启动 ==========`)
-		this.logger?.info(`[KnowledgeGraphManager] 构建间隔: ${intervalMinutes} 分钟`)
-		this.logger?.info(`[KnowledgeGraphManager] 下次自动构建时间: ${nextBuildTime}`)
-		this.logger?.info(`[KnowledgeGraphManager] ================================================`)
-
-		this.autoRebuildTimer = setTimeout(() => {
-			this.executeAutoRebuild()
-		}, intervalMs)
+		// 委托给调度器
+		this.autoRebuildScheduler.schedule(intervalMinutes, () => this.executeAutoRebuild())
 	}
 
 	/**
 	 * 取消自动构建
 	 */
 	private cancelAutoRebuild(): void {
-		if (this.autoRebuildTimer) {
-			clearTimeout(this.autoRebuildTimer)
-			this.autoRebuildTimer = null
-			
-			// 如果有计划的构建时间，记录取消信息
-			if (this.nextAutoRebuildTime) {
-				const nextBuildTime = new Date(this.nextAutoRebuildTime).toLocaleString('zh-CN', {
-					year: 'numeric',
-					month: '2-digit',
-					day: '2-digit',
-					hour: '2-digit',
-					minute: '2-digit',
-					second: '2-digit',
-					hour12: false
-				})
-				this.logger?.info(`[KnowledgeGraphManager] 自动构建定时器已取消（原计划时间: ${nextBuildTime}）`)
-			}
-			
-			this.nextAutoRebuildTime = null
-		}
+		this.autoRebuildScheduler.cancel()
 	}
 
 	/**
-	 * 执行自动构建（检查互斥）
+	 * 执行自动构建（竞态保护）
 	 */
 	private async executeAutoRebuild(): Promise<void> {
-		const currentTime = new Date().toLocaleString('zh-CN', {
-			year: 'numeric',
-			month: '2-digit',
-			day: '2-digit',
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-			hour12: false
-		})
-		
-		this.logger?.info("[KnowledgeGraphManager] ================================================")
-		this.logger?.info(`[KnowledgeGraphManager] 自动构建定时器触发 (${currentTime})`)
-		this.logger?.info("[KnowledgeGraphManager] ================================================")
-
 		try {
-			// 检查是否有操作正在执行
+			// ✅ 竞态保护：检查是否有操作正在执行
 			if (this.currentOperationType) {
-				this.logger?.warn(`[KnowledgeGraphManager] 自动构建跳过：${this.currentOperationType} 正在执行`)
-				this.logger?.info(`[KnowledgeGraphManager] 将在下个周期重试自动构建`)
-				// 重新安排下次构建
-				this.scheduleAutoRebuild()
+				this.logger?.warn(
+					`[KnowledgeGraphManager] ⚠️ 自动构建跳过：${this.currentOperationType} 正在执行`
+				)
+				return // 跳过本次，等待下次定时器触发
+			}
+
+			// ✅ 竞态保护：检查知识图谱是否仍然启用
+			if (!this.isEnabled) {
+				this.logger?.warn("[KnowledgeGraphManager] ⚠️ 自动构建跳过：知识图谱已禁用")
+				this.cancelAutoRebuild() // 取消定时器
 				return
 			}
 
-			// 执行构建
-			this.logger?.info("[KnowledgeGraphManager] 开始执行自动构建任务...")
-			await this.startBuild({ resumeFromPrevious: false })
-			
-			this.logger?.info("[KnowledgeGraphManager] ✓ 自动构建任务完成")
+			// 执行构建（传入 true 标记为自动构建，避免重复安排定时器）
+			this.logger?.info("[KnowledgeGraphManager] 🔨 开始执行自动构建任务...")
+			await this.startBuild({ resumeFromPrevious: false }, true)
+			this.logger?.info("[KnowledgeGraphManager] ✅ 自动构建任务完成")
 		} catch (error) {
-			this.logger?.error(`[KnowledgeGraphManager] ✗ 自动构建失败: ${ErrorHandler.formatError(error)}`)
+			this.logger?.error(`[KnowledgeGraphManager] ❌ 自动构建失败: ${ErrorHandler.formatError(error)}`)
 		} finally {
-			// 安排下次构建
+			// ✅ 自动构建完成后，在这里统一安排下次构建（无论成功或失败）
 			this.scheduleAutoRebuild()
 		}
 	}
@@ -715,16 +656,47 @@ export class KnowledgeGraphManager {
 
 	/**
 	 * 应用配置变更（用于配置热更新）
-	 * 直接应用配置，无需重新读取，避免异步时序问题
+	 * 直接应用配置，并持久化到 GlobalState
 	 */
-	public applyConfigChanges(changes: Partial<KnowledgeGraphConfig>): void {
+	public async applyConfigChanges(changes: Partial<KnowledgeGraphConfig>): Promise<void> {
 		if (!this.isInitialized || !this.isEnabled) {
 			return
 		}
 
 		this.config = { ...this.config, ...changes }
+		
+		// ✅ 立即持久化配置
+		await this.saveConfig()
+		
+		// 更新调度器
 		this.scheduleAutoRebuild()
+		
+		// ✅ 打印定时器状态
 		this.logger?.info("[KnowledgeGraphManager] ✓ 配置已应用")
+		this.printSchedulerStatus()
+	}
+
+	/**
+	 * 打印调度器状态（调试用）
+	 */
+	private printSchedulerStatus(): void {
+		const isActive = this.autoRebuildScheduler.isActive()
+		const nextRebuildTime = this.autoRebuildScheduler.getNextRebuildTime()
+		
+		this.logger?.info(`[KnowledgeGraphManager] 📊 定时器状态: ${isActive ? '运行中' : '未启动'}`)
+		
+		if (nextRebuildTime) {
+			const nextTime = new Date(nextRebuildTime).toLocaleString('zh-CN', {
+				year: 'numeric',
+				month: '2-digit',
+				day: '2-digit',
+				hour: '2-digit',
+				minute: '2-digit',
+				second: '2-digit',
+				hour12: false
+			})
+			this.logger?.info(`[KnowledgeGraphManager] ⏰ 下次构建时间: ${nextTime}`)
+		}
 	}
 
 	/**
@@ -762,9 +734,10 @@ export class KnowledgeGraphManager {
 
 	/**
 	 * 构建知识图谱
-	 * ✅ 增强版：通过统一入口确保互斥
+	 * @param options 构建选项
+	 * @param fromAutoRebuild 是否来自自动构建（用于避免重复安排定时器）
 	 */
-	public async startBuild(options: Partial<BuildOptions> = {}): Promise<void> {
+	public async startBuild(options: Partial<BuildOptions> = {}, fromAutoRebuild = false): Promise<void> {
 		return this.executeOperation("build", async () => {
 			if (!this.graphBuilder) {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
@@ -776,13 +749,14 @@ export class KnowledgeGraphManager {
 				throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
 			}
 
-			// 取消自动构建定时器（手动构建优先）
+			// ✅ 竞态保护：取消自动构建定时器（手动构建优先）
 			this.cancelAutoRebuild()
 
 			const result = await this.graphBuilder.start(this.getWorkspacePath()!, options)
 
-			// 构建完成后，如果启用了自动构建，安排下次构建
-			if (this.config.autoRebuildEnabled) {
+			// ✅ 只有非自动构建才在这里重新安排定时器
+			// 自动构建由 executeAutoRebuild() 统一管理，避免重复安排
+			if (!fromAutoRebuild && this.config.autoRebuildEnabled) {
 				this.scheduleAutoRebuild()
 			}
 
@@ -831,7 +805,7 @@ export class KnowledgeGraphManager {
 
 			const result = await this.graphBuilder.resume(this.getWorkspacePath()!)
 
-			// 构建完成后，如果启用了自动构建，安排下次构建
+			// ✅ 恢复构建完成后，如果启用了自动构建，重新安排定时器
 			if (this.config.autoRebuildEnabled) {
 				this.scheduleAutoRebuild()
 			}

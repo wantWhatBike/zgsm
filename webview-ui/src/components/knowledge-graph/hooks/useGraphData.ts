@@ -4,8 +4,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { vscode } from "@/utils/vscode"
-import { KNOWLEDGE_GRAPH_MESSAGES, GraphData, GraphNode } from "@roo-code/types"
-import { useExtensionState } from "@/context/ExtensionStateContext"
+import { KNOWLEDGE_GRAPH_MESSAGES, GraphData } from "@roo-code/types"
 
 interface UseGraphDataResult {
 	graphData: GraphData
@@ -21,9 +20,8 @@ export function useGraphData(): UseGraphDataResult {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	
-	// 读取配置
-	const { knowledgeGraphConfig } = useExtensionState()
-	const maxVisualizationFiles = knowledgeGraphConfig?.knowledgeGraphMaxVisualizationFiles ?? 200
+	// ✅ 使用默认配置值（知识图谱配置已独立管理）
+	const maxVisualizationFiles = 200
 
 	// 请求图谱数据
 	const requestGraphData = useCallback(() => {
