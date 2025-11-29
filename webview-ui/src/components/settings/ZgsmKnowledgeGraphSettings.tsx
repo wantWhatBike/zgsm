@@ -855,7 +855,7 @@ export const KnowledgeGraphSettings = ({
 
 									{/* 模型上下文窗口大小 */}
 									<div className="flex flex-col gap-1">
-										<label className="text-sm font-medium">
+										<label className="block font-medium mb-1">
 											{t("knowledgegraph:contextWindowSize")}
 										</label>
 										<VSCodeTextField
@@ -868,9 +868,9 @@ export const KnowledgeGraphSettings = ({
 											disabled={shouldDisableAll}
 											className="w-32"
 										/>
-										<span className="text-xs text-vscode-descriptionForeground">
+										<div className="text-sm text-vscode-descriptionForeground">
 											{t("knowledgegraph:contextWindowSizeHelp")}
-										</span>
+										</div>
 									</div>
 
 									{/* 摘要消耗上下文窗口阈值 */}
