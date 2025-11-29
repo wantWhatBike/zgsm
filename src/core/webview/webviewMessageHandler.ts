@@ -3477,7 +3477,9 @@ export const webviewMessageHandler = async (
 		const manager = KnowledgeGraphManager.getInstance()
 		await manager.setKnowledgeGraphEnabled(enabled)
 		
-		// 注：不再调用 postStateToWebview，前端采用乐观更新，不依赖后端状态同步
+		// 3. 同步状态到 ExtensionState（用于下次打开设置页面时恢复）
+		// 注：前端不监听此消息更新 UI（乐观更新），但需要更新 ExtensionState
+		await provider.postStateToWebview()
 		break
 	}
 		

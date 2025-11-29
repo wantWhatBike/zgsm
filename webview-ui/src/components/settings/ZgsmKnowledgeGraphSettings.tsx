@@ -178,6 +178,11 @@ export const KnowledgeGraphSettings = ({
 	// 高级设置折叠状态
 	const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
 
+	// ✅ 知识图谱开关状态（受控组件）- 必须在使用之前声明
+	// 注意：不能依赖 props，因为 props 可能不是最新的（单向通信）
+	// 组件挂载时会通过 useEffect 从 ExtensionState 同步
+	const [localChecked, setLocalChecked] = useState(false)
+
 	// 检查是否为支持的API提供者 - 使用共享常量
 	const isZgsmProvider = useMemo(
 		() => apiConfiguration?.apiProvider === API_PROVIDER.ZGSM,
@@ -196,8 +201,8 @@ export const KnowledgeGraphSettings = ({
 
 	// Use useMemo to avoid unnecessary state updates
 	const shouldDisableAll = useMemo(
-		() => !isZgsmProvider || !cwd || !knowledgeGraphEnabled || showClearConfirm || showEnableConfirm,
-		[isZgsmProvider, cwd, knowledgeGraphEnabled, showClearConfirm, showEnableConfirm],
+		() => !isZgsmProvider || !cwd || !localChecked || showClearConfirm || showEnableConfirm,
+		[isZgsmProvider, cwd, localChecked, showClearConfirm, showEnableConfirm],
 	)
 
 	// 统一的消息发送函数
@@ -219,7 +224,7 @@ export const KnowledgeGraphSettings = ({
 			if (!isMounted) return
 
 			const isRunning = uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
-			const shouldPoll = knowledgeGraphEnabled && isZgsmProvider && cwd && 
+			const shouldPoll = localChecked && isZgsmProvider && cwd && 
 				(isRunning || knowledgeGraphAutoRebuildEnabled)
 
 			if (shouldPoll) {
@@ -232,7 +237,7 @@ export const KnowledgeGraphSettings = ({
 
 		// 启动轮询（如果状态是 RUNNING 或启用了自动构建）
 		const shouldStartPolling = 
-			knowledgeGraphEnabled &&
+			localChecked &&
 			isZgsmProvider &&
 			cwd &&
 			(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING || knowledgeGraphAutoRebuildEnabled)
@@ -249,7 +254,7 @@ export const KnowledgeGraphSettings = ({
 				clearTimeout(timeoutId)
 			}
 		}
-	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, knowledgeGraphAutoRebuildEnabled, getStatusOnce, uiState.knowledgeGraphStatus.status])
+	}, [localChecked, isZgsmProvider, cwd, knowledgeGraphAutoRebuildEnabled, getStatusOnce, uiState.knowledgeGraphStatus.status])
 
 	// 操作超时保护 - 防止 isOperating 卡死
 	useEffect(() => {
@@ -264,7 +269,7 @@ export const KnowledgeGraphSettings = ({
 
 	// 初始状态获取 - 延迟 2 秒给后台初始化时间
 	useEffect(() => {
-		if (!knowledgeGraphEnabled || !isZgsmProvider || !cwd) {
+		if (!localChecked || !isZgsmProvider || !cwd) {
 			return
 		}
 		
@@ -274,16 +279,18 @@ export const KnowledgeGraphSettings = ({
 		}, 2000)
 		
 		return () => clearTimeout(timer)
-	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, getStatusOnce])
+	}, [localChecked, isZgsmProvider, cwd, getStatusOnce])
 
-	// ✅ 知识图谱开关状态（受控组件）
-	const [localChecked, setLocalChecked] = useState(knowledgeGraphEnabled)
-	
-	// 仅在挂载时从 props 初始化，之后由用户操作驱动
+	// 仅在组件挂载时从 ExtensionState 同步一次
+	// 之后由用户操作驱动（乐观更新），不响应 ExtensionState 变化
+	// 这样既能在打开设置页面时获取正确状态，又不会在操作时被覆盖
+	const mountedRef = useRef(false)
 	useEffect(() => {
-		setLocalChecked(knowledgeGraphEnabled)
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [])
+		if (!mountedRef.current) {
+			setLocalChecked(knowledgeGraphEnabled ?? false)
+			mountedRef.current = true
+		}
+	}, [knowledgeGraphEnabled])
 	
 	// ✅ 统一的状态设置函数（DRY 原则）
 	const updateKnowledgeGraphEnabled = useCallback((enabled: boolean) => {
@@ -615,8 +622,8 @@ export const KnowledgeGraphSettings = ({
 									<FileText className="w-4 h-4" />
 									<div>{t("knowledgegraph:title")}</div>
 								</div>
-								{/* 统计信息图标 - 与构建状态在同一行 */}
-								{isZgsmProvider && cwd && knowledgeGraphEnabled && (
+							{/* 统计信息图标 - 与构建状态在同一行 */}
+							{isZgsmProvider && cwd && localChecked && (
 									<TooltipProvider>
 										<Tooltip>
 											<TooltipTrigger asChild>
