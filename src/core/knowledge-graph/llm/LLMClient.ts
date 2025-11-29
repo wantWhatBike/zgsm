@@ -26,12 +26,11 @@ import { LLM_CONFIG } from "../constants"
 export class LLMClient {
   private zgsmHandler: ZgsmAiHandler
   private modelId: string
-  private contextWindow: number
   private logger: ILogger
   private apiConfiguration: ProviderSettings
   private progressTracer: ProgressTracer
-  private llmTimeoutMs: number
-  private llmMaxRetries: number
+  // ✅ 修复：持有配置对象引用，而不是复制值
+  private config: { contextWindowSize?: number, llmTimeoutMs?: number, llmMaxRetries?: number }
 
   constructor(modelId: string, progressTracer: ProgressTracer, apiConfiguration?:ProviderSettings, logger?: ILogger, config?: { contextWindowSize?: number, llmTimeoutMs?: number, llmMaxRetries?: number }) {
     // 从task中获取API配置
@@ -41,21 +40,24 @@ export class LLMClient {
     this.zgsmHandler = new ZgsmAiHandler(apiHandlerOptions)
     this.modelId = modelId || this.apiConfiguration.zgsmModelId || 'auto'
     this.logger = logger || createLogger('LLMClient')
-    // 使用配置的上下文窗口大小或默认值
-    this.contextWindow = config?.contextWindowSize || this.getContextWindowByModel(this.modelId)
-    // 使用配置的超时时间或默认值
-    this.llmTimeoutMs = config?.llmTimeoutMs || LLM_CONFIG.timeout
-    // 使用配置的重试次数或默认值
-    this.llmMaxRetries = config?.llmMaxRetries || LLM_CONFIG.maxRetries
+    
+    // ✅ 修复：保存配置对象引用，实现动态配置
+    // 如果传入配置对象，使用它；否则创建默认配置对象
+    this.config = config || {
+      contextWindowSize: this.getContextWindowByModel(this.modelId),
+      llmTimeoutMs: LLM_CONFIG.timeout,
+      llmMaxRetries: LLM_CONFIG.maxRetries
+    }
+    
     // 初始化性能跟踪器
     this.progressTracer = progressTracer
     
     // ✅ 调试日志：打印 LLM 配置
     this.logger.info(`[LLMClient] ========== LLM 客户端初始化 ==========`)
     this.logger.info(`[LLMClient] 模型: ${this.modelId}`)
-    this.logger.info(`[LLMClient] 上下文窗口: ${this.contextWindow} tokens`)
-    this.logger.info(`[LLMClient] 超时时间: ${this.llmTimeoutMs / 1000} 秒`)
-    this.logger.info(`[LLMClient] 最大重试: ${this.llmMaxRetries} 次`)
+    this.logger.info(`[LLMClient] 上下文窗口: ${this.getContextWindow()} tokens`)
+    this.logger.info(`[LLMClient] 超时时间: ${this.getLlmTimeoutMs() / 1000} 秒`)
+    this.logger.info(`[LLMClient] 最大重试: ${this.getLlmMaxRetries()} 次`)
     this.logger.info(`[LLMClient] ================================================`)
   }
 
@@ -66,8 +68,25 @@ export class LLMClient {
     return 128 * 1000
   }
 
-  public  getContextWindow() {
-	 return this.contextWindow
+  /**
+   * ✅ 动态获取上下文窗口大小（从配置对象）
+   */
+  public getContextWindow(): number {
+    return this.config.contextWindowSize || this.getContextWindowByModel(this.modelId)
+  }
+
+  /**
+   * ✅ 动态获取超时时间（从配置对象）
+   */
+  private getLlmTimeoutMs(): number {
+    return this.config.llmTimeoutMs || LLM_CONFIG.timeout
+  }
+
+  /**
+   * ✅ 动态获取最大重试次数（从配置对象）
+   */
+  private getLlmMaxRetries(): number {
+    return this.config.llmMaxRetries || LLM_CONFIG.maxRetries
   }
 
   /**
@@ -105,7 +124,7 @@ export class LLMClient {
           this.logger.debug(`[LLMClient] ========== LLM 请求开始 ==========`)
           this.logger.debug(`[LLMClient] RequestID: ${requestId}`)
           this.logger.debug(`[LLMClient] 模型: ${this.modelId}`)
-          this.logger.debug(`[LLMClient] 超时限制: ${this.llmTimeoutMs / 1000} 秒`)
+          this.logger.debug(`[LLMClient] 超时限制: ${this.getLlmTimeoutMs() / 1000} 秒`)
           
           // 构建用户消息 - 确保内容格式正确
           const trimmedPrompt = userPrompt.trim()
@@ -143,6 +162,7 @@ export class LLMClient {
         let totalCost = 0
         
         // 处理流式响应（带超时控制）
+        const timeoutMs = this.getLlmTimeoutMs()
         await withTimeout(
           (async () => {
             for await (const chunk of stream) {
@@ -155,8 +175,8 @@ export class LLMClient {
               }
             }
           })(),
-          this.llmTimeoutMs,
-          `LLM 请求超时（${this.llmTimeoutMs / 1000}秒），可能是网络问题或模型响应过慢`
+          timeoutMs,
+          `LLM 请求超时（${timeoutMs / 1000}秒），可能是网络问题或模型响应过慢`
         )
 
           const duration = Date.now() - startTime
@@ -205,7 +225,7 @@ export class LLMClient {
       },
       "LLM消息发送",
       this.logger,
-      this.llmMaxRetries
+      this.getLlmMaxRetries()
     )
   }
 
@@ -270,7 +290,7 @@ export class LLMClient {
       },
       "LLM结构化请求",
       this.logger,
-      this.llmMaxRetries
+      this.getLlmMaxRetries()
     )
   }
 

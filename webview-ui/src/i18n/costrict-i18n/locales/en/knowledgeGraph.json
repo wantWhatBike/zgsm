@@ -60,6 +60,7 @@
 	"statusSuccess": "Success",
 	"statusFailed": "Failed",
 	"statusPaused": "Paused",
+	"statusInterrupted": "Interrupted",
 	"statusUnknown": "Unknown",
 	"noStatisticsYet": "No statistics yet",
 	"selectModel": "Select Model",

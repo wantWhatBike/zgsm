@@ -21,7 +21,6 @@ export class FileSummarizer {
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private logger: ILogger
-	private isAborted: boolean = false
 
 	constructor(llmClient: LLMClient, storage: IStorage, config: KnowledgeGraphConfig, logger: ILogger) {
 		this.llmClient = llmClient

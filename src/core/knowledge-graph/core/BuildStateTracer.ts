@@ -603,10 +603,12 @@ export class BuildStateTracer {
 
 	/**
 	 * 检查状态是否允许恢复
-	 * ✅ 只支持 PAUSED 状态（ERROR 状态应该调用 start 重新构建）
+	 * ✅ 支持 PAUSED（用户主动暂停）和 INTERRUPTED（系统被动中断）状态
+	 * ERROR 状态应该调用 start 重新构建
 	 */
 	public canResume(): boolean {
-		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED
+		const status = this.currentState?.status
+		return status === KNOWLEDGE_GRAPH_STATUS.PAUSED || status === KNOWLEDGE_GRAPH_STATUS.INTERRUPTED
 	}
 
 	/**
@@ -631,13 +633,19 @@ export class BuildStateTracer {
 			return false // 已有任务运行
 		}
 
+		// ✅ 允许启动的状态：
+		// - PENDING: 初始状态
+		// - COMPLETED: 上次构建完成
+		// - ERROR: 上次构建失败
+		// - INTERRUPTED: 系统被动中断（崩溃/重启），可以重新启动
 		if (
 			currentStatus &&
 			currentStatus !== KNOWLEDGE_GRAPH_STATUS.PENDING &&
 			currentStatus !== KNOWLEDGE_GRAPH_STATUS.COMPLETED &&
-			currentStatus !== KNOWLEDGE_GRAPH_STATUS.ERROR
+			currentStatus !== KNOWLEDGE_GRAPH_STATUS.ERROR &&
+			currentStatus !== KNOWLEDGE_GRAPH_STATUS.INTERRUPTED
 		) {
-			return false // 不在允许启动的状态
+			return false // 不在允许启动的状态（例如 PAUSED 需要用户手动继续）
 		}
 
 		return true

@@ -88,7 +88,8 @@ export const KNOWLEDGE_GRAPH_MESSAGES = {
 export const KNOWLEDGE_GRAPH_STATUS = {
 	PENDING: "pending",
 	RUNNING: "running",
-	PAUSED: "paused",
+	PAUSED: "paused",           // 用户主动暂停
+	INTERRUPTED: "interrupted", // 系统被动中断（崩溃、重启等）
 	COMPLETED: "completed",
 	ERROR: "error",
 } as const
@@ -195,7 +196,7 @@ export interface KnowledgeGraphBuildState {
   processedFiles: number
   failedFiles: number
   currentFile: string
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'error'
+  status: 'pending' | 'running' | 'paused' | 'interrupted' | 'completed' | 'error'
   error?: string
   taskId?: string
   startTime?: string

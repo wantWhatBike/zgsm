@@ -106,6 +106,10 @@ const STATUS_CONFIG = {
 		icon: "w-3 h-3 bg-orange-500 rounded-full",
 		textKey: "knowledgegraph:statusPaused",
 	},
+	[KNOWLEDGE_GRAPH_STATUS.INTERRUPTED]: {
+		icon: "w-3 h-3 bg-purple-500 rounded-full",
+		textKey: "knowledgegraph:statusInterrupted",
+	},
 } as const
 
 // 防抖Hook
@@ -325,8 +329,8 @@ export const KnowledgeGraphSettings = ({
 
 	const handleResumeBuild = useDebounce(() => {
 		const { status } = uiState.knowledgeGraphStatus
-		// 只允许 PAUSED 状态继续
-		if (status !== KNOWLEDGE_GRAPH_STATUS.PAUSED || uiState.isOperating) {
+		// 允许 PAUSED 和 INTERRUPTED 状态继续
+		if ((status !== KNOWLEDGE_GRAPH_STATUS.PAUSED && status !== KNOWLEDGE_GRAPH_STATUS.INTERRUPTED) || uiState.isOperating) {
 			return
 		}
 		dispatch({ type: UI_ACTIONS.SET_OPERATING, payload: true })
@@ -716,8 +720,9 @@ export const KnowledgeGraphSettings = ({
 													{t("knowledgegraph:pause")}
 												</Button>
 											)}
-											{/* 继续按钮：PAUSED 状态显示 */}
-											{uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PAUSED && (
+											{/* 继续按钮：PAUSED 或 INTERRUPTED 状态显示 */}
+											{(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.PAUSED ||
+												uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.INTERRUPTED) && (
 												<Button
 													onClick={handleResumeBuild}
 													variant="outline"

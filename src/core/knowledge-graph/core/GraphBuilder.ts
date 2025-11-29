@@ -78,6 +78,11 @@ export class GraphBuilder {
 	 * 3. 异常导致任务创建失败但状态已更新
 	 * 4. 系统资源耗尽导致进程终止
 	 * 
+	 * 修复策略：
+	 * - 修复为 INTERRUPTED（中断）状态
+	 * - 用户可以点击"继续"恢复构建
+	 * - 自动构建不受影响（区别于用户主动的 PAUSED）
+	 * 
 	 * @returns true 如果检测到假状态并已修复
 	 */
 	private async detectAndRepairGhostState(): Promise<boolean> {
@@ -97,13 +102,17 @@ export class GraphBuilder {
 			this.logger.warn("[GraphBuilder] 状态: RUNNING, 但 currentBuildPromise = null")
 			this.logger.warn("[GraphBuilder] 可能原因: VSCode崩溃、插件重载、或异常中断")
 			
-			// 修复为 PAUSED，让用户决定继续或清空
+			// ✅ 修复为 INTERRUPTED（被动中断）
+			// 区别于 PAUSED（用户主动暂停）：
+			// - INTERRUPTED 不阻止自动构建
+			// - 用户可以点击"继续"恢复
 			await this.buildStateTracer.updateBuildState({
-				status: KNOWLEDGE_GRAPH_STATUS.PAUSED,
-				error: "检测到异常中断，已自动修复状态。可以继续构建或清空重来。"
+				status: KNOWLEDGE_GRAPH_STATUS.INTERRUPTED,
+				error: "检测到异常中断（可能是程序崩溃或重启）。可以点击继续恢复构建。"
 			})
 			
-			this.logger.info("[GraphBuilder] 状态已修复: RUNNING → PAUSED")
+			this.logger.info(`[GraphBuilder] 状态已修复: RUNNING → INTERRUPTED`)
+			this.logger.info(`[GraphBuilder] 用户可点击"继续"恢复，自动构建不受影响`)
 			this.logger.info("[GraphBuilder] ========================================")
 			return true  // 已修复
 		}
@@ -154,23 +163,19 @@ export class GraphBuilder {
 			}
 			
 		// ✅ 6. 立即更新状态为 RUNNING（快速响应，供 UI 显示）
-		// 注意：必须同时重置 phaseProgress，避免使用旧数据导致进度计算错误
+		// 注意：进度稍后在文件变更分析后智能计算
 		await this.buildStateTracer.updateBuildState({
 			status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
 			phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
-			progress: 0,  // ✅ 重置进度为 0%
-			processedFiles: 0,  // ✅ 重置已处理文件数
-			totalFiles: 0,  // ✅ 重置总文件数
-			failedFiles: 0,  // ✅ 重置失败文件数
-			error: "正在启动构建...",
-			// ✅ 重置阶段进度，避免使用旧的 phaseProgress 导致显示错误进度（如 98.5%）
+			error: "正在分析文件变更...",
+			// ✅ 重置阶段进度，避免使用旧的 phaseProgress 导致显示错误进度
 			phaseProgress: {
 				root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
 				file_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
 				directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
 			}
 		})
-		this.logger.info("[GraphBuilder] 状态已更新为 RUNNING，进度已重置为 0%")
+		this.logger.info("[GraphBuilder] 状态已更新为 RUNNING，正在分析文件变更...")
 			
 			// 7. 初始化中止控制器
 			if (this.abortController) {
@@ -336,10 +341,10 @@ export class GraphBuilder {
 					.finally(() => {
 						this.currentBuildPromise = null
 						this.abortController = null
-						this.logger.info("[GraphBuilder] 恢复任务已完成并清理")
+						this.logger.info("[GraphBuilder] 任务已完成并清理")
 					})
 					
-				this.logger.info("[GraphBuilder] 恢复任务已创建并启动")
+				this.logger.info("[GraphBuilder] 任务已创建并启动")
 				this.logger.info("[GraphBuilder] ========================================")
 			}
 			
@@ -504,6 +509,24 @@ export class GraphBuilder {
 			return
 		}
 
+		// ✅ 智能计算起始进度
+		const currentState = this.buildStateTracer.getCurrentState()
+		const { baseProgress, baseProcessedFiles } = this.calculateBaseProgress(
+			currentState,
+			incrementalResult,
+			totalFiles
+		)
+
+		// 更新进度基准
+		await this.buildStateTracer.updateBuildState({
+			progress: baseProgress,
+			processedFiles: baseProcessedFiles,
+			totalFiles: totalFiles,
+			error: this.getProgressMessage(baseProgress, incrementalResult)
+		})
+
+		this.logger.info(`[GraphBuilder] 进度基准: ${baseProgress}%, 已处理: ${baseProcessedFiles}/${totalFiles}`)
+
 		// ✅ 只删除真正被删除的文件摘要
 		// 修改的文件通过 update 接口处理（SQLite 用 UPSERT，JSONL 自动先删后加）
 		if (incrementalResult.deleted.length > 0) {
@@ -571,20 +594,27 @@ export class GraphBuilder {
 
 		// 初始化构建
 		if (!options.resumeFromPrevious) {
+			// 场景：全新构建（从 PENDING 或 COMPLETED 启动）
 			await this.buildStateTracer.initializeBuildState(workspacePath, totalFiles, totalFilesToProcess, initialProcessedFiles)
-			// 记录增量统计
+			
+			// ✅ 记录增量统计，并应用智能进度基准
 			await this.buildStateTracer.updateBuildState({
+				progress: baseProgress,  // 应用智能计算的进度
+				processedFiles: baseProcessedFiles,  // 应用智能计算的已处理数
 				addedFiles: incrementalResult.added.length,
 				modifiedFiles: incrementalResult.modified.length,
 				deletedFiles: incrementalResult.deleted.length,
 			})
 		} else {
+			// 场景：恢复构建（从 PAUSED 继续）
 			this.logger.info("[GraphBuilder] 恢复构建，跳过状态初始化")
-			// 更新可能变化的文件统计信息（包括增量统计）
+			
+			// ✅ 更新文件统计和智能进度基准
 			await this.buildStateTracer.updateBuildState({
 				totalFiles: totalFiles,
 				totalFilesToProcess: totalFiles,
-				processedFiles: initialProcessedFiles,
+				processedFiles: baseProcessedFiles,  // 使用智能计算的基准
+				progress: baseProgress,  // 使用智能计算的进度
 				addedFiles: incrementalResult.added.length,
 				modifiedFiles: incrementalResult.modified.length,
 				deletedFiles: incrementalResult.deleted.length,
@@ -592,7 +622,6 @@ export class GraphBuilder {
 		}
 
 		// 获取当前状态以决定从哪里开始
-		const currentState = this.buildStateTracer.getCurrentState()
 		const currentPhase = currentState?.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS
 		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.COMPLETED]
 		const currentPhaseIndex = phases.indexOf(currentPhase)
@@ -668,13 +697,19 @@ export class GraphBuilder {
 					
 					this.logger.info(`[GraphBuilder] 文件摘要: 批次大小: ${batchSize}, 耗时: ${ProgressTracer.formatDuration(batchDuration)}，进度：${progress.totalProcessedFiles}/${progress.filesToProcess}`)
 					
-					// 计算累计已处理文件数 (初始已完成 + 本次新增已完成)
-					const currentTotalProcessed = initialProcessedFiles + progress.totalProcessedFiles
+					// ✅ 计算累计已处理文件数（基准 + 本轮增量）
+					const currentTotalProcessed = baseProcessedFiles + progress.totalProcessedFiles
+					
+					// ✅ 计算累计进度百分比（基于新的总文件数）
+					const currentProgress = totalFiles > 0 
+						? Math.floor((currentTotalProcessed / totalFiles) * 100) 
+						: 0
 
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
 						phase: KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS,
-						processedFiles: currentTotalProcessed,
+						progress: currentProgress,  // ✅ 使用累计进度
+						processedFiles: currentTotalProcessed,  // ✅ 使用累计已处理数
 						failedFiles: progress.batchFailedFiles,
 						error: progress.message
 					}, progress.batchProcessedFilePaths, "success")
@@ -837,6 +872,85 @@ export class GraphBuilder {
 		// 生成性能报告
 		const performanceReport = this.progressTracer.generateReport()
 		performanceReport.forEach(log => this.logger.info(log))
+	}
+
+	/**
+	 * 智能计算起始进度
+	 * 场景 1: 无文件变更 → 保留原进度
+	 * 场景 2: 有文件变更 → 重新计算进度比例
+	 * 场景 3: 完成态/首次 → 从 0 开始
+	 */
+	private calculateBaseProgress(
+		oldState: KnowledgeGraphBuildState | undefined,
+		incrementalResult: any,
+		newTotalFiles: number
+	): { baseProgress: number; baseProcessedFiles: number } {
+		
+		// 场景 3: 上次完成态或首次构建 → 从 0 开始
+		if (!oldState || oldState.status === KNOWLEDGE_GRAPH_STATUS.COMPLETED) {
+			this.logger.info("[GraphBuilder] 场景 3：全新构建，进度从 0% 开始")
+			return { baseProgress: 0, baseProcessedFiles: 0 }
+		}
+		
+		// 检查是否有文件变更
+		const hasFileChanges = incrementalResult.added.length > 0 
+							|| incrementalResult.modified.length > 0 
+							|| incrementalResult.deleted.length > 0
+		
+		const oldProcessedFiles = oldState.processedFiles || 0
+		const oldTotalFiles = oldState.totalFiles || newTotalFiles
+		const oldProgress = oldState.progress || 0
+		
+		// 场景 1: 暂停态 + 无文件变更 → 保留原进度
+		if (!hasFileChanges) {
+			this.logger.info(`[GraphBuilder] 场景 1：无文件变更，保留原进度 ${oldProgress}%`)
+			return {
+				baseProgress: oldProgress,
+				baseProcessedFiles: oldProcessedFiles
+			}
+		}
+		
+		// 场景 2: 暂停态 + 有文件变更 → 重新计算进度比例
+		// 逻辑：已完成的文件数不变，但总数变了，重新计算百分比
+		const newProgress = newTotalFiles > 0 
+			? Math.floor((oldProcessedFiles / newTotalFiles) * 100) 
+			: 0
+		
+		this.logger.info(`[GraphBuilder] 场景 2：检测到文件变更`)
+		this.logger.info(`[GraphBuilder] - 原总文件数: ${oldTotalFiles}, 已完成: ${oldProcessedFiles} (${oldProgress}%)`)
+		this.logger.info(`[GraphBuilder] - 新总文件数: ${newTotalFiles}, 已完成: ${oldProcessedFiles} (${newProgress}%)`)
+		this.logger.info(`[GraphBuilder] - 变更详情: 新增 ${incrementalResult.added.length}, 修改 ${incrementalResult.modified.length}, 删除 ${incrementalResult.deleted.length}`)
+		
+		return {
+			baseProgress: newProgress,
+			baseProcessedFiles: oldProcessedFiles
+		}
+	}
+
+	/**
+	 * 生成进度提示消息
+	 */
+	private getProgressMessage(
+		baseProgress: number,
+		incrementalResult: any
+	): string {
+		const hasChanges = incrementalResult.added.length > 0 
+						|| incrementalResult.modified.length > 0 
+						|| incrementalResult.deleted.length > 0
+		
+		if (!hasChanges) {
+			return baseProgress > 0 
+				? `继续构建（从 ${baseProgress}% 继续）` 
+				: "开始全新构建"
+		}
+		
+		const changeCount = incrementalResult.added.length 
+						  + incrementalResult.modified.length 
+						  + incrementalResult.deleted.length
+		
+		return baseProgress > 0
+			? `检测到 ${changeCount} 个文件变更，进度已调整为 ${baseProgress}%（继续构建）`
+			: `检测到 ${changeCount} 个文件变更，开始构建`
 	}
 
 	/**

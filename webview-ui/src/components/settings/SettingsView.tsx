@@ -146,7 +146,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		includeTestFiles: false,
 		maxVisualizationFiles: 200,
 		contextWindowSize: 128000,
-		contextWindowThreshold: 50,
+		contextWindowThreshold: 25,  // ✅ 与后端默认值保持一致
 		llmTimeoutMs: 300000,
 		llmMaxRetries: 5,
 	})

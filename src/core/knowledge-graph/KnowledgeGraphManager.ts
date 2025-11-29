@@ -223,6 +223,8 @@ export class KnowledgeGraphManager {
 	/**
 	 * 从 GlobalState 加载配置（单一数据源）
 	 * 配置存储在 GlobalState["knowledgeGraphConfig"] 中
+	 * 
+	 * ⚠️ 重要：使用 Object.assign 更新配置，保持对象引用不变
 	 */
 	private async loadUserConfig(): Promise<void> {
 		const provider = this.clineProvider
@@ -231,8 +233,10 @@ export class KnowledgeGraphManager {
 		// ✅ 从单一的 GlobalState key 读取配置
 		const savedConfig = provider.contextProxy?.getValue("knowledgeGraphConfig" as any) as Partial<KnowledgeGraphConfig> | undefined
 
-		// 合并默认配置和用户配置
-		this.config = { ...DEFAULT_CONFIG, ...(savedConfig || {}) }
+		// ✅ 修复：使用 Object.assign 合并配置，保持对象引用
+		// 先清空当前配置，再填充默认值，最后应用用户配置
+		Object.keys(this.config).forEach(key => delete (this.config as any)[key])
+		Object.assign(this.config, DEFAULT_CONFIG, savedConfig || {})
 
 		this.logger?.info(`[KnowledgeGraphManager] ========== 用户配置已加载 ==========`)
 		this.logger?.info(`[KnowledgeGraphManager] 模型: ${this.config.model}`)
@@ -348,16 +352,14 @@ export class KnowledgeGraphManager {
 		await this.fileStorage.initialize()
 		await this.sqliteStorage.initialize()
 		
+		// ✅ 修复：传入配置对象引用，而不是复制值
+		// LLMClient 会持有这个引用，配置更新时自动生效
 		const llmClient = new LLMClient(
 			this.config.model, 
 			progressTracer, 
 			undefined, 
 			this.logger!,
-			{
-				contextWindowSize: this.config.contextWindowSize,
-				llmTimeoutMs: this.config.llmTimeoutMs,
-				llmMaxRetries: this.config.llmMaxRetries,
-			}
+			this.config  // 直接传入配置对象引用
 		)
 
 		return { 
@@ -573,13 +575,18 @@ export class KnowledgeGraphManager {
 				return false
 			}
 
-			// ✅ 6. 如果状态是 PAUSED，重置为 PENDING（自动构建不受暂停影响）
+		// ✅ 6. 如果状态是 PAUSED，跳过自动构建（尊重用户主动暂停意图）
 			if (currentStatus?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED) {
-				this.logger?.info(`[KnowledgeGraphManager] ℹ️ 检测到暂停状态，重置为待构建状态以执行自动构建`)
-				await this.stateTracer?.updateBuildState({ status: KNOWLEDGE_GRAPH_STATUS.PENDING })
+			this.logger?.warn(`[KnowledgeGraphManager] ⚠️ 自动构建跳过：用户已主动暂停构建`)
+			return false
 			}
 
-			// 7. 执行构建
+		// ✅ 7. INTERRUPTED 状态不阻止自动构建（系统被动中断，应该自动恢复）
+			if (currentStatus?.status === KNOWLEDGE_GRAPH_STATUS.INTERRUPTED) {
+				this.logger?.info(`[KnowledgeGraphManager] 📋 检测到中断状态，自动构建将尝试恢复...`)
+			}
+
+			// 8. 执行构建
 			this.currentOperationType = "auto-build"
 			this.logger?.info(`[KnowledgeGraphManager] 🔨 开始执行自动构建...`)
 
@@ -637,8 +644,9 @@ export class KnowledgeGraphManager {
 			this.graphRetriever = undefined
 			this.exporter = undefined
 
-			// 重置配置为默认值
-			this.config = { ...DEFAULT_CONFIG }
+			// ✅ 修复：重置配置为默认值，保持对象引用
+			Object.keys(this.config).forEach(key => delete (this.config as any)[key])
+			Object.assign(this.config, DEFAULT_CONFIG)
 
 			this.logger?.debug("[KnowledgeGraphManager] 组件清理完成")
 		} catch (error) {
@@ -679,13 +687,18 @@ export class KnowledgeGraphManager {
 	/**
 	 * ✅ 应用配置变更（唯一的定时器管理入口）
 	 * 直接应用配置，并持久化到 GlobalState
+	 * 
+	 * ⚠️ 重要：直接修改 this.config 对象的属性，而不是创建新对象
+	 * 这样可以确保所有持有 config 引用的组件（如 FileSummarizer）都能获取到最新配置
 	 */
 	public async applyConfigChanges(changes: Partial<KnowledgeGraphConfig>): Promise<void> {
 		if (!this.isInitialized || !this.isEnabled) {
 			return
 		}
 
-		this.config = { ...this.config, ...changes }
+		// ✅ 修复：直接修改属性，保持对象引用不变
+		// 这样所有持有 this.config 引用的组件都能自动获取最新配置
+		Object.assign(this.config, changes)
 		
 		// ✅ 立即持久化配置
 		await this.saveConfig()
@@ -697,8 +710,9 @@ export class KnowledgeGraphManager {
 			this.autoRebuildScheduler?.stop()
 		}
 		
-		// ✅ 打印定时器状态
+		// ✅ 打印定时器状态和配置变更
 		this.logger?.info("[KnowledgeGraphManager] ✓ 配置已应用")
+		this.logger?.info(`[KnowledgeGraphManager] 配置变更:`, changes)
 		this.printSchedulerStatus()
 	}
 

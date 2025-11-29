@@ -60,6 +60,7 @@
 	"statusSuccess": "成功",
 	"statusFailed": "失敗",
 	"statusPaused": "已暫停",
+	"statusInterrupted": "已中斷",
 	"statusUnknown": "未知",
 	"noStatisticsYet": "暫無統計數據",
 	"selectModel": "選擇模型",
