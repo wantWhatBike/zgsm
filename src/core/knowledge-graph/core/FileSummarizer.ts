@@ -52,16 +52,19 @@ export class FileSummarizer {
 			const basePromptToken = await countTokens(stringToContentBlocks(basePrompt))
 			
 			// ✅ 使用配置的上下文窗口阈值
+			// 修正：确保 (基础提示词 + 文件内容) <= 总窗口 * 阈值
 			const contextWindow = this.llmClient.getContextWindow()
 			const thresholdPercent = this.config.contextWindowThreshold || 50
-			const fileContentsWindow = (contextWindow - basePromptToken) * (thresholdPercent / 100)
+			const maxPromptTokens = Math.floor(contextWindow * (thresholdPercent / 100))
+			const fileContentsWindow = maxPromptTokens - basePromptToken
 			
 			// ✅ 调试日志：打印窗口计算信息
 			this.logger.info(`[FileSummarizer] ========== 上下文窗口计算 ==========`)
 			this.logger.info(`[FileSummarizer] 模型上下文窗口: ${contextWindow} tokens`)
-			this.logger.info(`[FileSummarizer] 基础提示词: ${basePromptToken} tokens`)
+			this.logger.info(`[FileSummarizer] 基础提示词 (rootInfo + fileList): ${basePromptToken} tokens`)
 			this.logger.info(`[FileSummarizer] 上下文窗口阈值: ${thresholdPercent}%`)
-			this.logger.info(`[FileSummarizer] 文件内容可用窗口: ${Math.floor(fileContentsWindow)} tokens`)
+			this.logger.info(`[FileSummarizer] 最大提示词限制: ${maxPromptTokens} tokens`)
+			this.logger.info(`[FileSummarizer] 文件内容可用窗口: ${fileContentsWindow} tokens (= ${maxPromptTokens} - ${basePromptToken})`)
 			this.logger.info(`[FileSummarizer] ================================================`)
 			
 			// 2. 分批分析文件
@@ -199,7 +202,6 @@ export class FileSummarizer {
 		}
 
 		const prompt = buildPrompt(basePrompt, {
-			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
 			fileContents: formatFileContents(batchFiles),
 		})
 		

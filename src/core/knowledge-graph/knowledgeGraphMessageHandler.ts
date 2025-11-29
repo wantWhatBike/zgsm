@@ -343,7 +343,9 @@ export class KnowledgeGraphMessageHandler {
         throw new Error("图谱检索器未初始化")
       }
 
-      const graphData = await graphRetriever.getGraphData(workspacePath)
+      // ✅ 获取最大可视化文件数配置
+      const maxVisualizationFiles = knowledgeGraphManager.getMaxVisualizationFiles()
+      const graphData = await graphRetriever.getGraphData(workspacePath, maxVisualizationFiles)
 
       // 发送到主 webview
       this.clineProvider.postMessageToWebview({
@@ -376,7 +378,9 @@ export class KnowledgeGraphMessageHandler {
         throw new Error("图谱检索器未初始化")
       }
 
-      const graphData = await graphRetriever.getGraphData(workspacePath)
+      // ✅ 获取最大可视化文件数配置
+      const maxVisualizationFiles = knowledgeGraphManager.getMaxVisualizationFiles()
+      const graphData = await graphRetriever.getGraphData(workspacePath, maxVisualizationFiles)
 
       // 发送到图谱视图面板
       webview.postMessage({

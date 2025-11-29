@@ -54,9 +54,14 @@ export class FileFilter {
     this.logger.info(`[FileFilter] 根据后缀过滤后，剩余文件数: ${files.length}`)
 
     // 4. 过滤测试文件（如果不包含测试文件）
+    // ✅ 调试日志：测试文件过滤
     if (!this.includeTestFiles) {
+      const beforeFilter = files.length
       files = this.filterTestFiles(files)
-      this.logger.info(`[FileFilter] 过滤测试文件后，剩余文件数: ${files.length}`)
+      const filtered = beforeFilter - files.length
+      this.logger.info(`[FileFilter] 过滤测试文件: ${beforeFilter} → ${files.length} (移除 ${filtered} 个)`)
+    } else {
+      this.logger.info(`[FileFilter] 包含测试文件，跳过过滤`)
     }
 
     this.logger.info(`[FileFilter] 过滤完成，剩余：${files.length}个文件`)

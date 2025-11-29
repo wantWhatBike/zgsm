@@ -585,7 +585,7 @@ export const KnowledgeGraphSettings = ({
 							<div className="flex items-center justify-between w-full">
 								<div className="flex items-center gap-4 font-bold">
 									<FileText className="w-4 h-4" />
-									<div>{t("knowledgegraph:buildStatus")}</div>
+									<div>{t("knowledgegraph:title")}</div>
 								</div>
 								{/* 统计信息图标 - 与构建状态在同一行 */}
 								{isZgsmProvider && cwd && knowledgeGraphEnabled && (

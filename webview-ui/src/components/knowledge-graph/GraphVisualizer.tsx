@@ -212,18 +212,19 @@ export const GraphVisualizer = () => {
 					top: "0.5rem",
 					left: "0.5rem",
 					background: "var(--vscode-panel-background, rgba(0, 0, 0, 0.7))",
-					padding: "0.35rem 0.65rem",
-					borderRadius: "3px",
+					padding: "0.5rem 0.75rem",
+					borderRadius: "4px",
 					color: "var(--vscode-foreground, #fff)",
-					fontSize: "0.7rem",
+					fontSize: "0.75rem",
 					border: "1px solid var(--vscode-panel-border, rgba(255, 255, 255, 0.2))",
 					fontFamily: "monospace",
+					lineHeight: "1.5",
 				}}
 			>
 				<div>节点: {displayData.nodes.length}/{graphData.nodes.length} | 边: {displayData.links.length}</div>
 				{isLimited && (
 					<div style={{ color: "var(--vscode-textPreformat-foreground, #ffa500)", marginTop: "0.25rem" }}>
-						⚠ 显示已限制 (总计: {totalNodes})
+						⚠ 最多展示 200 个文件节点 (总计: {totalNodes} 个)
 					</div>
 				)}
 			</div>

@@ -66,7 +66,7 @@ export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   maxVisualizationFiles: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_MAX_VISUALIZATION_FILES,
   // LLM configuration
   contextWindowSize: 128000,
-  contextWindowThreshold: 50,
+  contextWindowThreshold: 25,  // ✅ 优化：降低到 25%，避免批次过大导致响应慢（原 50%）
   llmTimeoutMs: 300000,
   llmMaxRetries: 5,
 }

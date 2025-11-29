@@ -58,37 +58,36 @@ export function useGraphData(): UseGraphDataResult {
 		}
 	}, [requestGraphData])
 
-	// 应用可视化限制
+	// ✅ 应用可视化限制（只限制文件节点，目录节点全部保留）
 	const limitedGraphData = useMemo(() => {
 		if (!rawGraphData) {
 			return { nodes: [], links: [] }
 		}
 
-		const totalNodes = rawGraphData.nodes.length
+		// ✅ 分离文件节点和目录节点
+		const fileNodes = rawGraphData.nodes.filter(n => n.type === 'file')
+		const dirNodes = rawGraphData.nodes.filter(n => n.type === 'directory')
 
-		// 如果节点数量未超过限制，直接返回原始数据
-		if (totalNodes <= maxVisualizationFiles) {
+		// ✅ 如果文件节点数量未超过限制，直接返回原始数据
+		if (fileNodes.length <= maxVisualizationFiles) {
 			return rawGraphData
 		}
 
-		// 节点优先级排序：目录 > source文件 > 其他文件
-		const prioritizedNodes = [...rawGraphData.nodes].sort((a, b) => {
-			// 1. 目录优先
-			if (a.type === 'directory' && b.type !== 'directory') return -1
-			if (a.type !== 'directory' && b.type === 'directory') return 1
-
-			// 2. source 文件优先
-			if (a.type === 'file' && b.type === 'file') {
-				if (a.fileType === 'source' && b.fileType !== 'source') return -1
-				if (a.fileType !== 'source' && b.fileType === 'source') return 1
-			}
-
-			// 3. 按字母顺序
+		// ✅ 文件节点优先级排序：源码文件 > 测试文件
+		const prioritizedFileNodes = [...fileNodes].sort((a, b) => {
+			// 源码文件优先于测试文件
+			if (a.fileType === 'source' && b.fileType === 'test') return -1
+			if (a.fileType === 'test' && b.fileType === 'source') return 1
+			
+			// 同类型按路径排序
 			return a.id.localeCompare(b.id)
 		})
 
-		// 截取前 N 个节点
-		const limitedNodes = prioritizedNodes.slice(0, maxVisualizationFiles)
+		// ✅ 限制文件节点数量
+		const limitedFileNodes = prioritizedFileNodes.slice(0, maxVisualizationFiles)
+		
+		// ✅ 保留所有目录节点 + 限制后的文件节点
+		const limitedNodes = [...dirNodes, ...limitedFileNodes]
 		const limitedNodeIds = new Set(limitedNodes.map(n => n.id))
 
 		// 只保留连接限制节点之间的边
@@ -102,8 +101,9 @@ export function useGraphData(): UseGraphDataResult {
 		}
 	}, [rawGraphData, maxVisualizationFiles])
 
-	const isLimited = rawGraphData ? rawGraphData.nodes.length > maxVisualizationFiles : false
-	const totalNodes = rawGraphData?.nodes.length ?? 0
+	// ✅ 统计文件节点数（用于判断是否限制）
+	const totalFileNodes = rawGraphData ? rawGraphData.nodes.filter(n => n.type === 'file').length : 0
+	const isLimited = totalFileNodes > maxVisualizationFiles
 
 	return {
 		graphData: limitedGraphData,
@@ -111,7 +111,7 @@ export function useGraphData(): UseGraphDataResult {
 		error,
 		refetch: requestGraphData,
 		isLimited,
-		totalNodes,
+		totalNodes: totalFileNodes,  // ✅ 返回文件节点总数
 	}
 }
 

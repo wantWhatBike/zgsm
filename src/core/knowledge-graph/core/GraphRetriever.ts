@@ -367,8 +367,16 @@ export class GraphRetriever {
 	 * @param workspacePath 工作区路径
 	 * @returns 图谱数据（节点和边）
 	 */
-	public async getGraphData(workspacePath: string): Promise<GraphData> {
-		this.logger?.info(`[GraphRetriever] 开始获取图谱数据: ${workspacePath}`)
+	/**
+	 * 获取图谱数据
+	 * @param workspacePath 工作区路径
+	 * @param maxNodes 最大节点数（用于限制返回的节点数量，避免OOM）
+	 * @returns 图谱数据
+	 */
+	public async getGraphData(workspacePath: string, maxNodes?: number): Promise<GraphData> {
+		this.logger?.info(`[GraphRetriever] ========== 获取图谱数据 ==========`)
+		this.logger?.info(`[GraphRetriever] 工作区: ${workspacePath}`)
+		this.logger?.info(`[GraphRetriever] 最大节点数限制: ${maxNodes || '无限制'}`)
 		
 		try {
 			// 1. 获取所有文件摘要和目录摘要
@@ -472,13 +480,62 @@ export class GraphRetriever {
 				}
 			}
 
-			this.logger?.info(`[GraphRetriever] 图谱数据构建完成: ${nodes.length} 个节点, ${links.length} 条边`)
+			// 统计节点类型
+			const fileNodes = nodes.filter(n => n.type === 'file')
+			const dirNodes = nodes.filter(n => n.type === 'directory')
+			
+			this.logger?.info(`[GraphRetriever] 图谱数据构建完成（限制前）: ${nodes.length} 个节点（${fileNodes.length} 文件 + ${dirNodes.length} 目录）, ${links.length} 条边`)
 
+			// 4. ✅ 如果设置了最大文件节点数限制，则按优先级筛选文件节点（目录节点全部保留）
+			if (maxNodes && maxNodes > 0 && fileNodes.length > maxNodes) {
+				this.logger?.info(`[GraphRetriever] 文件节点数超过限制（${fileNodes.length} > ${maxNodes}），开始按优先级筛选文件节点...`)
+				
+				// ✅ 按优先级排序文件节点（源码文件 > 测试文件）
+				const prioritizedFileNodes = this.prioritizeFileNodes(fileNodes)
+				
+				// ✅ 限制文件节点数量
+				const limitedFileNodes = prioritizedFileNodes.slice(0, maxNodes)
+				
+				// ✅ 保留所有目录节点 + 限制后的文件节点
+				const limitedNodes = [...dirNodes, ...limitedFileNodes]
+				const limitedNodeIds = new Set(limitedNodes.map(n => n.id))
+				
+				// 只保留连接限制节点之间的边
+				const limitedLinks = links.filter(link => 
+					limitedNodeIds.has(link.source) && limitedNodeIds.has(link.target)
+				)
+				
+				this.logger?.info(`[GraphRetriever] ✅ 文件节点限制完成: ${limitedFileNodes.length}/${fileNodes.length} 文件节点（保留所有 ${dirNodes.length} 个目录节点）`)
+				this.logger?.info(`[GraphRetriever] 总节点: ${limitedNodes.length} 个, 边: ${limitedLinks.length} 条`)
+				this.logger?.info(`[GraphRetriever] 已移除: ${fileNodes.length - limitedFileNodes.length} 个文件节点, ${links.length - limitedLinks.length} 条边`)
+				this.logger?.info(`[GraphRetriever] ================================================`)
+				
+				return { nodes: limitedNodes, links: limitedLinks }
+			}
+
+			this.logger?.info(`[GraphRetriever] ✅ 文件节点数未超限，返回完整数据`)
+			this.logger?.info(`[GraphRetriever] ================================================`)
 			return { nodes, links }
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "获取图谱数据失败"
-			this.logger?.error(`[GraphRetriever] 获取图谱数据失败: ${errorMessage}`)
+			this.logger?.error(`[GraphRetriever] ❌ 获取图谱数据失败: ${errorMessage}`)
+			this.logger?.info(`[GraphRetriever] ================================================`)
 			throw new Error(`获取图谱数据失败: ${errorMessage}`)
 		}
+	}
+
+	/**
+	 * ✅ 按优先级排序文件节点（简化版本）
+	 * 优先级规则：源码文件 > 测试文件
+	 */
+	private prioritizeFileNodes(fileNodes: GraphNode[]): GraphNode[] {
+		return fileNodes.sort((a, b) => {
+			// 1. 源码文件优先于测试文件
+			if (a.fileType === 'source' && b.fileType === 'test') return -1
+			if (a.fileType === 'test' && b.fileType === 'source') return 1
+			
+			// 2. 同类型按路径排序
+			return a.id.localeCompare(b.id)
+		})
 	}
 }

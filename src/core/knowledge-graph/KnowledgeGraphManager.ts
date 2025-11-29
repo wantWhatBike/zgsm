@@ -243,6 +243,7 @@ export class KnowledgeGraphManager {
 		this.logger?.info(`[KnowledgeGraphManager] 最大文件数: ${this.config.maxFiles}`)
 		this.logger?.info(`[KnowledgeGraphManager] 文件大小限制: ${this.config.fileSizeLimit} bytes`)
 		this.logger?.info(`[KnowledgeGraphManager] 包含测试文件: ${this.config.includeTestFiles ? '是' : '否'}`)
+		this.logger?.info(`[KnowledgeGraphManager] 最大可视化文件数: ${this.config.maxVisualizationFiles || 200}`)
 		this.logger?.info(`[KnowledgeGraphManager] 自动构建: ${this.config.autoRebuildEnabled ? '启用' : '禁用'}`)
 		if (this.config.autoRebuildEnabled) {
 			this.logger?.info(`[KnowledgeGraphManager] 自动构建间隔: ${this.config.autoRebuildIntervalMinutes || 5}分钟`)
@@ -572,7 +573,13 @@ export class KnowledgeGraphManager {
 				return false
 			}
 
-			// 6. 执行构建
+			// ✅ 6. 如果状态是 PAUSED，重置为 PENDING（自动构建不受暂停影响）
+			if (currentStatus?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED) {
+				this.logger?.info(`[KnowledgeGraphManager] ℹ️ 检测到暂停状态，重置为待构建状态以执行自动构建`)
+				await this.stateTracer?.updateBuildState({ status: KNOWLEDGE_GRAPH_STATUS.PENDING })
+			}
+
+			// 7. 执行构建
 			this.currentOperationType = "auto-build"
 			this.logger?.info(`[KnowledgeGraphManager] 🔨 开始执行自动构建...`)
 
@@ -881,6 +888,13 @@ export class KnowledgeGraphManager {
 	 */
 	public getGraphRetriever(): GraphRetriever | undefined {
 		return this.graphRetriever
+	}
+
+	/**
+	 * 获取最大可视化文件数配置
+	 */
+	public getMaxVisualizationFiles(): number {
+		return this.config.maxVisualizationFiles || 200
 	}
 
 	/**
