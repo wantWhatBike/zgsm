@@ -240,6 +240,11 @@ export interface KnowledgeGraphBuildState {
       status: 'pending' | 'running' | 'completed' | 'skipped'
     }
   }
+
+  // Incremental Build Statistics
+  addedFiles?: number
+  modifiedFiles?: number
+  deletedFiles?: number
 }
 
 // --- Graph Visualization Types ---

@@ -473,6 +473,20 @@ export class GraphBuilder {
 		this.logger.info(`[GraphBuilder] 工作区: ${workspacePath}`)
 		this.logger.info(`[GraphBuilder] 模式: ${options.resumeFromPrevious ? '恢复构建' : '新建构建'}`)
 		this.logger.info(`[GraphBuilder] ================================================`)
+		this.logger.info(`[GraphBuilder] ========== 当前配置信息 ==========`)
+		this.logger.info(`[GraphBuilder] 模型: ${this.config.model}`)
+		this.logger.info(`[GraphBuilder] 上下文窗口大小: ${this.config.contextWindowSize || 128000}`)
+		this.logger.info(`[GraphBuilder] 上下文窗口阈值: ${this.config.contextWindowThreshold || 50}%`)
+		this.logger.info(`[GraphBuilder] LLM超时时间: ${(this.config.llmTimeoutMs || 300000) / 60000}分钟`)
+		this.logger.info(`[GraphBuilder] LLM重试次数: ${this.config.llmMaxRetries || 5}次`)
+		this.logger.info(`[GraphBuilder] 最大文件数: ${this.config.maxFiles}`)
+		this.logger.info(`[GraphBuilder] 文件大小限制: ${this.config.fileSizeLimit} bytes`)
+		this.logger.info(`[GraphBuilder] 包含测试文件: ${this.config.includeTestFiles ? '是' : '否'}`)
+		this.logger.info(`[GraphBuilder] 自动构建: ${this.config.autoRebuildEnabled ? '启用' : '禁用'}`)
+		if (this.config.autoRebuildEnabled) {
+			this.logger.info(`[GraphBuilder] 自动构建间隔: ${this.config.autoRebuildIntervalMinutes}分钟`)
+		}
+		this.logger.info(`[GraphBuilder] ================================================`)
 		
 		// 重置性能跟踪器
 		this.progressTracer.reset()
@@ -539,7 +553,10 @@ export class GraphBuilder {
 				processedFiles: totalFiles,       // ✅ 所有文件都已处理
 				totalFilesToProcess: totalFiles,  // ✅ 保持一致性
 				failedFiles: 0,
-				error: ""
+				error: "",
+				addedFiles: incrementalResult.added.length,
+				modifiedFiles: incrementalResult.modified.length,
+				deletedFiles: incrementalResult.deleted.length,
 			})
 			return
 		}
@@ -552,13 +569,22 @@ export class GraphBuilder {
 		// 初始化构建
 		if (!options.resumeFromPrevious) {
 			await this.buildStateTracer.initializeBuildState(workspacePath, totalFiles, totalFilesToProcess, initialProcessedFiles)
+			// 记录增量统计
+			await this.buildStateTracer.updateBuildState({
+				addedFiles: incrementalResult.added.length,
+				modifiedFiles: incrementalResult.modified.length,
+				deletedFiles: incrementalResult.deleted.length,
+			})
 		} else {
 			this.logger.info("[GraphBuilder] 恢复构建，跳过状态初始化")
-			// 更新可能变化的文件统计信息
+			// 更新可能变化的文件统计信息（包括增量统计）
 			await this.buildStateTracer.updateBuildState({
 				totalFiles: totalFiles,
 				totalFilesToProcess: totalFiles,
-				processedFiles: initialProcessedFiles
+				processedFiles: initialProcessedFiles,
+				addedFiles: incrementalResult.added.length,
+				modifiedFiles: incrementalResult.modified.length,
+				deletedFiles: incrementalResult.deleted.length,
 			})
 		}
 

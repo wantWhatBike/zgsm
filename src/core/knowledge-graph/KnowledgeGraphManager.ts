@@ -235,6 +235,10 @@ export class KnowledgeGraphManager {
 			knowledgeGraphAutoRebuildIntervalMinutes: "autoRebuildIntervalMinutes",
 			knowledgeGraphIncludeTestFiles: "includeTestFiles",
 			knowledgeGraphMaxVisualizationFiles: "maxVisualizationFiles",
+			knowledgeGraphContextWindowSize: "contextWindowSize",
+			knowledgeGraphContextWindowThreshold: "contextWindowThreshold",
+			knowledgeGraphLlmTimeoutMs: "llmTimeoutMs",
+			knowledgeGraphLlmMaxRetries: "llmMaxRetries",
 		}
 
 		// 安全地映射配置
@@ -247,7 +251,20 @@ export class KnowledgeGraphManager {
 			}
 		}
 
-		this.logger?.info(`[KnowledgeGraphManager] 已加载用户配置: ${JSON.stringify(this.config)}`)
+		this.logger?.info(`[KnowledgeGraphManager] ========== 用户配置已加载 ==========`)
+		this.logger?.info(`[KnowledgeGraphManager] 模型: ${this.config.model}`)
+		this.logger?.info(`[KnowledgeGraphManager] 上下文窗口大小: ${this.config.contextWindowSize || 128000}`)
+		this.logger?.info(`[KnowledgeGraphManager] 上下文窗口阈值: ${this.config.contextWindowThreshold || 50}%`)
+		this.logger?.info(`[KnowledgeGraphManager] LLM超时时间: ${(this.config.llmTimeoutMs || 300000) / 60000}分钟`)
+		this.logger?.info(`[KnowledgeGraphManager] LLM重试次数: ${this.config.llmMaxRetries || 5}次`)
+		this.logger?.info(`[KnowledgeGraphManager] 最大文件数: ${this.config.maxFiles}`)
+		this.logger?.info(`[KnowledgeGraphManager] 文件大小限制: ${this.config.fileSizeLimit} bytes`)
+		this.logger?.info(`[KnowledgeGraphManager] 包含测试文件: ${this.config.includeTestFiles ? '是' : '否'}`)
+		this.logger?.info(`[KnowledgeGraphManager] 自动构建: ${this.config.autoRebuildEnabled ? '启用' : '禁用'}`)
+		if (this.config.autoRebuildEnabled) {
+			this.logger?.info(`[KnowledgeGraphManager] 自动构建间隔: ${this.config.autoRebuildIntervalMinutes}分钟`)
+		}
+		this.logger?.info(`[KnowledgeGraphManager] ===================================`)
 	}
 
 	/**
@@ -325,7 +342,17 @@ export class KnowledgeGraphManager {
 		await this.fileStorage.initialize()
 		await this.sqliteStorage.initialize()
 		
-		const llmClient = new LLMClient(this.config.model, progressTracer, undefined, this.logger!)
+		const llmClient = new LLMClient(
+			this.config.model, 
+			progressTracer, 
+			undefined, 
+			this.logger!,
+			{
+				contextWindowSize: this.config.contextWindowSize,
+				llmTimeoutMs: this.config.llmTimeoutMs,
+				llmMaxRetries: this.config.llmMaxRetries,
+			}
+		)
 
 		return { 
 			fileStorage: this.fileStorage,
@@ -517,7 +544,21 @@ export class KnowledgeGraphManager {
 
 		this.nextAutoRebuildTime = Date.now() + intervalMs
 		
-		this.logger?.info(`[KnowledgeGraphManager] 安排下次自动构建，间隔: ${intervalMinutes} 分钟`)
+		// 格式化下次构建时间
+		const nextBuildTime = new Date(this.nextAutoRebuildTime).toLocaleString('zh-CN', {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			hour12: false
+		})
+		
+		this.logger?.info(`[KnowledgeGraphManager] ========== 自动构建定时器已启动 ==========`)
+		this.logger?.info(`[KnowledgeGraphManager] 构建间隔: ${intervalMinutes} 分钟`)
+		this.logger?.info(`[KnowledgeGraphManager] 下次自动构建时间: ${nextBuildTime}`)
+		this.logger?.info(`[KnowledgeGraphManager] ================================================`)
 
 		this.autoRebuildTimer = setTimeout(() => {
 			this.executeAutoRebuild()
@@ -531,8 +572,22 @@ export class KnowledgeGraphManager {
 		if (this.autoRebuildTimer) {
 			clearTimeout(this.autoRebuildTimer)
 			this.autoRebuildTimer = null
+			
+			// 如果有计划的构建时间，记录取消信息
+			if (this.nextAutoRebuildTime) {
+				const nextBuildTime = new Date(this.nextAutoRebuildTime).toLocaleString('zh-CN', {
+					year: 'numeric',
+					month: '2-digit',
+					day: '2-digit',
+					hour: '2-digit',
+					minute: '2-digit',
+					second: '2-digit',
+					hour12: false
+				})
+				this.logger?.info(`[KnowledgeGraphManager] 自动构建定时器已取消（原计划时间: ${nextBuildTime}）`)
+			}
+			
 			this.nextAutoRebuildTime = null
-			this.logger?.debug("[KnowledgeGraphManager] 已取消自动构建定时器")
 		}
 	}
 
@@ -540,23 +595,37 @@ export class KnowledgeGraphManager {
 	 * 执行自动构建（检查互斥）
 	 */
 	private async executeAutoRebuild(): Promise<void> {
-		this.logger?.info("[KnowledgeGraphManager] 开始执行自动构建")
+		const currentTime = new Date().toLocaleString('zh-CN', {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			hour12: false
+		})
+		
+		this.logger?.info("[KnowledgeGraphManager] ================================================")
+		this.logger?.info(`[KnowledgeGraphManager] 自动构建定时器触发 (${currentTime})`)
+		this.logger?.info("[KnowledgeGraphManager] ================================================")
 
 		try {
 			// 检查是否有操作正在执行
 			if (this.currentOperationType) {
 				this.logger?.warn(`[KnowledgeGraphManager] 自动构建跳过：${this.currentOperationType} 正在执行`)
+				this.logger?.info(`[KnowledgeGraphManager] 将在下个周期重试自动构建`)
 				// 重新安排下次构建
 				this.scheduleAutoRebuild()
 				return
 			}
 
 			// 执行构建
+			this.logger?.info("[KnowledgeGraphManager] 开始执行自动构建任务...")
 			await this.startBuild({ resumeFromPrevious: false })
 			
-			this.logger?.info("[KnowledgeGraphManager] 自动构建完成")
+			this.logger?.info("[KnowledgeGraphManager] ✓ 自动构建任务完成")
 		} catch (error) {
-			this.logger?.error(`[KnowledgeGraphManager] 自动构建失败: ${ErrorHandler.formatError(error)}`)
+			this.logger?.error(`[KnowledgeGraphManager] ✗ 自动构建失败: ${ErrorHandler.formatError(error)}`)
 		} finally {
 			// 安排下次构建
 			this.scheduleAutoRebuild()

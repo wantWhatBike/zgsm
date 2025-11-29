@@ -64,6 +64,11 @@ export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   includeTestFiles: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_INCLUDE_TEST_FILES,
   // Visualization configuration
   maxVisualizationFiles: KNOWLEDGE_GRAPH_DEFAULTS.DEFAULT_MAX_VISUALIZATION_FILES,
+  // LLM configuration
+  contextWindowSize: 128000,
+  contextWindowThreshold: 50,
+  llmTimeoutMs: 300000,
+  llmMaxRetries: 5,
 }
 
 

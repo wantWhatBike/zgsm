@@ -30,8 +30,10 @@ export class LLMClient {
   private logger: ILogger
   private apiConfiguration: ProviderSettings
   private progressTracer: ProgressTracer
+  private llmTimeoutMs: number
+  private llmMaxRetries: number
 
-  constructor(modelId: string, progressTracer: ProgressTracer, apiConfiguration?:ProviderSettings, logger?: ILogger) {
+  constructor(modelId: string, progressTracer: ProgressTracer, apiConfiguration?:ProviderSettings, logger?: ILogger, config?: { contextWindowSize?: number, llmTimeoutMs?: number, llmMaxRetries?: number }) {
     // 从task中获取API配置
     this.apiConfiguration = apiConfiguration || {}
     // 将ProviderSettings转换为ApiHandlerOptions
@@ -39,8 +41,12 @@ export class LLMClient {
     this.zgsmHandler = new ZgsmAiHandler(apiHandlerOptions)
     this.modelId = modelId || this.apiConfiguration.zgsmModelId || 'auto'
     this.logger = logger || createLogger('LLMClient')
-    // 根据模型设置上下文窗口大小
-    this.contextWindow = this.getContextWindowByModel(this.modelId)
+    // 使用配置的上下文窗口大小或默认值
+    this.contextWindow = config?.contextWindowSize || this.getContextWindowByModel(this.modelId)
+    // 使用配置的超时时间或默认值
+    this.llmTimeoutMs = config?.llmTimeoutMs || LLM_CONFIG.timeout
+    // 使用配置的重试次数或默认值
+    this.llmMaxRetries = config?.llmMaxRetries || LLM_CONFIG.maxRetries
     // 初始化性能跟踪器
     this.progressTracer = progressTracer
   }
@@ -143,8 +149,8 @@ export class LLMClient {
               }
             }
           })(),
-          LLM_CONFIG.timeout,
-          `LLM 请求超时（${LLM_CONFIG.timeout / 1000}秒），可能是网络问题或模型响应过慢`
+          this.llmTimeoutMs,
+          `LLM 请求超时（${this.llmTimeoutMs / 1000}秒），可能是网络问题或模型响应过慢`
         )
 
           const duration = Date.now() - startTime
@@ -188,7 +194,8 @@ export class LLMClient {
         }
       },
       "LLM消息发送",
-      this.logger
+      this.logger,
+      this.llmMaxRetries
     )
   }
 
@@ -252,7 +259,8 @@ export class LLMClient {
         }
       },
       "LLM结构化请求",
-      this.logger
+      this.logger,
+      this.llmMaxRetries
     )
   }
 

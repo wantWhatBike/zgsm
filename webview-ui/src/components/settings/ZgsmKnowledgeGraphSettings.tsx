@@ -4,7 +4,7 @@ import { format } from "date-fns"
 
 import { VSCodeCheckbox, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { vscode } from "@/utils/vscode"
-import { Button, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Badge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui"
+import { Button, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Badge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Collapsible, CollapsibleTrigger, CollapsibleContent, Slider } from "@/components/ui"
 
 import { SectionHeader } from "./SectionHeader"
 import { Section } from "./Section"
@@ -128,12 +128,20 @@ interface KnowledgeGraphSettingsProps {
 	knowledgeGraphAutoRebuildIntervalMinutes?: number
 	knowledgeGraphIncludeTestFiles?: boolean
 	knowledgeGraphMaxVisualizationFiles?: number
+	knowledgeGraphContextWindowSize?: number
+	knowledgeGraphContextWindowThreshold?: number
+	knowledgeGraphLlmTimeoutMs?: number
+	knowledgeGraphLlmMaxRetries?: number
 	setCachedStateField?: SetCachedStateField<
 		| "knowledgeGraphEnabled"
 		| "knowledgeGraphAutoRebuildEnabled"
 		| "knowledgeGraphAutoRebuildIntervalMinutes"
 		| "knowledgeGraphIncludeTestFiles"
 		| "knowledgeGraphMaxVisualizationFiles"
+		| "knowledgeGraphContextWindowSize"
+		| "knowledgeGraphContextWindowThreshold"
+		| "knowledgeGraphLlmTimeoutMs"
+		| "knowledgeGraphLlmMaxRetries"
 	>
 }
 
@@ -143,6 +151,10 @@ export const KnowledgeGraphSettings = ({
 	knowledgeGraphAutoRebuildIntervalMinutes,
 	knowledgeGraphIncludeTestFiles,
 	knowledgeGraphMaxVisualizationFiles,
+	knowledgeGraphContextWindowSize,
+	knowledgeGraphContextWindowThreshold,
+	knowledgeGraphLlmTimeoutMs,
+	knowledgeGraphLlmMaxRetries,
 	setCachedStateField,
 }: KnowledgeGraphSettingsProps) => {
 	const { t } = useAppTranslation()
@@ -398,7 +410,7 @@ export const KnowledgeGraphSettings = ({
 
 	// 渲染统计信息
 	const renderStatistics = useCallback(() => {
-		const { llmStatistics, phaseDurations, totalDuration } = uiState.knowledgeGraphStatus
+		const { llmStatistics, phaseDurations, totalDuration, addedFiles, modifiedFiles, deletedFiles } = uiState.knowledgeGraphStatus
 
 		// ✅ 更严格的检查：确保数据不为空且有有效值
 		const hasPhaseData = phaseDurations && 
@@ -407,9 +419,14 @@ export const KnowledgeGraphSettings = ({
 			llmStatistics.totalRequests !== undefined && 
 			llmStatistics.totalRequests > 0
 		const hasTotalDuration = totalDuration !== undefined && totalDuration > 0
+		
+		// 检查是否有增量统计数据
+		const hasIncrementalStats = (addedFiles !== undefined && addedFiles >= 0) || 
+			(modifiedFiles !== undefined && modifiedFiles >= 0) || 
+			(deletedFiles !== undefined && deletedFiles >= 0)
 
 		// 如果没有任何统计数据，显示等待中
-		if (!hasPhaseData && !hasLLMData && !hasTotalDuration) {
+		if (!hasPhaseData && !hasLLMData && !hasTotalDuration && !hasIncrementalStats) {
 			return (
 				<div className="text-sm p-2">
 					<div className="text-vscode-descriptionForeground">
@@ -421,6 +438,35 @@ export const KnowledgeGraphSettings = ({
 
 		return (
 			<div className="space-y-3 text-sm p-2 max-w-xs">
+				{/* 本次处理文件数统计 */}
+				{hasIncrementalStats && (
+					<div>
+						<div className="font-medium mb-2">{t("knowledgegraph:processedFilesStats")}</div>
+						<div className="space-y-1 text-xs text-vscode-descriptionForeground">
+							{addedFiles !== undefined && addedFiles >= 0 && (
+								<div>
+									{t("knowledgegraph:addedFiles")}: {formatNumber(addedFiles)}
+								</div>
+							)}
+							{modifiedFiles !== undefined && modifiedFiles >= 0 && (
+								<div>
+									{t("knowledgegraph:modifiedFiles")}: {formatNumber(modifiedFiles)}
+								</div>
+							)}
+							{deletedFiles !== undefined && deletedFiles >= 0 && (
+								<div>
+									{t("knowledgegraph:deletedFiles")}: {formatNumber(deletedFiles)}
+								</div>
+							)}
+							{(addedFiles !== undefined || modifiedFiles !== undefined || deletedFiles !== undefined) && (
+								<div className="font-medium pt-1 text-vscode-foreground">
+									{t("knowledgegraph:totalChanges")}: {formatNumber((addedFiles || 0) + (modifiedFiles || 0) + (deletedFiles || 0))}
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+
 				{/* 性能统计 */}
 				{hasPhaseData && (
 					<div>
@@ -787,20 +833,107 @@ export const KnowledgeGraphSettings = ({
 									</div>
 
 									{/* 可视化最大文件数量 */}
-									<div className="flex items-center gap-3">
-										<label className="text-sm font-medium whitespace-nowrap">
+									<div className="flex flex-col gap-1">
+										<label className="block font-medium mb-1">
 											{t("knowledgegraph:maxVisualizationFiles")}
 										</label>
+										<div className="flex items-center gap-2">
+											<Slider
+												min={10}
+												max={500}
+												step={10}
+												value={[knowledgeGraphMaxVisualizationFiles ?? 200]}
+												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphMaxVisualizationFiles", value)}
+												disabled={shouldDisableAll}
+											/>
+											<span className="w-16">{knowledgeGraphMaxVisualizationFiles ?? 200}个</span>
+										</div>
+										<div className="text-sm text-vscode-descriptionForeground">
+											限制可视化最多展示的文件数
+										</div>
+									</div>
+
+									{/* 模型上下文窗口大小 */}
+									<div className="flex flex-col gap-1">
+										<label className="text-sm font-medium">
+											{t("knowledgegraph:contextWindowSize")}
+										</label>
 										<VSCodeTextField
-											value={String(knowledgeGraphMaxVisualizationFiles ?? 200)}
+											value={String(knowledgeGraphContextWindowSize ?? 128000)}
 											onInput={(e: any) => {
-												const value = parseInt(e.target?.value || "200", 10)
-												const validValue = Math.max(1, value)
-												setCachedStateField?.("knowledgeGraphMaxVisualizationFiles", validValue)
+												const value = parseInt(e.target?.value || "128000", 10)
+												const validValue = Math.max(1000, value)
+												setCachedStateField?.("knowledgeGraphContextWindowSize", validValue)
 											}}
 											disabled={shouldDisableAll}
-											className="w-24"
+											className="w-32"
 										/>
+										<span className="text-xs text-vscode-descriptionForeground">
+											{t("knowledgegraph:contextWindowSizeHelp")}
+										</span>
+									</div>
+
+									{/* 摘要消耗上下文窗口阈值 */}
+									<div className="flex flex-col gap-1">
+										<label className="block font-medium mb-1">
+											{t("knowledgegraph:contextWindowThreshold")}
+										</label>
+										<div className="flex items-center gap-2">
+											<Slider
+												min={10}
+												max={100}
+												step={1}
+												value={[knowledgeGraphContextWindowThreshold ?? 50]}
+												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphContextWindowThreshold", value)}
+												disabled={shouldDisableAll}
+											/>
+											<span className="w-10">{knowledgeGraphContextWindowThreshold ?? 50}%</span>
+										</div>
+										<div className="text-sm text-vscode-descriptionForeground">
+											{t("knowledgegraph:contextWindowThresholdHelp")}
+										</div>
+									</div>
+
+									{/* LLM超时时间 */}
+									<div className="flex flex-col gap-1">
+										<label className="block font-medium mb-1">
+											{t("knowledgegraph:llmTimeout")}
+										</label>
+										<div className="flex items-center gap-2">
+											<Slider
+												min={1}
+												max={60}
+												step={1}
+												value={[(knowledgeGraphLlmTimeoutMs ?? 300000) / 60000]}
+												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphLlmTimeoutMs", value * 60000)}
+												disabled={shouldDisableAll}
+											/>
+											<span className="w-16">{(knowledgeGraphLlmTimeoutMs ?? 300000) / 60000}分钟</span>
+										</div>
+										<div className="text-sm text-vscode-descriptionForeground">
+											{t("knowledgegraph:llmTimeoutHelp")}
+										</div>
+									</div>
+
+									{/* LLM请求重试次数 */}
+									<div className="flex flex-col gap-1">
+										<label className="block font-medium mb-1">
+											{t("knowledgegraph:llmMaxRetries")}
+										</label>
+										<div className="flex items-center gap-2">
+											<Slider
+												min={1}
+												max={10}
+												step={1}
+												value={[knowledgeGraphLlmMaxRetries ?? 5]}
+												onValueChange={([value]) => setCachedStateField?.("knowledgeGraphLlmMaxRetries", value)}
+												disabled={shouldDisableAll}
+											/>
+											<span className="w-10">{knowledgeGraphLlmMaxRetries ?? 5}次</span>
+										</div>
+										<div className="text-sm text-vscode-descriptionForeground">
+											{t("knowledgegraph:llmMaxRetriesHelp")}
+										</div>
 									</div>
 									</CollapsibleContent>
 								</Collapsible>

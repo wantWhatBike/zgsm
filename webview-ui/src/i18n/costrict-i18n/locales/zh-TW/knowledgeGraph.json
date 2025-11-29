@@ -89,5 +89,19 @@
 	"totalOutputTokens": "輸出Token",
 	"totalTokens": "總Token消耗",
 	"visualizationLimited": "可視化已限制顯示前 {count} 個節點",
-	"batchInfo": "批次信息"
+	"batchInfo": "批次信息",
+	"contextWindowSize": "模型上下文窗口大小",
+	"contextWindowSizeHelp": "默認128000，根據模型能力設置",
+	"contextWindowThreshold": "摘要消耗上下文窗口閾值(%)",
+	"contextWindowThresholdHelp": "默認50%，最小10%，批量分析時prompt最多使用的上下文窗口百分比",
+	"llmTimeout": "LLM超時時間（分鐘）",
+	"llmTimeoutHelp": "默認5分鐘，最小1分鐘",
+	"llmMaxRetries": "LLM請求重試次數",
+	"llmMaxRetriesHelp": "默認5次，範圍1-10次",
+	"processedFilesStats": "本次處理檔案",
+	"addedFiles": "新增",
+	"modifiedFiles": "修改",
+	"deletedFiles": "刪除",
+	"totalChanges": "總變更",
+	"fullBuild": "全量構建"
 }

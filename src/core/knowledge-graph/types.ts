@@ -93,6 +93,11 @@ export interface KnowledgeGraphConfig {
   includeTestFiles?: boolean
   // Visualization configuration
   maxVisualizationFiles?: number
+  // LLM configuration
+  contextWindowSize?: number
+  contextWindowThreshold?: number
+  llmTimeoutMs?: number
+  llmMaxRetries?: number
 }
 
 import type { BuildProgress, KnowledgeGraphBuildState } from "@roo-code/types"

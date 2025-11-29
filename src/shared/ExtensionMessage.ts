@@ -382,6 +382,10 @@ export type ExtensionState = Pick<
 	knowledgeGraphAutoRebuildIntervalMinutes?: number
 	knowledgeGraphIncludeTestFiles?: boolean
 	knowledgeGraphMaxVisualizationFiles?: number
+	knowledgeGraphContextWindowSize?: number
+	knowledgeGraphContextWindowThreshold?: number
+	knowledgeGraphLlmTimeoutMs?: number
+	knowledgeGraphLlmMaxRetries?: number
 	knowledgeGraphConfig?: any // Knowledge graph configuration
 	knowledgeGraphStatus?: any // Current knowledge graph status
 

@@ -67,38 +67,42 @@ export class BuildStateTracer {
 				const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
 				const startTime = new Date().toISOString()
 
-				let taskState: KnowledgeGraphBuildState = {
-					taskId,
-					phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
-					progress: 0,
-					startTime,
-					lastUpdateTime: startTime,
+			let taskState: KnowledgeGraphBuildState = {
+				taskId,
+				phase: KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS,
+				progress: 0,
+				startTime,
+				lastUpdateTime: startTime,
+				totalDuration: 0,
+				status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
+				totalFiles,
+				processedFiles: initialProcessedFiles,
+				failedFiles: 0,
+				currentFile: "",
+				totalFilesToProcess: totalFilesToProcess,
+				phaseProgress: {
+					root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+					file_analysis: {
+						processed: 0,
+						total: totalFilesToProcess,
+						status: KNOWLEDGE_GRAPH_STATUS.PENDING,
+					},
+					directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+				},
+				llmStatistics: {
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalTokens: 0,
+					totalRequests: 0,
+					successfulRequests: 0,
+					failedRequests: 0,
 					totalDuration: 0,
-					status: KNOWLEDGE_GRAPH_STATUS.RUNNING,
-					totalFiles,
-					processedFiles: initialProcessedFiles,
-					failedFiles: 0,
-					currentFile: "",
-					totalFilesToProcess: totalFilesToProcess,
-					phaseProgress: {
-						root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-						file_analysis: {
-							processed: 0,
-							total: totalFilesToProcess,
-							status: KNOWLEDGE_GRAPH_STATUS.PENDING,
-						},
-						directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-					},
-					llmStatistics: {
-						totalInputTokens: 0,
-						totalOutputTokens: 0,
-						totalTokens: 0,
-						totalRequests: 0,
-						successfulRequests: 0,
-						failedRequests: 0,
-						totalDuration: 0,
-					},
-				}
+				},
+				// 增量统计字段
+				addedFiles: 0,
+				modifiedFiles: 0,
+				deletedFiles: 0,
+			}
 
 				// ✅ 使用不加锁的版本，避免嵌套锁死锁
 				this.currentState = await this.createBuildStateUnlocked(taskState)

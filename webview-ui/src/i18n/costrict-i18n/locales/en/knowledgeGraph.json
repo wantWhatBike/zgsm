@@ -89,5 +89,19 @@
 	"totalOutputTokens": "Output Tokens",
 	"totalTokens": "Total Tokens",
 	"visualizationLimited": "Visualization limited to first {count} nodes",
-	"batchInfo": "Batch Info"
+	"batchInfo": "Batch Info",
+	"contextWindowSize": "Model Context Window Size",
+	"contextWindowSizeHelp": "Default 128000, set according to model capability",
+	"contextWindowThreshold": "Summary Context Window Threshold(%)",
+	"contextWindowThresholdHelp": "Default 50%, min 10%, max percentage of context window for batch analysis prompts",
+	"llmTimeout": "LLM Timeout (minutes)",
+	"llmTimeoutHelp": "Default 5 minutes, min 1 minute",
+	"llmMaxRetries": "LLM Request Max Retries",
+	"llmMaxRetriesHelp": "Default 5, range 1-10",
+	"processedFilesStats": "Processed Files",
+	"addedFiles": "Added",
+	"modifiedFiles": "Modified",
+	"deletedFiles": "Deleted",
+	"totalChanges": "Total Changes",
+	"fullBuild": "Full Build"
 }
