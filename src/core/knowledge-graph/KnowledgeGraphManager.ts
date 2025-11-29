@@ -91,19 +91,19 @@ export class KnowledgeGraphManager {
 
 	// ✅ 全局操作互斥锁：确保同一时间只有一个操作在执行
 	private operationMutex = new Mutex()
-	private currentOperationType: "build" | "pause" | "resume" | "clear" | null = null
+	private currentOperationType: "build" | "pause" | "resume" | "clear" | "auto-build" | null = null
 
 	// 配置缓存
 	private config: KnowledgeGraphConfig = { ...DEFAULT_CONFIG }
 
 	// 自动构建调度器
-	private autoRebuildScheduler: AutoRebuildScheduler
+	private autoRebuildScheduler?: AutoRebuildScheduler
 
 	/**
 	 * 私有构造函数确保单例模式
 	 */
 	private constructor() {
-		this.autoRebuildScheduler = new AutoRebuildScheduler(this.logger)
+		// ✅ AutoRebuildScheduler 延迟初始化（在 setLogger 之后）
 	}
 
 	/**
@@ -162,6 +162,12 @@ export class KnowledgeGraphManager {
 
 			this.isInitialized = true
 			this.isEnabled = true  // 新增：初始化完成即为启用状态
+			
+			// 6. ✅ 如果自动构建已启用，启动定时器
+			if (this.config.autoRebuildEnabled) {
+				this.autoRebuildScheduler?.start(this.config.autoRebuildIntervalMinutes || 5)
+			}
+			
 			this.logger?.info("[KnowledgeGraphManager] 知识图谱服务初始化完成")
 		} catch (error) {
 			await this.handleInitializationError(error)
@@ -294,7 +300,13 @@ export class KnowledgeGraphManager {
 			)
 			this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
 
-			// 6. 设置统一的暂停检查器
+			// 6. ✅ 创建自动构建调度器（和其他组件一样）
+			this.autoRebuildScheduler = new AutoRebuildScheduler(
+				this.logger!,
+				() => this.tryAutoRebuild()
+			)
+
+			// 7. 设置统一的暂停检查器
 			this.setupPauseCheckers(stateTracer, { rootAnalyzer, fileSummarizer, directorySummarizer, fileService })
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "初始化核心组件")
@@ -456,11 +468,14 @@ export class KnowledgeGraphManager {
 	 * - disable(): 停止服务，保留组件实例和存储连接
 	 * - dispose(): 完全清理，用于扩展停用
 	 */
+	/**
+	 * ✅ 禁用知识图谱服务（停止定时器）
+	 */
 	private async disable(): Promise<void> {
 		this.logger?.info("[KnowledgeGraphManager] 禁用知识图谱服务（保留实例）")
 		
-		// 1. 取消自动构建
-		this.cancelAutoRebuild()
+		// 1. ✅ 停止自动构建定时器
+		this.autoRebuildScheduler?.stop()
 		
 		// 2. 暂停正在运行的构建
 		const workspacePath = this.getWorkspacePath()
@@ -498,7 +513,7 @@ export class KnowledgeGraphManager {
 	 */
 	public async dispose(): Promise<void> {
 		// ✅ 清理自动构建调度器
-		this.autoRebuildScheduler.dispose()
+		this.autoRebuildScheduler?.dispose()
 
 		// 暂停构建（仅当正在运行时）
 		const workspacePath = this.getWorkspacePath()
@@ -520,57 +535,57 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 安排下次自动构建
+	 * ✅ 尝试执行自动构建（非阻塞）
+	 * 由 AutoRebuildScheduler 调用
+	 * @returns 是否成功执行（true: 成功，false: 跳过）
 	 */
-	private scheduleAutoRebuild(): void {
-		// 检查是否启用自动构建
-		if (!this.config.autoRebuildEnabled) {
-			this.logger?.debug("[KnowledgeGraphManager] 自动构建未启用")
-			return
+	private async tryAutoRebuild(): Promise<boolean> {
+		// 1. 尝试获取锁（非阻塞）
+		if (!this.operationMutex.tryLock()) {
+			this.logger?.warn(`[KnowledgeGraphManager] ⚠️ 自动构建跳过：有操作正在执行`)
+			return false // 抢锁失败，跳过本次
 		}
 
-		const intervalMinutes = this.config.autoRebuildIntervalMinutes || DEFAULT_CONFIG.autoRebuildIntervalMinutes || 5
-
-		// 委托给调度器
-		this.autoRebuildScheduler.schedule(intervalMinutes, () => this.executeAutoRebuild())
-	}
-
-	/**
-	 * 取消自动构建
-	 */
-	private cancelAutoRebuild(): void {
-		this.autoRebuildScheduler.cancel()
-	}
-
-	/**
-	 * 执行自动构建（竞态保护）
-	 */
-	private async executeAutoRebuild(): Promise<void> {
 		try {
-			// ✅ 竞态保护：检查是否有操作正在执行
-			if (this.currentOperationType) {
-				this.logger?.warn(
-					`[KnowledgeGraphManager] ⚠️ 自动构建跳过：${this.currentOperationType} 正在执行`
-				)
-				return // 跳过本次，等待下次定时器触发
-			}
-
-			// ✅ 竞态保护：检查知识图谱是否仍然启用
+			// 2. 检查是否仍然启用
 			if (!this.isEnabled) {
-				this.logger?.warn("[KnowledgeGraphManager] ⚠️ 自动构建跳过：知识图谱已禁用")
-				this.cancelAutoRebuild() // 取消定时器
-				return
+				this.logger?.warn(`[KnowledgeGraphManager] ⚠️ 自动构建跳过：知识图谱已禁用`)
+				return false
 			}
 
-			// 执行构建（传入 true 标记为自动构建，避免重复安排定时器）
-			this.logger?.info("[KnowledgeGraphManager] 🔨 开始执行自动构建任务...")
-			await this.startBuild({ resumeFromPrevious: false }, true)
-			this.logger?.info("[KnowledgeGraphManager] ✅ 自动构建任务完成")
+			// 3. 检查配置是否启用
+			if (!this.config.autoRebuildEnabled) {
+				this.logger?.warn(`[KnowledgeGraphManager] ⚠️ 自动构建跳过：自动构建已关闭`)
+				return false
+			}
+
+			// 4. 检查构建器是否初始化
+			if (!this.graphBuilder) {
+				this.logger?.error(`[KnowledgeGraphManager] ❌ 自动构建失败：GraphBuilder 未初始化`)
+				return false
+			}
+
+			// 5. 检查是否已有构建在运行（避免重复）
+			const currentStatus = this.getBuildStatus()
+			if (currentStatus?.status === KNOWLEDGE_GRAPH_STATUS.RUNNING) {
+				this.logger?.warn(`[KnowledgeGraphManager] ⚠️ 自动构建跳过：构建任务已在运行中`)
+				return false
+			}
+
+			// 6. 执行构建
+			this.currentOperationType = "auto-build"
+			this.logger?.info(`[KnowledgeGraphManager] 🔨 开始执行自动构建...`)
+
+			await this.graphBuilder.start(this.getWorkspacePath()!, { resumeFromPrevious: false })
+
+			this.logger?.info(`[KnowledgeGraphManager] ✅ 自动构建完成`)
+			return true
 		} catch (error) {
 			this.logger?.error(`[KnowledgeGraphManager] ❌ 自动构建失败: ${ErrorHandler.formatError(error)}`)
+			return false
 		} finally {
-			// ✅ 自动构建完成后，在这里统一安排下次构建（无论成功或失败）
-			this.scheduleAutoRebuild()
+			this.currentOperationType = null
+			this.operationMutex.unlock()
 		}
 	}
 
@@ -655,7 +670,7 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 应用配置变更（用于配置热更新）
+	 * ✅ 应用配置变更（唯一的定时器管理入口）
 	 * 直接应用配置，并持久化到 GlobalState
 	 */
 	public async applyConfigChanges(changes: Partial<KnowledgeGraphConfig>): Promise<void> {
@@ -668,8 +683,12 @@ export class KnowledgeGraphManager {
 		// ✅ 立即持久化配置
 		await this.saveConfig()
 		
-		// 更新调度器
-		this.scheduleAutoRebuild()
+		// ✅ 根据配置管理定时器（唯一入口）
+		if (this.config.autoRebuildEnabled) {
+			this.autoRebuildScheduler?.start(this.config.autoRebuildIntervalMinutes || 5)
+		} else {
+			this.autoRebuildScheduler?.stop()
+		}
 		
 		// ✅ 打印定时器状态
 		this.logger?.info("[KnowledgeGraphManager] ✓ 配置已应用")
@@ -680,8 +699,13 @@ export class KnowledgeGraphManager {
 	 * 打印调度器状态（调试用）
 	 */
 	private printSchedulerStatus(): void {
+		if (!this.autoRebuildScheduler) {
+			this.logger?.info(`[KnowledgeGraphManager] 📊 定时器状态: 未初始化`)
+			return
+		}
+		
 		const isActive = this.autoRebuildScheduler.isActive()
-		const nextRebuildTime = this.autoRebuildScheduler.getNextRebuildTime()
+		const nextRebuildTime = this.autoRebuildScheduler.getNextScheduledTime()
 		
 		this.logger?.info(`[KnowledgeGraphManager] 📊 定时器状态: ${isActive ? '运行中' : '未启动'}`)
 		
@@ -733,40 +757,28 @@ export class KnowledgeGraphManager {
 	}
 
 	/**
-	 * 构建知识图谱
+	 * ✅ 构建知识图谱（不再管理定时器）
 	 * @param options 构建选项
-	 * @param fromAutoRebuild 是否来自自动构建（用于避免重复安排定时器）
 	 */
-	public async startBuild(options: Partial<BuildOptions> = {}, fromAutoRebuild = false): Promise<void> {
+	public async startBuild(options: Partial<BuildOptions> = {}): Promise<void> {
 		return this.executeOperation("build", async () => {
 			if (!this.graphBuilder) {
 				throw ErrorHandler.wrapError(new Error("GraphBuilder not initialized"), "开始构建")
 			}
 
-			// ✅ 委托给 BuildStateTracer 检查（避免重复）
+			// ✅ 委托给 BuildStateTracer 检查
 			if (this.stateTracer && !this.stateTracer.canStartBuild()) {
 				const currentStatus = this.stateTracer.getCurrentState()?.status
 				throw new Error(`当前状态 ${currentStatus} 不允许启动构建`)
 			}
 
-			// ✅ 竞态保护：取消自动构建定时器（手动构建优先）
-			this.cancelAutoRebuild()
-
-			const result = await this.graphBuilder.start(this.getWorkspacePath()!, options)
-
-			// ✅ 只有非自动构建才在这里重新安排定时器
-			// 自动构建由 executeAutoRebuild() 统一管理，避免重复安排
-			if (!fromAutoRebuild && this.config.autoRebuildEnabled) {
-				this.scheduleAutoRebuild()
-			}
-
-			return result
+			// ✅ 直接执行构建，定时器会自动处理竞态
+			return await this.graphBuilder.start(this.getWorkspacePath()!, options)
 		})
 	}
 
 	/**
-	 * 暂停构建
-	 * ✅ 增强版：通过统一入口确保互斥
+	 * ✅ 暂停构建（不再管理定时器）
 	 */
 	public async pauseBuild(): Promise<void> {
 		return this.executeOperation("pause", async () => {
@@ -780,9 +792,7 @@ export class KnowledgeGraphManager {
 				throw new Error(`当前状态 ${currentStatus} 不允许暂停`)
 			}
 
-			// 暂停时取消自动构建定时器
-			this.cancelAutoRebuild()
-
+			// ✅ 直接执行暂停，定时器会自动处理竞态
 			return await this.graphBuilder.pause(this.getWorkspacePath()!)
 		})
 	}
@@ -790,6 +800,9 @@ export class KnowledgeGraphManager {
 	/**
 	 * 继续构建
 	 * ✅ 增强版：通过统一入口确保互斥
+	 */
+	/**
+	 * ✅ 继续构建（不再管理定时器）
 	 */
 	public async resumeBuild(): Promise<void> {
 		return this.executeOperation("resume", async () => {
@@ -803,20 +816,17 @@ export class KnowledgeGraphManager {
 				throw new Error(`当前状态 ${currentStatus} 不允许继续`)
 			}
 
-			const result = await this.graphBuilder.resume(this.getWorkspacePath()!)
-
-			// ✅ 恢复构建完成后，如果启用了自动构建，重新安排定时器
-			if (this.config.autoRebuildEnabled) {
-				this.scheduleAutoRebuild()
-			}
-
-			return result
+			// ✅ 直接执行继续，定时器会自动处理竞态
+			return await this.graphBuilder.resume(this.getWorkspacePath()!)
 		})
 	}
 
 	/**
 	 * 清除知识图谱
 	 * ✅ 增强版：通过统一入口确保互斥
+	 */
+	/**
+	 * ✅ 清除知识图谱（不再管理定时器）
 	 */
 	public async clearKnowledgeGraph(): Promise<void> {
 		return this.executeOperation("clear", async () => {
@@ -830,9 +840,7 @@ export class KnowledgeGraphManager {
 				throw new Error(`当前状态 ${currentStatus} 不允许清除`)
 			}
 
-			// 清除时取消自动构建定时器
-			this.cancelAutoRebuild()
-
+			// ✅ 直接执行清空，定时器会自动处理竞态
 			return await this.graphBuilder.clear(this.getWorkspacePath()!)
 		})
 	}
@@ -903,17 +911,17 @@ export class KnowledgeGraphManager {
 				// 如果未初始化，进行初始化；否则只更新启用状态
 				if (!this.isInitialized) {
 					await this.initialize(true)
-				} else {
-					// 已初始化，只需更新配置和启用状态
-					await this.loadUserConfig()
-					this.isEnabled = true
-					this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已启用（快速恢复）")
-				}
+			} else {
+				// 已初始化，只需更新配置和启用状态
+				await this.loadUserConfig()
+				this.isEnabled = true
+				this.logger?.info("[KnowledgeGraphManager] 知识图谱服务已启用（快速恢复）")
+			}
 
-				// 如果启用了自动构建，安排首次构建
-				if (this.config.autoRebuildEnabled) {
-					this.scheduleAutoRebuild()
-				}
+			// ✅ 如果启用了自动构建，启动定时器
+			if (this.config.autoRebuildEnabled) {
+				this.autoRebuildScheduler?.start(this.config.autoRebuildIntervalMinutes || 5)
+			}
 			} else {
 				// 禁用知识图谱
 				this.logger?.info("[KnowledgeGraphManager] 禁用知识图谱服务")

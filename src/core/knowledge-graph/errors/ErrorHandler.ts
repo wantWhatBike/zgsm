@@ -179,9 +179,18 @@ export class ErrorHandler {
   ): Promise<T> {
     let lastError: unknown
     
+    // ✅ 调试日志：开始重试机制
+    if (maxRetries > 1) {
+      logger?.debug(`[ErrorHandler] ${context} - 启用重试机制（最大重试: ${maxRetries} 次）`)
+    }
+    
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const result = await operation()
+        // ✅ 调试日志：首次成功或重试成功
+        if (attempt > 0) {
+          logger?.info(`[ErrorHandler] ✅ ${context} 重试成功（第 ${attempt + 1} 次尝试）`)
+        }
         return result
       } catch (error) {
         lastError = error
@@ -191,13 +200,17 @@ export class ErrorHandler {
           
           // 检查是否应该停止重试
           if (this.isContextExceededError(errorMessage) || this.isInvalidResponseError(errorMessage)) {
-            logger?.warn(`[ErrorHandler] ${context} 错误不可重试，停止重试`)
+            logger?.warn(`[ErrorHandler] ⚠️ ${context} 错误不可重试，停止重试: ${error instanceof Error ? error.message : String(error)}`)
             break
           }
           
           const delay = this.calculateRetryDelay(errorMessage, attempt)
-          logger?.warn(`[ErrorHandler] ${context} 重试 (${attempt + 1}/${maxRetries}), 延迟: ${delay}ms`)
+          logger?.warn(`[ErrorHandler] ⚠️ ${context} 第 ${attempt + 1} 次尝试失败，${delay}ms 后重试（${attempt + 2}/${maxRetries}）`)
+          logger?.debug(`[ErrorHandler] 错误详情: ${error instanceof Error ? error.message : String(error)}`)
           await new Promise(resolve => setTimeout(resolve, delay))
+        } else {
+          // ✅ 调试日志：所有重试失败
+          logger?.error(`[ErrorHandler] ❌ ${context} 所有重试失败（${maxRetries} 次）`)
         }
       }
     }

@@ -49,6 +49,14 @@ export class LLMClient {
     this.llmMaxRetries = config?.llmMaxRetries || LLM_CONFIG.maxRetries
     // 初始化性能跟踪器
     this.progressTracer = progressTracer
+    
+    // ✅ 调试日志：打印 LLM 配置
+    this.logger.info(`[LLMClient] ========== LLM 客户端初始化 ==========`)
+    this.logger.info(`[LLMClient] 模型: ${this.modelId}`)
+    this.logger.info(`[LLMClient] 上下文窗口: ${this.contextWindow} tokens`)
+    this.logger.info(`[LLMClient] 超时时间: ${this.llmTimeoutMs / 1000} 秒`)
+    this.logger.info(`[LLMClient] 最大重试: ${this.llmMaxRetries} 次`)
+    this.logger.info(`[LLMClient] ================================================`)
   }
 
   /**
@@ -94,8 +102,10 @@ export class LLMClient {
           // 确保请求ID唯一性
           const requestId = "kg-req-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8)
           
-          this.logger.debug(`[LLMClient] 发送消息到LLM，模型: ${this.modelId}`)
+          this.logger.debug(`[LLMClient] ========== LLM 请求开始 ==========`)
           this.logger.debug(`[LLMClient] RequestID: ${requestId}`)
+          this.logger.debug(`[LLMClient] 模型: ${this.modelId}`)
+          this.logger.debug(`[LLMClient] 超时限制: ${this.llmTimeoutMs / 1000} 秒`)
           
           // 构建用户消息 - 确保内容格式正确
           const trimmedPrompt = userPrompt.trim()
@@ -107,10 +117,6 @@ export class LLMClient {
           if (!systemPrompt || systemPrompt.trim().length === 0) {
             throw new Error("Systemprompt content is empty")
           }
-          
-          this.logger.debug(`[LLMClient] 准备发送消息，用户消息内容长度: ${userPrompt.length}`)
-          this.logger.debug(`[LLMClient] 系统提示词长度: ${userPrompt.length}`)
-          this.logger.debug(`[LLMClient] 用户消息前100字符: ${userPrompt.substring(0, 100)}...`)
           
           // 修复：将用户消息作为文本块数组，确保API能正确解析
           const userMessages = [{
@@ -160,7 +166,11 @@ export class LLMClient {
             throw ErrorHandler.createInvalidResponseError("LLM返回空响应")
           }
 
+          this.logger.debug(`[LLMClient] ✅ 请求成功`)
           this.logger.debug(`[LLMClient] ResponseID: ${requestId}`)
+          this.logger.debug(`[LLMClient] 耗时: ${duration}ms`)
+          this.logger.debug(`[LLMClient] 输入 tokens: ${inputTokens}, 输出 tokens: ${outputTokens}`)
+          this.logger.debug(`[LLMClient] ================================================`)
 
           const usage = {
             inputTokens,

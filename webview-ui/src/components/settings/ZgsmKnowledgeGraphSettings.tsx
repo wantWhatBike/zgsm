@@ -23,8 +23,9 @@ import {
 } from "@roo-code/types"
 
 // 前端UI常量 - 使用统一配置
-// ✅ 修改：只在 RUNNING 状态轮询，固定 2 秒间隔，不再使用复杂的轮询间隔配置
+// ✅ 轮询间隔配置
 const POLLING_INTERVAL_RUNNING = 2000 // 运行时 2 秒轮询
+const POLLING_INTERVAL_AUTO_REBUILD = 5000 // 自动构建启用时 5 秒轮询
 
 const DEBOUNCE_DELAY = KNOWLEDGE_GRAPH_UI_CONFIG.DEBOUNCE_DELAY
 const OPERATION_TIMEOUT = KNOWLEDGE_GRAPH_UI_CONFIG.OPERATION_TIMEOUT
@@ -205,7 +206,7 @@ export const KnowledgeGraphSettings = ({
 		sendMessage(KNOWLEDGE_GRAPH_MESSAGES.GET_STATUS)
 	}, [sendMessage])
 
-	// ✅ 智能轮询控制 - 只在 RUNNING 状态轮询（2秒），终态不轮询
+	// ✅ 智能轮询控制：RUNNING 状态 2 秒轮询，自动构建启用时 5 秒轮询
 	useEffect(() => {
 		let timeoutId: NodeJS.Timeout | null = null
 		let isMounted = true
@@ -213,25 +214,24 @@ export const KnowledgeGraphSettings = ({
 		const poll = () => {
 			if (!isMounted) return
 
-			// ✅ 只在 RUNNING 状态轮询
-			if (
-				knowledgeGraphEnabled &&
-				isZgsmProvider &&
-				cwd &&
-				uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
-			) {
+			const isRunning = uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
+			const shouldPoll = knowledgeGraphEnabled && isZgsmProvider && cwd && 
+				(isRunning || knowledgeGraphAutoRebuildEnabled)
+
+			if (shouldPoll) {
 				getStatusOnce()
-				// 使用配置的轮询间隔
-				timeoutId = setTimeout(poll, POLLING_INTERVAL_RUNNING)
+				// ✅ RUNNING 状态 2 秒，自动构建启用时 5 秒
+				const interval = isRunning ? POLLING_INTERVAL_RUNNING : POLLING_INTERVAL_AUTO_REBUILD
+				timeoutId = setTimeout(poll, interval)
 			}
 		}
 
-		// 启动轮询 - 只有在 RUNNING 状态时才启动
+		// 启动轮询
 		if (
 			knowledgeGraphEnabled &&
 			isZgsmProvider &&
 			cwd &&
-			uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING
+			(uiState.knowledgeGraphStatus.status === KNOWLEDGE_GRAPH_STATUS.RUNNING || knowledgeGraphAutoRebuildEnabled)
 		) {
 			poll()
 		}
@@ -242,7 +242,7 @@ export const KnowledgeGraphSettings = ({
 				clearTimeout(timeoutId)
 			}
 		}
-	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, getStatusOnce, uiState.knowledgeGraphStatus.status])
+	}, [knowledgeGraphEnabled, isZgsmProvider, cwd, knowledgeGraphAutoRebuildEnabled, getStatusOnce, uiState.knowledgeGraphStatus.status])
 
 	// 操作超时保护 - 防止 isOperating 卡死
 	useEffect(() => {

@@ -59,6 +59,18 @@ export class Mutex {
 	}
 
 	/**
+	 * 尝试获取锁（非阻塞）
+	 * @returns 如果成功获取锁返回 true，否则返回 false
+	 */
+	tryLock(): boolean {
+		if (this.locked) {
+			return false // 锁已被占用，直接返回 false
+		}
+		this.locked = true
+		return true // 成功获取锁
+	}
+
+	/**
 	 * 检查锁是否被占用
 	 */
 	isLocked(): boolean {

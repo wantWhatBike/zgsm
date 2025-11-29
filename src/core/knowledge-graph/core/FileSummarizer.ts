@@ -50,15 +50,26 @@ export class FileSummarizer {
 				fileList: formatFileList(allFilePaths),
 			})
 			const basePromptToken = await countTokens(stringToContentBlocks(basePrompt))
+			
+			// ✅ 使用配置的上下文窗口阈值
+			const contextWindow = this.llmClient.getContextWindow()
+			const thresholdPercent = this.config.contextWindowThreshold || 50
+			const fileContentsWindow = (contextWindow - basePromptToken) * (thresholdPercent / 100)
+			
+			// ✅ 调试日志：打印窗口计算信息
+			this.logger.info(`[FileSummarizer] ========== 上下文窗口计算 ==========`)
+			this.logger.info(`[FileSummarizer] 模型上下文窗口: ${contextWindow} tokens`)
+			this.logger.info(`[FileSummarizer] 基础提示词: ${basePromptToken} tokens`)
+			this.logger.info(`[FileSummarizer] 上下文窗口阈值: ${thresholdPercent}%`)
+			this.logger.info(`[FileSummarizer] 文件内容可用窗口: ${Math.floor(fileContentsWindow)} tokens`)
+			this.logger.info(`[FileSummarizer] ================================================`)
+			
 			// 2. 分批分析文件
 
 			// 优化内存占用：延迟读取文件内容，串行处理批次
 			let batchFilePaths: string[] = []
 			let batchToken = 0
 			let processedCount = 0
-			
-			// 去除非文件内容提示词后的剩余窗口的60%
-			const fileContentsWindow = (this.llmClient.getContextWindow() - basePromptToken) * 0.60
 
 			for (let i = 0; i < filesToAnalyze.length; i++) {
 				// 检查终止状态
@@ -152,7 +163,9 @@ export class FileSummarizer {
 	): Promise<void> {
 		if (this.shouldPause()) return
 
-		this.logger.info(`[FileSummarizer] 开始处理批次，批次大小: ${batchFilePaths.length}，进度: ${processedCount}/${totalFiles}`)
+		this.logger.info(`[FileSummarizer] ========== 批次处理开始 ==========`)
+		this.logger.info(`[FileSummarizer] 批次大小: ${batchFilePaths.length} 文件`)
+		this.logger.info(`[FileSummarizer] 进度: ${processedCount}/${totalFiles}`)
 		const batchStartTime = Date.now()
 		
 		// 延迟读取：只在需要时读取文件内容
@@ -189,6 +202,19 @@ export class FileSummarizer {
 			rootInfo: rootInfo ? JSON.stringify(rootInfo, null, 2) : "",
 			fileContents: formatFileContents(batchFiles),
 		})
+		
+		// ✅ 调试日志：打印批次 token 统计
+		const promptTokens = await (async () => {
+			try {
+				return await (await import("../../../utils/countTokens")).countTokens(
+					(await import("../tools/FileUtils")).stringToContentBlocks(prompt)
+				)
+			} catch {
+				return 0
+			}
+		})()
+		this.logger.info(`[FileSummarizer] 批次提示词 tokens: ${promptTokens}`)
+		this.logger.info(`[FileSummarizer] 发送 LLM 请求...`)
 
 		// 发送LLM请求
 		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
@@ -203,6 +229,15 @@ export class FileSummarizer {
 			let batchSummaries = response.data.map((summary: FileSummary) => this.validateAndCleanFileSummary(summary))
 
 			await this.updateSummaries(batchSummaries)
+			
+			// ✅ 调试日志：打印批次统计
+			this.logger.info(`[FileSummarizer] ✅ 批次处理成功`)
+			this.logger.info(`[FileSummarizer] 处理文件数: ${batchSummaries.length}`)
+			this.logger.info(`[FileSummarizer] 耗时: ${batchDuration}ms`)
+			if (response.usage) {
+				this.logger.info(`[FileSummarizer] Token 用量 - 输入: ${response.usage.inputTokens}, 输出: ${response.usage.outputTokens}, 成本: ${response.usage.cost}`)
+			}
+			this.logger.info(`[FileSummarizer] ================================================`)
 
 			const progress: BuildProgress = {
 				phase: "file_analysis" as const,
@@ -217,7 +252,8 @@ export class FileSummarizer {
 
 			onProgress?.(progress)
 		} else {
-			this.logger.error(`[FileSummarizer] 批量分析失败: ${response.error}`)
+			this.logger.error(`[FileSummarizer] ❌ 批量分析失败: ${response.error}`)
+			this.logger.info(`[FileSummarizer] ================================================`)
 		}
 		
 		// 显式清理内存
