@@ -356,14 +356,15 @@ export class FileSummarizer {
 		return [
 			{
 				path: "File path",
-				type: "source|test|config",
-				description: `About 150 words, highlighting core business logic and architectural role (${LLM_LANGUAGE})`,
-				keywords: [`3-5 keywords, sorted by importance (${LLM_LANGUAGE})`],
+				type: "source|test",
+				summary: "Core function in ≤15 words",
+				description: "~150 words: business logic, architectural role, data flow",
+				keywords: ["keyword1", "keyword2", "keyword3"],
 				functions: {
-					function_name1: `Function description, 50-100 words, highlighting function purpose and business value (${LLM_LANGUAGE})`,
-					function_name2: `Function description, 50-100 words, highlighting function purpose and business value (${LLM_LANGUAGE})`,
+					function_name1: "Function description, 50-100 words",
+					function_name2: "Function description, 50-100 words",
 				},
-				dependencies: ["Project-internal dependency file paths"],
+				dependencies: ["path/to/file1.ts", "path/to/file2.ts"],
 			},
 		]
 	}
@@ -371,6 +372,7 @@ export class FileSummarizer {
 	/**
 	 * 验证和清理文件摘要
 	 * ✅ 路径标准化：LLM 可能返回不同格式的路径分隔符，统一标准化为 Unix 风格
+	 * ✅ 工程化字段自动生成：timestamp、size、lastModified 由代码生成，不依赖 LLM
 	 */
 	private validateAndCleanFileSummary(summary: FileSummary): FileSummary {
 		const now = new Date().toISOString()
@@ -379,6 +381,7 @@ export class FileSummarizer {
 			// ✅ 标准化路径：确保 LLM 返回的路径与系统中存储的路径格式一致
 			path: PathUtils.normalizePathSeparators(summary.path || ""),
 			type: this.validateFileType(summary.type),
+			summary: summary.summary || "",  // ✅ 新增：核心功能描述
 			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
 			functions: typeof summary.functions === "object" ? summary.functions : {},
@@ -386,18 +389,19 @@ export class FileSummarizer {
 			dependencies: Array.isArray(summary.dependencies) 
 				? PathUtils.normalizePathsArray(summary.dependencies)
 				: [],
-			timestamp: summary.timestamp || now,
+			// ✅ 工程化字段：自动生成，不依赖 LLM
+			timestamp: now,
 			size: summary.size || 0,
 			lastModified: summary.lastModified || Date.now(),
 		}
 	}
 
 	/**
-	 * 验证文件类型
+	 * 验证文件类型（二分类：source | test）
 	 */
-	private validateFileType(type: string): "source" | "config" | "test" {
-		if (["source", "config", "test"].includes(type)) {
-			return type as any
+	private validateFileType(type: string): "source" | "test" {
+		if (type === "test") {
+			return "test"
 		}
 		return "source"
 	}

@@ -65,6 +65,7 @@ export const toolParamNames = [
 	"keywords",
 	"type",
 	"max_results",
+	"max_depth",
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]

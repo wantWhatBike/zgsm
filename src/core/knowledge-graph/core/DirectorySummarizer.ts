@@ -382,28 +382,22 @@ export class DirectorySummarizer {
 
 	/**
 	 * 验证和清理目录摘要
+	 * ✅ 工程化字段自动生成：timestamp 由代码生成，不依赖 LLM
 	 */
 	private validateAndCleanDirectorySummary(summary: DirectorySummary): DirectorySummary {
+		const now = new Date().toISOString()
+		
 		return {
 			path: summary.path,
-			type: this.validateDirectoryType(summary.type),
+			summary: summary.summary || "",  // ✅ 新增：核心目的描述
 			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
 			key_files: Array.isArray(summary.key_files) ? summary.key_files.slice(0, 5) : [],
-			timestamp: summary.timestamp || "",
+			// ✅ 工程化字段：自动生成，不依赖 LLM
+			timestamp: now,
 		}
 	}
 
-	/**
-	 * 验证目录类型
-	 */
-	private validateDirectoryType(type: string): "module" | "utils" | "config" {
-		const validTypes = ["module", "utils", "config"]
-		if (validTypes.includes(type)) {
-			return type as any
-		}
-		return "module"
-	}
 
 	public async clear(): Promise<void> {
 		try {
@@ -421,10 +415,10 @@ export class DirectorySummarizer {
 	private getDirectorySummarySchema(): any {
 		return {
 			path: "Directory path",
-			type: "module|utils|config",
-			description: `Overall positioning (about 150 words), describing the directory's core functionality, architectural role, business value, and technical characteristics in detail (${LLM_LANGUAGE})`,
-			keywords: [`2-5 core keywords (${LLM_LANGUAGE})`],
-			key_files: ["1-5 core file paths"],
+			summary: "Core purpose in ≤15 words",
+			description: "~150 words: role, functionality, business value",
+			keywords: ["keyword1", "keyword2"],
+			key_files: ["file1.ts", "file2.ts"],
 		}
 	}
 }

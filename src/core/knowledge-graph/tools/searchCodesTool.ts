@@ -23,6 +23,11 @@ function formatSearchCodesResults(results: SearchCodesResult[]): string {
 		const fileNumber = index + 1
 		output += `文件 #${fileNumber}: ${result.path}\n`
 
+		// 文件概要（新增）
+		if (result.summary) {
+			output += `  • 概要: ${result.summary}\n`
+		}
+
 		// 文件描述
 		if (result.description) {
 			output += `  • 描述: ${result.description}\n`
@@ -50,21 +55,22 @@ function formatSearchCodesResults(results: SearchCodesResult[]): string {
 					output += `${continuationPrefix}描述: ${func.description}\n`
 				}
 
-				// 调用链
-				if (func.callChain && func.callChain.callers.length > 0) {
-					output += `${continuationPrefix}调用链 (深度${func.callChain.depth}):\n`
-
-					func.callChain.callers.forEach((caller, callerIndex) => {
-						const indent = "  ".repeat(callerIndex + 1)
-						output += `${continuationPrefix}  ${indent}← ${caller.filePath}:${caller.symbolName} (line ${caller.line})\n`
-					})
-				}
-
 				// 添加空行分隔函数（除了最后一个）
 				if (!isLast) {
 					output += `${continuationPrefix}\n`
 				}
 			})
+		}
+
+		// 文件级调用链（新增）
+		if (result.call_chain && result.call_chain.depth > 0) {
+			output += `  \n  文件级调用链 (深度${result.call_chain.depth}):\n`
+			// 使用格式化后的调用链文本，添加适当缩进
+			const formattedChain = result.call_chain.formatted
+				.split('\n')
+				.map(line => `  ${line}`)
+				.join('\n')
+			output += `${formattedChain}\n`
 		}
 
 		// 文件之间添加分隔线（除了最后一个）
@@ -93,12 +99,14 @@ export async function searchCodesTool(
 	const keywordsParam: string | undefined = block.params.keywords
 	const typeParam: string | undefined = block.params.type
 	const maxResultsParam: string | undefined = block.params.max_results
+	const maxDepthParam: string | undefined = block.params.max_depth
 
 	const sharedMessageProps: ClineSayTool = {
 		tool: "searchCodes",
 		keywords: removeClosingTag("keywords", keywordsParam),
 		type: removeClosingTag("type", typeParam),
 		maxResults: removeClosingTag("max_results", maxResultsParam),
+		maxDepth: removeClosingTag("max_depth", maxDepthParam),
 	}
 
 	try {
@@ -153,6 +161,15 @@ export async function searchCodesTool(
 				return
 			}
 
+			// 解析 maxDepth 参数
+			const maxDepth = maxDepthParam ? parseInt(maxDepthParam, 10) : 5
+			if (isNaN(maxDepth) || maxDepth < 1 || maxDepth > 10) {
+				cline.consecutiveMistakeCount++
+				cline.recordToolError("search_codes")
+				pushToolResult(`Error: max_depth must be an integer between 1 and 10. Got: ${maxDepthParam}`)
+				return
+			}
+
 			// 2. 知识图谱检查
 			const isInitialized = knowledgeGraphManager.isManagerInitialized()
 			if (!isInitialized) {
@@ -200,25 +217,15 @@ export async function searchCodesTool(
 		// 3. 执行知识图谱检索
 		cline.consecutiveMistakeCount = 0
 
-		const results = await graphRetriever.searchFileSummaries(keywords, type, maxResults)
+		const results = await graphRetriever.searchFileSummaries(keywords, type, maxResults, maxDepth)
 
 		// 4. 格式化结果为结构化文本
 		const formattedText = formatSearchCodesResults(results)
 
-		const completeMessage = JSON.stringify({
-			...sharedMessageProps,
-			content: formattedText,
-		} satisfies ClineSayTool)
-
-		const didApprove = await askApproval("tool", completeMessage)
-
-		if (!didApprove) {
-			return
-		}
-
+		// 5. 直接返回结果给 AI（无需用户审批）
 		pushToolResult(formattedText)
 
-			return
+		return
 		}
 	} catch (error) {
 		await handleError("searching codes", error)

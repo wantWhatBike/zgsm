@@ -259,12 +259,12 @@ export class RootAnalyzer {
 	 */
 	private getRootInfoSchema(): any {
 		return {
-			project_description: `项目目标和定位描述（${LLM_LANGUAGE}）`,
-			tech_stack: ["技术1", "技术2", "技术3"],
-			core_modules: ["模块1：路径", "模块2：路径", "模块3：路径"],
-			core_dependencies: ["依赖1", "依赖2", "依赖3"],
-			environment_requirements: ["环境要求1", "环境要求2"],
-			build_steps: ["构建步骤1", "构建步骤2"],
+			project_description: "Project purpose and positioning",
+			tech_stack: ["tech1", "tech2", "tech3"],
+			core_modules: ["Module1: path/to/module1", "Module2: path/to/module2"],
+			core_dependencies: ["dependency1", "dependency2"],
+			environment_requirements: ["requirement1", "requirement2"],
+			build_steps: ["step1", "step2"],
 		}
 	}
 

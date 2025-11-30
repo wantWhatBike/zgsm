@@ -494,6 +494,7 @@ export interface ClineSayTool {
 	keywords?: string
 	type?: string
 	maxResults?: string
+	maxDepth?: string
 }
 
 // Must keep in sync with system prompt.

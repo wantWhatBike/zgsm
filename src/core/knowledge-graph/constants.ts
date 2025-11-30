@@ -324,6 +324,12 @@ export const LLM_CONFIG = {
   ANSWER_LANGUAGE: LLM_LANGUAGE
 }
 
+// search_codes 工具配置
+export const SEARCH_CODES_CONFIG = {
+  DEFAULT_MAX_DEPTH: 5,      // 默认调用链追溯深度
+  MAX_DEPTH_LIMIT: 10,       // 最大深度限制
+  MIN_DEPTH_LIMIT: 1,        // 最小深度限制
+} as const
 
 // 导出配置
 export const EXPORT_CONFIG = {

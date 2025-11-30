@@ -13,7 +13,8 @@ export interface FileInfo {
 // 文件摘要
 export interface FileSummary {
   path: string
-  type: 'source' | 'config' | 'test'
+  type: 'source' | 'test'
+  summary: string  // 核心功能描述（≤15字）
   description: string
   keywords: string[]
   functions: Record<string, string>
@@ -24,7 +25,14 @@ export interface FileSummary {
   lastModified: number
 }
 
-// 调用链信息（精简版，只保留上游）
+// 文件级调用链信息（基于 dependencies 的反向依赖追溯）
+export interface FileCallChain {
+  layers: string[][]  // 分层的调用者 [[layer1], [layer2], ...]
+  depth: number       // 实际追溯深度
+  formatted: string   // 箭头图格式的可视化文本
+}
+
+// 调用链信息（精简版，只保留上游）- 保留用于兼容性
 export interface FunctionCallChain {
   callers: Array<{         // 调用者列表（从根到当前函数）
     filePath: string       // 调用者所在文件
@@ -36,23 +44,24 @@ export interface FunctionCallChain {
 
 // 匹配的函数信息
 export interface MatchedFunction {
-  name: string                    // 函数名
-  description: string             // 函数描述（来自 FileSummary.functions）
-  callChain?: FunctionCallChain  // 调用链信息（可选）
+  name: string        // 函数名
+  description: string // 函数描述（来自 FileSummary.functions）
 }
 
 // search_codes 返回结果
 export interface SearchCodesResult {
   path: string                    // 文件路径
-  description: string             // 文件描述
-  match_functions: MatchedFunction[]  // 匹配的函数列表（对象数组）
-  dependencies: string[]          // 文件依赖
+  summary: string                 // 核心功能描述（≤15字）
+  description: string             // 详细描述
+  match_functions: MatchedFunction[]  // 匹配的函数列表
+  dependencies: string[]          // 该文件依赖的文件
+  call_chain: FileCallChain       // 文件级调用链
 }
 
 // 目录摘要
 export interface DirectorySummary {
   path: string
-  type: 'module' | 'utils' | 'config'
+  summary: string  // 核心目的描述（≤15字）
   description: string
   keywords: string[]
   key_files: string[]

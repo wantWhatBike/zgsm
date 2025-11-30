@@ -1,34 +1,12 @@
 import { ILogger } from "../../../utils/logger"
-import { SearchResult, SearchQuery, SearchCodesResult, MatchedFunction, FunctionCallChain } from "../types"
+import { SearchResult, SearchQuery, SearchCodesResult, MatchedFunction, FileCallChain, FileSummary } from "../types"
 import { RootInfo } from "../types"
 import { DirectorySummarizer } from "./DirectorySummarizer"
 import { FileSummarizer } from "./FileSummarizer"
 import { RootAnalyzer } from "./RootAnalyzer"
 import * as path from "path"
 import type { GraphData, GraphNode, GraphLink } from "@roo-code/types"
-import { ZgsmCodebaseIndexManager } from "../../costrict/codebase-index"
-import type { CallGraphNode, CallGraphResponse, ApiResponse } from "../../costrict/codebase-index/types"
-
-/**
- * 调用链查询超时时间（毫秒）
- */
-const CALLGRAPH_TIMEOUT_MS = 2000
-
-/**
- * 带超时的 Promise 包装器
- * @param promise 原始 Promise
- * @param timeoutMs 超时时间（毫秒）
- * @param timeoutError 超时错误信息
- * @returns 带超时控制的 Promise
- */
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutError: string): Promise<T> {
-	return Promise.race([
-		promise,
-		new Promise<T>((_, reject) => 
-			setTimeout(() => reject(new Error(timeoutError)), timeoutMs)
-		)
-	])
-}
+import { SEARCH_CODES_CONFIG } from "../constants"
 
 /**
  * 知识图谱检索器
@@ -61,16 +39,109 @@ export class GraphRetriever {
 	}
 
 	/**
+	 * 构建反向依赖索引
+	 * @param fileSummaries 所有文件摘要
+	 * @returns reverseDeps[target] = [caller1, caller2, ...] 谁依赖了 target
+	 */
+	private buildReverseDependencyIndex(fileSummaries: FileSummary[]): Map<string, string[]> {
+		const reverseDeps = new Map<string, string[]>()
+		
+		for (const file of fileSummaries) {
+			if (!file.dependencies || file.dependencies.length === 0) {
+				continue
+			}
+			
+			for (const dep of file.dependencies) {
+				if (!reverseDeps.has(dep)) {
+					reverseDeps.set(dep, [])
+				}
+				reverseDeps.get(dep)!.push(file.path)
+			}
+		}
+		
+		return reverseDeps
+	}
+
+	/**
+	 * 追溯文件级调用链（BFS）
+	 * @param targets 命中的文件列表
+	 * @param reverseDeps 反向依赖索引
+	 * @param maxDepth 最大追溯深度
+	 * @returns 分层的调用者 [[layer1], [layer2], ...]
+	 */
+	private traceCallChain(
+		targets: string[],
+		reverseDeps: Map<string, string[]>,
+		maxDepth: number
+	): string[][] {
+		const layers: string[][] = []
+		const visited = new Set<string>(targets)
+		let currentLayer = targets
+		
+		for (let depth = 0; depth < maxDepth && currentLayer.length > 0; depth++) {
+			const nextLayer: string[] = []
+			
+			for (const file of currentLayer) {
+				const callers = reverseDeps.get(file) || []
+				for (const caller of callers) {
+					if (!visited.has(caller)) {
+						visited.add(caller)
+						nextLayer.push(caller)
+					}
+				}
+			}
+			
+			if (nextLayer.length > 0) {
+				layers.push(nextLayer)
+			}
+			
+			currentLayer = nextLayer
+		}
+		
+		return layers
+	}
+
+	/**
+	 * 格式化调用链为箭头图
+	 * @param targetFile 目标文件（被调用者）
+	 * @param layers 分层的调用者
+	 * @returns 箭头图格式的可视化文本
+	 */
+	private formatCallChain(targetFile: string, layers: string[][]): string {
+		if (layers.length === 0) {
+			return `${targetFile} (no callers found)`
+		}
+		
+		let output = "Call chain:\n"
+		
+		// 从最外层（最顶层调用者）开始，逐层向内
+		for (let i = layers.length - 1; i >= 0; i--) {
+			const indent = "  ".repeat(layers.length - 1 - i)
+			for (const caller of layers[i]) {
+				output += `${indent}${caller} →\n`
+			}
+		}
+		
+		// 最后加上目标文件
+		const finalIndent = "  ".repeat(layers.length)
+		output += `${finalIndent}${targetFile}`
+		
+		return output
+	}
+
+	/**
 	 * 搜索文件摘要 - 用于 search_codes 工具
 	 * @param keywords 关键词列表
 	 * @param type 检索类型：'precise' 精确检索，'fuzzy' 模糊检索
 	 * @param maxResults 最大返回结果数
+	 * @param maxDepth 调用链追溯深度
 	 * @returns 搜索到的文件摘要列表（包含调用链信息）
 	 */
 	public async searchFileSummaries(
 		keywords: string[],
 		type: "precise" | "fuzzy",
 		maxResults: number = 5,
+		maxDepth: number = SEARCH_CODES_CONFIG.DEFAULT_MAX_DEPTH,
 	): Promise<SearchCodesResult[]> {
 		this.logger?.info(`[GraphRetriever] 搜索文件摘要: keywords=${JSON.stringify(keywords)}, type=${type}`)
 
@@ -184,20 +255,35 @@ export class GraphRetriever {
 				})
 				.slice(0, maxResults)
 
-			// 4. 格式化结果并enrichWithCallGraph调用链信息
+			// 4. 构建反向依赖索引（用于追溯调用链）
+			const reverseDeps = this.buildReverseDependencyIndex(fileSummaries)
+			
+			// 5. 格式化结果并生成文件级调用链
 			const results: SearchCodesResult[] = []
 			for (const [, data] of sortedResults) {
-				const matchedFunctions = await this.enrichWithCallGraph(
-					data.summary.path,
-					data.matchedFunctions,
-					data.summary.functions || {}
-				)
+				// 提取匹配的函数信息
+				const matchedFunctions: MatchedFunction[] = Array.from(data.matchedFunctions).map((funcName) => ({
+					name: funcName,
+					description: (data.summary.functions && data.summary.functions[funcName]) || "",
+				}))
+				
+				// 追溯文件级调用链
+				const layers = this.traceCallChain([data.summary.path], reverseDeps, maxDepth)
+				const formatted = this.formatCallChain(data.summary.path, layers)
+				
+				const callChain: FileCallChain = {
+					layers,
+					depth: layers.length,
+					formatted,
+				}
 
 				results.push({
 					path: data.summary.path,
+					summary: data.summary.summary || "",
 					description: data.summary.description || "",
 					match_functions: matchedFunctions,
 					dependencies: data.summary.dependencies || [],
+					call_chain: callChain,
 				})
 			}
 
@@ -211,149 +297,6 @@ export class GraphRetriever {
 		}
 	}
 
-	/**
-	 * 为匹配的函数enrichWithCallGraph调用链信息
-	 * @param filePath 文件路径
-	 * @param matchedFunctions 匹配的函数名集合
-	 * @param functionsMap 函数名到描述的映射
-	 * @returns 包含调用链信息的函数列表
-	 */
-	private async enrichWithCallGraph(
-		filePath: string,
-		matchedFunctions: Set<string>,
-		functionsMap: Record<string, string>
-	): Promise<MatchedFunction[]> {
-		const results: MatchedFunction[] = []
-
-		// 获取 CodebaseIndexClient
-		let client = null
-		try {
-			const manager = ZgsmCodebaseIndexManager.getInstance()
-			client = manager.client
-			
-			// 检查客户端是否已初始化
-			if (!client) {
-				this.logger?.warn(`[GraphRetriever] CodebaseIndexClient 未初始化，跳过调用链查询`)
-			}
-		} catch (error) {
-			this.logger?.warn(`[GraphRetriever] 无法获取 CodebaseIndexClient，跳过调用链查询: ${error}`)
-		}
-
-		// 如果无法获取客户端，返回不含调用链的结果
-		if (!client) {
-			for (const funcName of matchedFunctions) {
-				results.push({
-					name: funcName,
-					description: functionsMap[funcName] || "",
-				})
-			}
-			return results
-		}
-
-		// 并发查询每个函数的调用链
-		const callGraphPromises = Array.from(matchedFunctions).map(async (funcName) => {
-			const matchedFunc: MatchedFunction = {
-				name: funcName,
-				description: functionsMap[funcName] || "",
-			}
-
-			try {
-				// 构建完整文件路径
-				const fullFilePath = path.join(this.workspacePath, filePath)
-
-				// 带超时的调用链查询
-				const response: ApiResponse<CallGraphResponse> = await withTimeout(
-					client.getCallGraph({
-						clientId: client.getClientId(),
-						codebasePath: this.workspacePath,
-						filePath: fullFilePath,
-						symbolName: funcName,
-						maxLayer: 2,
-						noContent: 1,
-					}),
-					CALLGRAPH_TIMEOUT_MS,
-					`查询函数 ${funcName} 的调用链超时（${CALLGRAPH_TIMEOUT_MS}ms）`
-				)
-
-				if (response.success && response.data?.list && response.data.list.length > 0) {
-					const callChain = this.parseCallGraph(response.data.list[0])
-					if (callChain && callChain.callers.length > 0) {
-						matchedFunc.callChain = callChain
-					}
-				} else if (!response.success) {
-					// API 调用成功但返回失败状态
-					this.logger?.warn(
-						`[GraphRetriever] 查询函数 ${funcName} 的调用链失败: ${response.message || "未知错误"}，已忽略该调用链`
-					)
-				}
-			} catch (error) {
-				// 调用链查询失败或超时不影响基础结果
-				const errorMessage = error instanceof Error ? error.message : String(error)
-				
-				if (errorMessage.includes("超时")) {
-					this.logger?.warn(
-						`[GraphRetriever] ${errorMessage}，已忽略该调用链`
-					)
-				} else {
-					this.logger?.warn(
-						`[GraphRetriever] 查询函数 ${funcName} 的调用链失败: ${errorMessage}，已忽略该调用链`
-					)
-				}
-			}
-
-			return matchedFunc
-		})
-
-		// 等待所有查询完成
-		const enrichedResults = await Promise.all(callGraphPromises)
-		return enrichedResults
-	}
-
-	/**
-	 * 解析 CallGraph 节点树，提取上游调用链
-	 * @param rootNode CallGraph 根节点（definition）
-	 * @returns 调用链信息
-	 */
-	private parseCallGraph(rootNode: CallGraphNode): FunctionCallChain | null {
-		const callers: Array<{
-			filePath: string
-			symbolName: string
-			line: number
-		}> = []
-
-		// 递归收集所有调用者
-		const collectCallers = (node: CallGraphNode, depth: number = 0) => {
-			if (!node.children || node.children.length === 0) {
-				return
-			}
-
-			for (const child of node.children) {
-				if (child.nodeType === "reference") {
-					callers.push({
-						filePath: child.filePath,
-						symbolName: child.symbolName,
-						line: child.position.startLine,
-					})
-					// 递归处理子节点
-					collectCallers(child, depth + 1)
-				}
-			}
-		}
-
-		collectCallers(rootNode)
-
-		if (callers.length === 0) {
-			return null
-		}
-
-		// 反转调用者列表，使其从最上层调用者到当前函数
-		callers.reverse()
-
-		return {
-			callers,
-			depth: callers.length,
-		}
-	}
 
 	/**
 	 * 获取项目根信息 - 从root_info.json读取
