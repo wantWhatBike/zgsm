@@ -8,6 +8,7 @@ import { ILogger } from "../../../utils/logger"
 import { FileSummarizer as FileSummarizer } from "./FileSummarizer"
 import { IStorage } from "../storage/IStorage"
 import { StorageUtils } from "../storage/StorageUtils"
+import { SchemaDefinitions } from "../storage/SchemaDefinitions"
 
 const DIRECTORY_SUMMARIES_FILE = "directory_summaries.jsonl"
 const MAX_DIR_DEPTH = 4 // 最大目录深度限制
@@ -325,7 +326,7 @@ export class DirectorySummarizer {
 
 			const response = await this.llmClient.sendStructuredRequest<DirectorySummary>(
 				prompt,
-				this.getDirectorySummarySchema()
+				SchemaDefinitions.getLLMSchema('directory_summaries')
 			)
 
 			if (response.success && response.data) {
@@ -409,16 +410,4 @@ export class DirectorySummarizer {
 		}
 	}
 
-	/**
-	 * 获取目录摘要模式
-	 */
-	private getDirectorySummarySchema(): any {
-		return {
-			path: "Directory path",
-			summary: "Core purpose in ≤15 words",
-			description: "~150 words: role, functionality, business value",
-			keywords: ["keyword1", "keyword2"],
-			key_files: ["file1.ts", "file2.ts"],
-		}
-	}
 }

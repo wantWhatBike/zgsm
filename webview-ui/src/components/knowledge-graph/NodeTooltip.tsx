@@ -36,7 +36,7 @@ export const NodeTooltip = ({ node, graphData, x, y }: NodeTooltipProps) => {
 				setDisplayNode(node)
 				// 固定 tooltip 位置，不再跟随鼠标移动
 				setFixedPosition({ x, y })
-			}, 1000) // 1秒延迟
+			}, 500) // 500ms 延迟
 		} else if (!isHoveringTooltip) {
 			// node 为 null 且鼠标不在 tooltip 上时，延迟隐藏
 			hideTimeoutRef.current = setTimeout(() => {

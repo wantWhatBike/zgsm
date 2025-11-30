@@ -6,9 +6,11 @@
 
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { IStorage, StorageError } from './IStorage'
+import { IStorage, StorageError, StorageInitResult } from './IStorage'
 import type { Database } from 'sql.js'
 import initSqlJs from 'sql.js'
+import { SchemaDefinitions } from './SchemaDefinitions'
+import { ILogger, createLogger } from '../../../utils/logger'
 
 /**
  * SQLite 存储实现（基于 sql.js）
@@ -17,25 +19,24 @@ export class SqliteStorage implements IStorage {
 	private db: Database | null = null
 	private dbPath: string
 	private initialized: boolean = false
+	private logger: ILogger
 
-	// 期望的表结构定义
-	private readonly EXPECTED_SCHEMAS = {
-		file_summaries: ['path', 'type', 'description', 'keywords', 'functions', 
-		                 'dependencies', 'timestamp', 'lastModified', 'data'],
-		directory_summaries: ['path', 'type', 'description', 'keywords', 
-		                      'key_files', 'timestamp', 'data']
-	}
-
-	constructor(storagePath: string) {
+	constructor(storagePath: string, logger?: ILogger) {
 		this.dbPath = path.join(storagePath, 'knowledge-graph.db')
+		this.logger = logger || createLogger('SqliteStorage')
 	}
 
 	/**
 	 * 初始化数据库
 	 */
-	async initialize(): Promise<void> {
-		if (this.initialized) return
+	async initialize(): Promise<StorageInitResult> {
+		if (this.initialized) {
+			this.logger.debug('[SqliteStorage] 数据库已初始化，跳过')
+			return { migrated: false }
+		}
 
+		this.logger.info('[SqliteStorage] 开始初始化数据库...')
+		
 		try {
 			// 确保存储目录存在
 			const dir = path.dirname(this.dbPath)
@@ -53,12 +54,16 @@ export class SqliteStorage implements IStorage {
 
 			// 尝试从文件加载现有数据库
 			let data: Uint8Array | undefined
+			let isNewDatabase = false
 			try {
 				const buffer = await fs.readFile(this.dbPath)
 				data = new Uint8Array(buffer)
+				this.logger.info(`[SqliteStorage] 加载现有数据库: ${this.dbPath}`)
 			} catch (error) {
 				// 文件不存在，创建新数据库
 				data = undefined
+				isNewDatabase = true
+				this.logger.info(`[SqliteStorage] 创建新数据库: ${this.dbPath}`)
 			}
 
 			// 创建或加载数据库
@@ -67,11 +72,36 @@ export class SqliteStorage implements IStorage {
 				throw new StorageError('无法创建数据库连接', 'DB_CONNECTION_ERROR', false)
 			}
 
-			// 创建表结构
-			this.createTables()
+			// 创建表结构（返回是否有表结构变更）
+			const schemaChanged = this.createTables()
+
+			// ⭐️ 关键：sql.js 是内存数据库，必须保存到磁盘
+			// 新建数据库或表结构变更时需要保存
+			if (isNewDatabase || schemaChanged) {
+				await this.saveDatabase()
+				this.logger.info('[SqliteStorage] 💾 数据库已保存到磁盘')
+			}
 
 			this.initialized = true
+			
+			// ⭐️ 返回迁移信息
+			if (schemaChanged) {
+				this.logger.warn('[SqliteStorage] ⚠️  表结构已迁移，数据已清空')
+				return {
+					migrated: true,
+					message: '表结构已更新，旧数据已清除'
+				}
+			}
+			
+			if (isNewDatabase) {
+				this.logger.info('[SqliteStorage] ✅ 数据库初始化完成（新建）')
+			} else {
+				this.logger.info('[SqliteStorage] ✅ 数据库初始化完成（已加载）')
+			}
+			
+			return { migrated: false }
 		} catch (error) {
+			this.logger.error('[SqliteStorage] ❌ 数据库初始化失败:', error)
 			throw new StorageError(
 				`初始化 SQLite 存储失败: ${error instanceof Error ? error.message : String(error)}`,
 				'INIT_ERROR',
@@ -82,63 +112,66 @@ export class SqliteStorage implements IStorage {
 
 	/**
 	 * 创建表结构
+	 * @returns 是否发生了表结构变更（用于决定是否需要保存）
 	 */
-	private createTables(): void {
+	private createTables(): boolean {
 		const db = this.db
 		if (!db) throw new StorageError('数据库未初始化', 'DB_NOT_INITIALIZED', false)
 
+		let schemaChanged = false
+
 		// 验证 file_summaries 表结构
 		if (this.tableExists('file_summaries')) {
-			const isValid = this.validateTableSchema('file_summaries', this.EXPECTED_SCHEMAS.file_summaries)
+			const expectedColumns = SchemaDefinitions.getColumnNames('file_summaries')
+			const isValid = this.validateTableSchema('file_summaries', expectedColumns)
 			if (!isValid) {
-				console.warn('[SqliteStorage] file_summaries 表结构不一致，删除重建')
+				this.logger.warn('[SqliteStorage] ⚠️  检测到 file_summaries 表结构不一致')
+				this.logger.warn(`[SqliteStorage] 期望列: ${expectedColumns.join(', ')}`)
+				const actualColumns = this.getActualColumns('file_summaries')
+				this.logger.warn(`[SqliteStorage] 实际列: ${actualColumns.join(', ')}`)
+				this.logger.warn('[SqliteStorage] 正在删除旧表并重建...')
 				this.dropTable('file_summaries')
+				schemaChanged = true
 			}
 		}
 
 		// 验证 directory_summaries 表结构
 		if (this.tableExists('directory_summaries')) {
-			const isValid = this.validateTableSchema('directory_summaries', this.EXPECTED_SCHEMAS.directory_summaries)
+			const expectedColumns = SchemaDefinitions.getColumnNames('directory_summaries')
+			const isValid = this.validateTableSchema('directory_summaries', expectedColumns)
 			if (!isValid) {
-				console.warn('[SqliteStorage] directory_summaries 表结构不一致，删除重建')
+				this.logger.warn('[SqliteStorage] ⚠️  检测到 directory_summaries 表结构不一致')
+				this.logger.warn(`[SqliteStorage] 期望列: ${expectedColumns.join(', ')}`)
+				const actualColumns = this.getActualColumns('directory_summaries')
+				this.logger.warn(`[SqliteStorage] 实际列: ${actualColumns.join(', ')}`)
+				this.logger.warn('[SqliteStorage] 正在删除旧表并重建...')
 				this.dropTable('directory_summaries')
+				schemaChanged = true
 			}
 		}
 
-		// 文件摘要表
-		db.run(`
-			CREATE TABLE IF NOT EXISTS file_summaries (
-				path TEXT PRIMARY KEY,
-				type TEXT,
-				description TEXT,
-				keywords TEXT,
-				functions TEXT,
-				dependencies TEXT,
-				timestamp TEXT,
-				lastModified INTEGER,
-				data TEXT
-			)
-		`)
+		// 使用 SchemaDefinitions 生成表结构
+		db.run(SchemaDefinitions.generateTableDDL('file_summaries'))
+		db.run(SchemaDefinitions.generateTableDDL('directory_summaries'))
 
-		// 目录摘要表
-		db.run(`
-			CREATE TABLE IF NOT EXISTS directory_summaries (
-				path TEXT PRIMARY KEY,
-				type TEXT,
-				description TEXT,
-				keywords TEXT,
-				key_files TEXT,
-				timestamp TEXT,
-				data TEXT
-			)
-		`)
+		if (schemaChanged) {
+			this.logger.warn('[SqliteStorage] ✅ 表结构已更新，旧数据已清除')
+			this.logger.warn('[SqliteStorage] 💡 提示：请重新构建知识图谱以生成新的摘要数据')
+		}
 
 		// 注意：标准 sql.js 不支持 FTS5，使用普通索引替代
 		// 为搜索字段创建索引以提升查询性能
-		db.run(`CREATE INDEX IF NOT EXISTS idx_file_summaries_path ON file_summaries(path)`)
-		db.run(`CREATE INDEX IF NOT EXISTS idx_file_summaries_description ON file_summaries(description)`)
-		db.run(`CREATE INDEX IF NOT EXISTS idx_directory_summaries_path ON directory_summaries(path)`)
-		db.run(`CREATE INDEX IF NOT EXISTS idx_directory_summaries_description ON directory_summaries(description)`)
+		const fileIndexFields = SchemaDefinitions.getIndexedFields('file_summaries')
+		for (const field of fileIndexFields) {
+			db.run(`CREATE INDEX IF NOT EXISTS idx_file_summaries_${field} ON file_summaries(${field})`)
+		}
+
+		const dirIndexFields = SchemaDefinitions.getIndexedFields('directory_summaries')
+		for (const field of dirIndexFields) {
+			db.run(`CREATE INDEX IF NOT EXISTS idx_directory_summaries_${field} ON directory_summaries(${field})`)
+		}
+		
+		return schemaChanged
 	}
 
 
@@ -152,7 +185,7 @@ export class SqliteStorage implements IStorage {
 			const data = this.db.export()
 			await fs.writeFile(this.dbPath, data)
 		} catch (error) {
-			console.error('[SqliteStorage] 保存数据库失败:', error)
+			this.logger.error('[SqliteStorage] 保存数据库失败:', error)
 		}
 	}
 
@@ -437,53 +470,38 @@ export class SqliteStorage implements IStorage {
 	}
 
 	/**
-	 * 插入行数据
+	 * 插入行数据（使用动态 Schema）
 	 */
 	private insertRow(tableName: string, item: any): void {
 		const db = this.db
 		if (!db) throw new StorageError('数据库未初始化', 'DB_NOT_INITIALIZED', false)
 		
-		const dataJson = JSON.stringify(item)
-
-		if (tableName === 'file_summaries') {
-			db.run(
-				`INSERT OR REPLACE INTO file_summaries 
-				(path, type, description, keywords, functions, dependencies, timestamp, lastModified, data)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				[
-					item.path,
-					item.type,
-					item.description || '',
-					JSON.stringify(item.keywords || []),
-					JSON.stringify(item.functions || {}),
-					JSON.stringify(item.dependencies || []),
-					item.timestamp,
-					item.lastModified || 0,
-					dataJson
-				]
-			)
-		} else if (tableName === 'directory_summaries') {
-			db.run(
-				`INSERT OR REPLACE INTO directory_summaries 
-				(path, type, description, keywords, key_files, timestamp, data)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				[
-					item.path,
-					item.type,
-					item.description || '',
-					JSON.stringify(item.keywords || []),
-					JSON.stringify(item.key_files || []),
-					item.timestamp,
-					dataJson
-				]
-			)
-		} else {
+		// 验证表名
+		const supportedTables = SchemaDefinitions.getAllTableNames()
+		if (!supportedTables.includes(tableName)) {
 			throw new StorageError(
-				`不支持的表名: ${tableName}，SQLite 存储仅支持 file_summaries 和 directory_summaries`,
+				`不支持的表名: ${tableName}，仅支持: ${supportedTables.join(', ')}`,
 				'UNSUPPORTED_TABLE',
 				false
 			)
 		}
+
+		// 提取索引字段
+		const indexFields = SchemaDefinitions.extractIndexFields(tableName, item)
+		
+		// 完整 JSON 数据
+		const dataJson = JSON.stringify(item)
+		
+		// 构建列名和占位符
+		const columns = Object.keys(indexFields).concat(['data'])
+		const placeholders = columns.map(() => '?').join(', ')
+		const values = Object.values(indexFields).concat([dataJson])
+		
+		// 动态生成 INSERT 语句
+		db.run(
+			`INSERT OR REPLACE INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`,
+			values
+		)
 	}
 
 	/**
@@ -524,6 +542,29 @@ export class SqliteStorage implements IStorage {
 	}
 
 	/**
+	 * 获取表的实际列名
+	 */
+	private getActualColumns(tableName: string): string[] {
+		const db = this.db
+		if (!db) return []
+		
+		try {
+			const stmt = db.prepare(`PRAGMA table_info(${tableName})`)
+			const columns: string[] = []
+			
+			while (stmt.step()) {
+				const row = stmt.getAsObject() as { name: string }
+				columns.push(row.name)
+			}
+			stmt.free()
+			
+			return columns
+		} catch (error) {
+			return []
+		}
+	}
+
+	/**
 	 * 验证表结构
 	 */
 	private validateTableSchema(tableName: string, expectedColumns: string[]): boolean {
@@ -531,14 +572,7 @@ export class SqliteStorage implements IStorage {
 		if (!db) return false
 		
 		try {
-			const stmt = db.prepare(`PRAGMA table_info(${tableName})`)
-			const actualColumns: string[] = []
-			
-			while (stmt.step()) {
-				const row = stmt.getAsObject() as { name: string }
-				actualColumns.push(row.name)
-			}
-			stmt.free()
+			const actualColumns = this.getActualColumns(tableName)
 			
 			if (actualColumns.length !== expectedColumns.length) {
 				return false
@@ -566,9 +600,9 @@ export class SqliteStorage implements IStorage {
 		try {
 			db.run(`DROP TABLE IF EXISTS ${tableName}_fts`)
 			db.run(`DROP TABLE IF EXISTS ${tableName}`)
-			console.log(`[SqliteStorage] 已删除表: ${tableName}`)
+			this.logger.info(`[SqliteStorage] ✓ 已删除表: ${tableName}`)
 		} catch (error) {
-			console.error(`[SqliteStorage] 删除表 ${tableName} 失败:`, error)
+			this.logger.error(`[SqliteStorage] ✗ 删除表 ${tableName} 失败:`, error)
 		}
 	}
 
@@ -591,7 +625,7 @@ export class SqliteStorage implements IStorage {
 				const data = this.db.export()
 				require('fs').writeFileSync(this.dbPath, data)
 			} catch (error) {
-				console.error('[SqliteStorage] 关闭时保存数据库失败:', error)
+				this.logger.error('[SqliteStorage] 关闭时保存数据库失败:', error)
 			}
 			
 			this.db.close()

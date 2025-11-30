@@ -402,26 +402,44 @@ export class GraphRetriever {
 				}
 			}
 
-			// 3.2 构建 Import 关系（文件依赖关系）
-			this.logger?.info(`[GraphRetriever] 构建 Import 关系...`)
-			for (const fileSummary of fileSummaries) {
-				if (!fileSummary.dependencies || fileSummary.dependencies.length === 0) continue
+		// 3.2 构建 Import 关系（文件依赖关系）
+		this.logger?.info(`[GraphRetriever] 构建 Import 关系...`)
+		
+		// 统计：依赖匹配成功/失败数量（用于调试）
+		let matchedCount = 0
+		let unmatchedCount = 0
+		const unmatchedDeps: string[] = []
+		
+		for (const fileSummary of fileSummaries) {
+			if (!fileSummary.dependencies || fileSummary.dependencies.length === 0) continue
 
-				const sourcePath = fileSummary.path
-				if (!sourcePath || !nodeMap.has(sourcePath)) continue
+			const sourcePath = fileSummary.path
+			if (!sourcePath || !nodeMap.has(sourcePath)) continue
 
-				for (const depPath of fileSummary.dependencies) {
-					// 尝试匹配依赖路径（可能是相对路径或绝对路径）
-					// 这里简化处理：如果依赖路径在节点映射中存在，则创建边
-					if (nodeMap.has(depPath)) {
-						links.push({
-							source: sourcePath,
-							target: depPath,
-							type: 'import',
-						})
+			for (const depPath of fileSummary.dependencies) {
+				// 依赖路径已在 FileSummarizer 写入时解析和标准化，这里直接匹配
+				if (nodeMap.has(depPath)) {
+					links.push({
+						source: sourcePath,
+						target: depPath,
+						type: 'import',
+					})
+					matchedCount++
+				} else {
+					// 匹配失败：可能是外部依赖或已删除的文件
+					unmatchedCount++
+					if (unmatchedDeps.length < 10) { // 只记录前10个示例
+						unmatchedDeps.push(`${sourcePath} → ${depPath}`)
 					}
 				}
 			}
+		}
+		
+		// 调试日志
+		this.logger?.info(`[GraphRetriever] 依赖匹配统计: 成功 ${matchedCount}, 失败 ${unmatchedCount}`)
+		if (unmatchedDeps.length > 0) {
+			this.logger?.warn(`[GraphRetriever] 未匹配的依赖示例 (前${Math.min(unmatchedDeps.length, 5)}个): ${unmatchedDeps.slice(0, 5).join('; ')}`)
+		}
 
 			// 统计节点类型
 			const fileNodes = nodes.filter(n => n.type === 'file')

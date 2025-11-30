@@ -19,6 +19,14 @@ export interface StorageInfo {
 }
 
 /**
+ * 存储初始化结果
+ */
+export interface StorageInitResult {
+  migrated: boolean      // 是否发生了数据迁移/清空
+  message?: string       // 迁移描述信息
+}
+
+/**
  * 存储错误
  */
 export class StorageError extends Error {
@@ -38,7 +46,7 @@ export class StorageError extends Error {
  */
 export interface IStorage {
   // 初始化和基础操作
-  initialize(): Promise<void>
+  initialize(): Promise<StorageInitResult>
   exists(): Promise<boolean>
   clear(table: string): Promise<void>
   load(table: string): Promise<string | null>

@@ -101,6 +101,9 @@ export class KnowledgeGraphManager {
 
 	// 自动构建调度器
 	private autoRebuildScheduler?: AutoRebuildScheduler
+	
+	// ⭐️ 标记是否需要重置状态（因数据库迁移）
+	private needsStateReset: boolean = false
 
 	/**
 	 * 私有构造函数确保单例模式
@@ -289,6 +292,15 @@ export class KnowledgeGraphManager {
 
 			// 3. 创建状态跟踪器（使用 JSON 文件存储）
 			const stateTracer = await this.createStateTracer(fileStorage)
+			
+			// ⭐️ 如果检测到数据库迁移，重置构建状态
+			if (this.needsStateReset) {
+				this.logger?.warn('[KnowledgeGraphManager] 正在重置构建状态...')
+				await stateTracer.clear()
+				this.logger?.warn('[KnowledgeGraphManager] ✅ 构建状态已重置')
+				this.logger?.warn('[KnowledgeGraphManager] 💡 提示：请重新构建知识图谱')
+				this.needsStateReset = false
+			}
 
 			// 4. 创建图构建器
 			this.graphBuilder = this.createGraphBuilder(stateTracer, {
@@ -346,17 +358,26 @@ export class KnowledgeGraphManager {
 		this.fileStorage = StorageFactory.createStorage({
 			type: 'file',
 			path: storagePath
-		})
+		}, this.logger)
 		
 		// 创建 SQLite 存储（用于文件摘要和目录摘要）
 		this.sqliteStorage = StorageFactory.createStorage({
 			type: 'database',
 			path: storagePath
-		})
+		}, this.logger)
 		
-		// 初始化两个存储
+		// 初始化 JSON 文件存储
 		await this.fileStorage.initialize()
-		await this.sqliteStorage.initialize()
+		
+		// 初始化 SQLite 存储并检测迁移
+		const sqliteInitResult = await this.sqliteStorage.initialize()
+		
+		// ⭐️ 检测到表结构迁移，需要重置构建状态
+		if (sqliteInitResult.migrated) {
+			this.logger?.warn('[KnowledgeGraphManager] ⚠️  检测到数据库表结构迁移')
+			this.logger?.warn(`[KnowledgeGraphManager] ${sqliteInitResult.message}`)
+			this.needsStateReset = true
+		}
 		
 		// ✅ 修复：传入配置对象引用，而不是复制值
 		// LLMClient 会持有这个引用，配置更新时自动生效

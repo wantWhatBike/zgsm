@@ -2,7 +2,7 @@ import * as fs from "fs/promises"
 import { createWriteStream, WriteStream } from "fs"
 import path, * as nodePath from "path"
 import { safeWriteJson } from "../../../utils/safeWriteJson"
-import { StorageConfig, StorageError, IStorage } from "./IStorage"
+import { StorageConfig, StorageError, IStorage, StorageInitResult } from "./IStorage"
 
 import { createLogger, ILogger } from "../../../utils/logger"
 import { pathExists, safeReadFile } from "../tools/FileUtils"
@@ -372,9 +372,11 @@ export class JsonFileStorage implements IStorage {
 	/**
 	 * 初始化必要的存储文件
 	 */
-	async initialize(): Promise<void> {
+	async initialize(): Promise<StorageInitResult> {
 		try {
 			await this.ensureStoragePath()
+			// JSON 文件存储不涉及数据迁移
+			return { migrated: false }
 		} catch (error) {
 			throw new StorageError(
 				`初始化存储失败: ${error instanceof Error ? error.message : String(error)}`,

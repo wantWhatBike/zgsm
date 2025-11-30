@@ -58,12 +58,18 @@ For each file in the batch, generate:
 ## Rules
 1. Output format: JSON Lines (one JSON object per line, no line breaks within objects)
 2. Type classification:
-   - `test`: Files in test directories or containing "test"/"spec" in filename
-   - `source`: All other source files
+   - \`test\`: Files in test directories or containing "test"/"spec" in filename
+   - \`source\`: All other source files
 3. Dependencies validation:
    - ONLY include paths that exist in the provided fileList
-   - Use relative paths (e.g., "src/utils/helper.ts")
-   - NO node_modules, NO external packages, NO absolute paths
+   - Prefer project-relative file paths (e.g., "src/utils/helper.ts")
+   - Module/package/namespace paths are acceptable for all languages:
+     * Go: "github.com/user/repo/pkg"
+     * Java: "com.example.project.service"
+     * Python: "src.utils.helper"
+     * C#: "MyProject.Services"
+     * Rust: "crate::module"
+   - NO node_modules, NO external libraries, NO system absolute paths
 4. Analyze only the files in this batch (do not process files from fileList unless they are in fileContents)
 
 ## Input

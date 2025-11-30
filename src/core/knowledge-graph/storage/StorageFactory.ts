@@ -9,17 +9,18 @@ import { SqliteStorage } from "./SqliteStorage"
 import path from "path"
 import * as os from "os"
 import { createHash } from "crypto"
+import { ILogger } from "../../../utils/logger"
 
 // 存储创建器接口
 interface StorageCreator {
-  create(config: StorageConfig): IStorage
+  create(config: StorageConfig, logger?: ILogger): IStorage
   supports(type: string): boolean
 }
 
 // 文件存储创建器
 class FileStorageCreator implements StorageCreator {
-  create(config: StorageConfig): IStorage {
-    return new JsonFileStorage(config)
+  create(config: StorageConfig, logger?: ILogger): IStorage {
+    return new JsonFileStorage(config, logger)
   }
   
   supports(type: string): boolean {
@@ -29,8 +30,8 @@ class FileStorageCreator implements StorageCreator {
 
 // SQLite 存储创建器
 class SqliteStorageCreator implements StorageCreator {
-  create(config: StorageConfig): IStorage {
-    return new SqliteStorage(config.path)
+  create(config: StorageConfig, logger?: ILogger): IStorage {
+    return new SqliteStorage(config.path, logger)
   }
   
   supports(type: string): boolean {
@@ -40,7 +41,7 @@ class SqliteStorageCreator implements StorageCreator {
 
 // 数据库存储创建器（占位符，保留用于其他数据库类型）
 class DatabaseStorageCreator implements StorageCreator {
-  create(config: StorageConfig): IStorage {
+  create(config: StorageConfig, logger?: ILogger): IStorage {
     throw new StorageError("数据库存储暂未实现", "UNSUPPORTED_STORAGE_TYPE", false)
   }
   
@@ -71,9 +72,10 @@ export class StorageFactory {
   /**
    * 创建存储实例
    * @param config 存储配置
+   * @param logger 日志记录器（可选）
    * @returns 存储实例
    */
-  static createStorage(config: StorageConfig): IStorage {
+  static createStorage(config: StorageConfig, logger?: ILogger): IStorage {
     if (!this.validateConfig(config)) {
       throw new StorageError(`存储配置无效`, "INVALID_CONFIG", false)
     }
@@ -83,7 +85,7 @@ export class StorageFactory {
       throw new StorageError(`不支持的存储类型: ${config.type}`, "UNSUPPORTED_STORAGE_TYPE", false)
     }
     
-    return creator.create(config)
+    return creator.create(config, logger)
   }
     
 

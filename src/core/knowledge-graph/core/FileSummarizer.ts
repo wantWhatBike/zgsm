@@ -13,6 +13,7 @@ import { PathUtils } from "../tools/PathUtils"
 import { ILogger } from "../../../utils/logger"
 import { countTokens } from "../../../utils/countTokens"
 import { IStorage } from "../storage/IStorage"
+import { SchemaDefinitions } from "../storage/SchemaDefinitions"
 
 const FILE_SUMMARIES_FILE = "file_summaries.jsonl"
 
@@ -21,6 +22,7 @@ export class FileSummarizer {
 	private storage: IStorage
 	private config: KnowledgeGraphConfig
 	private logger: ILogger
+	private currentAllFilePaths: string[] = [] // 当前批次的所有文件路径，用于依赖解析
 
 	constructor(llmClient: LLMClient, storage: IStorage, config: KnowledgeGraphConfig, logger: ILogger) {
 		this.llmClient = llmClient
@@ -42,6 +44,9 @@ export class FileSummarizer {
 	): Promise<void> {
 		try {
 			const allFilePaths: string[] = allFileList.map((file) => file.path)
+			
+			// 存储到类成员变量，供 validateAndCleanFileSummary 使用
+			this.currentAllFilePaths = allFilePaths
 
 			// TODO 文件列表token数控制
 			let basePrompt = buildPrompt(FILE_ANALYSIS_PROMPT, {
@@ -218,7 +223,7 @@ export class FileSummarizer {
 		this.logger.info(`[FileSummarizer] 发送 LLM 请求...`)
 
 		// 发送LLM请求
-		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, this.getFileSummarySchema())
+		const response = await this.llmClient.sendStructuredRequest<FileSummary[]>(prompt, SchemaDefinitions.getLLMSchema('file_summaries'))
 
 		// 请求返回后再次检查终止状态，避免写入
 		if (this.shouldPause()) return
@@ -226,8 +231,10 @@ export class FileSummarizer {
 		const batchDuration = Date.now() - batchStartTime
 
 		if (response.success && response.data) {
-			// 验证和清理数据
-			let batchSummaries = response.data.map((summary: FileSummary) => this.validateAndCleanFileSummary(summary))
+			// 验证和清理数据（包括依赖路径解析）
+			let batchSummaries = response.data.map((summary: FileSummary) => 
+				this.validateAndCleanFileSummary(summary)
+			)
 
 			await this.updateSummaries(batchSummaries)
 			
@@ -348,47 +355,50 @@ export class FileSummarizer {
 	}
 
 
-	
-	/**
-	 * 获取文件摘要模式
-	 */
-	private getFileSummarySchema(): any {
-		return [
-			{
-				path: "File path",
-				type: "source|test",
-				summary: "Core function in ≤15 words",
-				description: "~150 words: business logic, architectural role, data flow",
-				keywords: ["keyword1", "keyword2", "keyword3"],
-				functions: {
-					function_name1: "Function description, 50-100 words",
-					function_name2: "Function description, 50-100 words",
-				},
-				dependencies: ["path/to/file1.ts", "path/to/file2.ts"],
-			},
-		]
-	}
 
 	/**
 	 * 验证和清理文件摘要
 	 * ✅ 路径标准化：LLM 可能返回不同格式的路径分隔符，统一标准化为 Unix 风格
+	 * ✅ 依赖路径解析：在数据写入时就解析路径（相对路径、模块路径等），确保数据一致性
 	 * ✅ 工程化字段自动生成：timestamp、size、lastModified 由代码生成，不依赖 LLM
 	 */
 	private validateAndCleanFileSummary(summary: FileSummary): FileSummary {
 		const now = new Date().toISOString()
+		
+		// 标准化文件路径
+		const normalizedPath = PathUtils.normalizePathSeparators(summary.path || "")
+		
+		// 解析和标准化依赖路径（单一数据源原则：写入时处理，查询时直接使用）
+		const resolvedDependencies: string[] = []
+		if (Array.isArray(summary.dependencies)) {
+			for (const depPath of summary.dependencies) {
+				// 使用 PathUtils 解析依赖路径
+				const resolved = PathUtils.resolveDependencyPath(
+					depPath,
+					normalizedPath,
+					this.currentAllFilePaths
+				)
+				
+				if (resolved) {
+					// 解析成功，添加到结果
+					resolvedDependencies.push(resolved)
+				} else {
+					// 解析失败，记录日志但不影响流程（防御性编程）
+					this.logger?.debug(`[FileSummarizer] 无法解析依赖路径: ${depPath} (from ${normalizedPath})`)
+				}
+			}
+		}
 
 		return {
 			// ✅ 标准化路径：确保 LLM 返回的路径与系统中存储的路径格式一致
-			path: PathUtils.normalizePathSeparators(summary.path || ""),
+			path: normalizedPath,
 			type: this.validateFileType(summary.type),
 			summary: summary.summary || "",  // ✅ 新增：核心功能描述
 			description: summary.description || "",
 			keywords: Array.isArray(summary.keywords) ? summary.keywords.slice(0, 10) : [],
 			functions: typeof summary.functions === "object" ? summary.functions : {},
-			// ✅ 标准化依赖路径
-			dependencies: Array.isArray(summary.dependencies) 
-				? PathUtils.normalizePathsArray(summary.dependencies)
-				: [],
+			// ✅ 使用解析后的依赖路径
+			dependencies: resolvedDependencies,
 			// ✅ 工程化字段：自动生成，不依赖 LLM
 			timestamp: now,
 			size: summary.size || 0,

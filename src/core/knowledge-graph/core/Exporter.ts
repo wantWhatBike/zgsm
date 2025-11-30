@@ -288,7 +288,6 @@ export class Exporter {
 			for (const summary of directorySummaries) {
 				// 限制数量
 				content += `### ${summary.path}\n\n`
-				content += `- **类型**: ${summary.type}\n`
 				content += `- **关键词**: ${summary.keywords.join(", ")}\n`
 				content += `- **描述**: ${summary.description}\n`
 
