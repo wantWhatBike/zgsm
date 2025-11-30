@@ -37,3 +37,24 @@ export class KnowledgeGraphError extends Error {
     }
   }
 }
+
+/**
+ * ✅ 中止错误类（用户主动中止操作，如暂停）
+ * 
+ * 设计目的：
+ * - 区分用户主动中止和系统错误，避免字符串匹配
+ * - 不可重试（用户意图明确）
+ * - 可恢复（用户可以继续）
+ */
+export class AbortedError extends KnowledgeGraphError {
+  constructor(message: string = "操作被中止", context?: string) {
+    super(
+      message,
+      ERROR_CODES.ABORTED,
+      false,  // 不可重试
+      false,  // 不需要上报
+      { context }
+    )
+    this.name = "AbortedError"
+  }
+}

@@ -3,7 +3,7 @@
  * 消除重复的错误处理逻辑，提供统一的错误处理和重试机制
  */
 
-import { KnowledgeGraphError } from "../errors/KnowledgeGraphError"
+import { KnowledgeGraphError, AbortedError } from "../errors/KnowledgeGraphError"
 import { ERROR_CODES, RETRY_CONFIG } from "../constants"
 import { ILogger } from "../../../utils/logger"
 
@@ -169,13 +169,35 @@ export class ErrorHandler {
 
 
   /**
+   * ✅ 安全检查是否应该中止（防御性编程）
+   * 捕获中止检查函数的异常，避免影响重试逻辑
+   */
+  private static shouldAbortOperation(shouldAbort?: () => boolean, logger?: ILogger): boolean {
+    if (!shouldAbort) return false
+    
+    try {
+      return shouldAbort()
+    } catch (error) {
+      // 暂停检查失败，视为不暂停（保守策略，记录警告）
+      logger?.warn(`[ErrorHandler] 暂停检查失败，继续执行: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+
+  /**
    * 智能重试机制 - 根据错误类型采用不同策略
+   * @param operation 要执行的操作
+   * @param context 上下文描述（用于日志）
+   * @param logger 日志记录器
+   * @param maxRetries 最大重试次数
+   * @param shouldAbort 可选的中止检查函数，返回 true 时中止重试（如用户暂停）
    */
   static async withLLMRetry<T>(
     operation: () => Promise<T>,
     context: string,
     logger?: ILogger,
-    maxRetries: number = RETRY_CONFIG.maxRetries
+    maxRetries: number = RETRY_CONFIG.maxRetries,
+    shouldAbort?: () => boolean
   ): Promise<T> {
     let lastError: unknown
     
@@ -185,6 +207,12 @@ export class ErrorHandler {
     }
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // ✅ 每次重试前检查是否应该中止（防御性：捕获异常）
+      if (this.shouldAbortOperation(shouldAbort, logger)) {
+        logger?.info(`[ErrorHandler] ${context} 操作被中止（用户暂停或系统停止）`)
+        throw new AbortedError(`${context} 被中止`, context)
+      }
+      
       try {
         const result = await operation()
         // ✅ 调试日志：首次成功或重试成功
@@ -196,6 +224,12 @@ export class ErrorHandler {
         lastError = error
         
         if (attempt < maxRetries - 1) {
+          // ✅ 重试前再次检查中止状态（防御性：捕获异常）
+          if (this.shouldAbortOperation(shouldAbort, logger)) {
+            logger?.info(`[ErrorHandler] ${context} 重试被中止（用户暂停或系统停止）`)
+            throw new AbortedError(`${context} 被中止`, context)
+          }
+          
           const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
           
           // 检查是否应该停止重试

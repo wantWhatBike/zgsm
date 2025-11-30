@@ -89,6 +89,9 @@ export class KnowledgeGraphManager {
 	private fileStorage?: IStorage      // 用于根信息和状态
 	private sqliteStorage?: IStorage    // 用于文件摘要和目录摘要
 
+	// ✅ LLM 客户端实例（用于设置暂停检查器）
+	private llmClient?: LLMClient
+
 	// ✅ 全局操作互斥锁：确保同一时间只有一个操作在执行
 	private operationMutex = new Mutex()
 	private currentOperationType: "build" | "pause" | "resume" | "clear" | "auto-build" | null = null
@@ -364,6 +367,9 @@ export class KnowledgeGraphManager {
 			this.logger!,
 			this.config  // 直接传入配置对象引用
 		)
+		
+		// ✅ 保存 LLMClient 引用，用于后续设置暂停检查器
+		this.llmClient = llmClient
 
 		return { 
 			fileStorage: this.fileStorage,
@@ -425,6 +431,7 @@ export class KnowledgeGraphManager {
 
 	/**
 	 * 设置统一的暂停检查器
+	 * ✅ 包括 LLMClient，确保重试过程也能响应暂停
 	 */
 	private setupPauseCheckers(stateTracer: BuildStateTracer, components: any): void {
 		const pauseChecker = () => stateTracer.isPaused() ?? false
@@ -433,6 +440,11 @@ export class KnowledgeGraphManager {
 		components.fileSummarizer.setPauseChecker(pauseChecker)
 		components.directorySummarizer.setPauseChecker(pauseChecker)
 		components.fileService.setPauseChecker(pauseChecker)
+		
+		// ✅ 给 LLMClient 也设置暂停检查器，确保重试过程能响应暂停
+		if (this.llmClient) {
+			this.llmClient.setPauseChecker(pauseChecker)
+		}
 	}
 
 	/**

@@ -21,7 +21,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutError: st
     )
   ])
 }
-import { LLM_CONFIG } from "../constants"
+import { LLM_CONFIG, LOG_CONFIG } from "../constants"
 
 export class LLMClient {
   private zgsmHandler: ZgsmAiHandler
@@ -31,6 +31,8 @@ export class LLMClient {
   private progressTracer: ProgressTracer
   // ✅ 修复：持有配置对象引用，而不是复制值
   private config: { contextWindowSize?: number, llmTimeoutMs?: number, llmMaxRetries?: number }
+  // ✅ 暂停检查器：用于在重试过程中检测是否应该中止
+  private pauseChecker?: () => boolean
 
   constructor(modelId: string, progressTracer: ProgressTracer, apiConfiguration?:ProviderSettings, logger?: ILogger, config?: { contextWindowSize?: number, llmTimeoutMs?: number, llmMaxRetries?: number }) {
     // 从task中获取API配置
@@ -87,6 +89,73 @@ export class LLMClient {
    */
   private getLlmMaxRetries(): number {
     return this.config.llmMaxRetries || LLM_CONFIG.maxRetries
+  }
+
+  /**
+   * 设置暂停检查器
+   * 用于在 LLM 请求重试过程中检测是否应该中止（如用户暂停）
+   */
+  public setPauseChecker(checker: () => boolean): void {
+    this.pauseChecker = checker
+  }
+
+  /**
+   * 检查是否应该中止
+   */
+  private shouldAbort(): boolean {
+    return this.pauseChecker?.() ?? false
+  }
+
+  /**
+   * ✅ 安全截断字符串（防御性编程）
+   */
+  private truncate(str: string | undefined | null, maxLen: number = LOG_CONFIG.MAX_RESPONSE_PREVIEW_LENGTH): string {
+    if (!str) return "(empty)"
+    return str.length > maxLen ? str.substring(0, maxLen) + "..." : str
+  }
+
+  /**
+   * ✅ 安全序列化对象（防御性编程）
+   */
+  private safeStringify(obj: unknown, maxLen: number = LOG_CONFIG.MAX_RESPONSE_BODY_LENGTH): string {
+    if (obj === undefined || obj === null) return "(null)"
+    try {
+      const str = typeof obj === "string" ? obj : JSON.stringify(obj)
+      return this.truncate(str, maxLen)
+    } catch {
+      return "[无法序列化]"
+    }
+  }
+
+  /**
+   * ✅ 统一的 LLM 错误日志输出（DRY 原则 + 常量化）
+   */
+  private logLLMError(error: unknown, duration: number): void {
+    const errorType = error?.constructor?.name || "Unknown"
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    
+    this.logger.error(`[LLMClient] ❌ 发送消息失败: type=${errorType}, duration=${duration}ms`)
+    this.logger.error(`[LLMClient] 错误信息: ${this.truncate(errorMsg, LOG_CONFIG.MAX_ERROR_MESSAGE_LENGTH)}`)
+    
+    // 提取 API 错误的额外信息
+    if (error && typeof error === "object") {
+      const errObj = error as Record<string, unknown>
+      
+      // 收集状态码信息
+      const codes = ["status", "statusCode", "code"]
+        .filter(key => errObj[key] !== undefined)
+        .map(key => `${key}=${errObj[key]}`)
+      
+      if (codes.length > 0) {
+        this.logger.error(`[LLMClient] ${codes.join(", ")}`)
+      }
+      
+      // 输出响应体（优先 response，其次 body）
+      const responseData = errObj.response ?? errObj.body
+      if (responseData) {
+        this.logger.error(`[LLMClient] 响应体: ${this.safeStringify(responseData)}`)
+      }
+    }
   }
 
   /**
@@ -183,6 +252,9 @@ export class LLMClient {
 
           // 验证响应内容
           if (!responseText.trim()) {
+            // ✅ 增强日志：输出空响应详情（防御性编程，控制长度）
+            this.logger.error(`[LLMClient] ❌ LLM返回空响应`)
+            this.logger.error(`[LLMClient] 响应详情: requestId=${requestId}, len=${responseText?.length ?? 0}, tokens(in/out)=${inputTokens}/${outputTokens}, duration=${duration}ms`)
             throw ErrorHandler.createInvalidResponseError("LLM返回空响应")
           }
 
@@ -219,18 +291,22 @@ export class LLMClient {
             false
           )
           
-          this.logger.error(`[LLMClient] 发送消息失败: ${error}`)
+          // ✅ 增强错误日志（使用辅助方法，DRY 原则）
+          this.logLLMError(error, duration)
+          
           throw error
         }
       },
       "LLM消息发送",
       this.logger,
-      this.getLlmMaxRetries()
+      this.getLlmMaxRetries(),
+      () => this.shouldAbort()  // ✅ 传递暂停检查器
     )
   }
 
   /**
    * 发送结构化请求并解析JSON响应
+   * ✅ 重试由 sendMessage() 统一处理，避免嵌套重试（5×5=25 的问题）
    */
   async sendStructuredRequest<T = any>(
     userPrompt: string,
@@ -241,57 +317,68 @@ export class LLMClient {
       temperature?: number
     } = {}
   ): Promise<LLMResponse<T|undefined>> {
-    return await ErrorHandler.withLLMRetry(
-      async () => {
-        // 验证输入prompt
-        if (!userPrompt || userPrompt.trim().length === 0) {
-          throw new Error("user prompt cannot be empty")
-        }
-        
-        const effectiveSystemPrompt = (systemPrompt || '').trim() || `仅返回纯 JSON 格式响应，不包含任何多余内容（包括解释、注释、Markdown 代码块、文字说明、额外换行等），确保 JSON 语法严格正确可直接解析：\n${JSON.stringify(responseSchema, null, 2)}`
-        
-        // 使用有效的systemPrompt发送请求
-        const response = await this.sendMessage( effectiveSystemPrompt, userPrompt, {
-          ...options,
-        })
-        
-        if (!response.success || !response.data) {
-          throw new Error(response.error || "LLM请求失败")
-        }
-                // 添加本次 usage 的 debug 日志
-        this.logger.debug(`[LLMClient] 本次请求 usage 统计:`, {
-          inputTokens: response.usage?.inputTokens || 0,
-          outputTokens: response.usage?.outputTokens || 0,
-          cost: response.usage?.cost || 0,
-          duration: response.duration || 0
-        })
+    // ✅ 验证输入prompt（不重试，因为这是调用者的问题）
+    if (!userPrompt || userPrompt.trim().length === 0) {
+      return {
+        success: false,
+        error: "user prompt cannot be empty",
+        data: undefined,
+        usage: { inputTokens: 0, outputTokens: 0, cost: 0 },
+        duration: 0,
+      }
+    }
+    
+    const effectiveSystemPrompt = (systemPrompt || '').trim() || `仅返回纯 JSON 格式响应，不包含任何多余内容（包括解释、注释、Markdown 代码块、文字说明、额外换行等），确保 JSON 语法严格正确可直接解析：\n${JSON.stringify(responseSchema, null, 2)}`
+    
+    // ✅ 直接调用 sendMessage，复用其重试机制（不再嵌套 withLLMRetry）
+    const response = await this.sendMessage(effectiveSystemPrompt, userPrompt, {
+      ...options,
+    })
+    
+    if (!response.success || !response.data) {
+      return {
+        success: false,
+        error: response.error || "LLM请求失败",
+        data: undefined,
+        usage: response.usage,
+        duration: response.duration,
+      }
+    }
+    
+    // 添加本次 usage 的 debug 日志
+    this.logger.debug(`[LLMClient] 本次请求 usage 统计:`, {
+      inputTokens: response.usage?.inputTokens || 0,
+      outputTokens: response.usage?.outputTokens || 0,
+      cost: response.usage?.cost || 0,
+      duration: response.duration || 0
+    })
 
-        // 解析JSON响应
-        let parsedData: T
-        try {
-          // 使用增强的JSON解析方法
-          parsedData = this.parseJsonResponse<T>(response.data!)
-        } catch (parseError) {
-          this.logger.error(`[LLMClient] JSON解析详细错误:`, {
-            error: parseError,
-            responseLength: response.data!.length,
-            responsePreview: response.data!.substring(0, 200)
-          })
-          throw parseError
-        }
+    // ✅ 解析JSON响应（不重试，因为 JSON 解析失败通常是 LLM 输出格式问题）
+    let parsedData: T
+    try {
+      parsedData = this.parseJsonResponse<T>(response.data!)
+    } catch (parseError) {
+      this.logger.error(`[LLMClient] JSON解析详细错误:`, {
+        error: parseError,
+        responseLength: response.data!.length,
+        responsePreview: response.data!.substring(0, 200)
+      })
+      return {
+        success: false,
+        error: `JSON解析失败: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+        data: undefined,
+        usage: response.usage,
+        duration: response.duration,
+      }
+    }
 
-        return {
-          success: true,
-          error: "",
-          data: parsedData,
-          usage: response.usage,
-          duration: response.duration,
-        }
-      },
-      "LLM结构化请求",
-      this.logger,
-      this.getLlmMaxRetries()
-    )
+    return {
+      success: true,
+      error: "",
+      data: parsedData,
+      usage: response.usage,
+      duration: response.duration,
+    }
   }
 
   /**

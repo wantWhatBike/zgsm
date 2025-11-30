@@ -160,11 +160,19 @@ export class BuildStateTracer {
 				await this.storage.overwrite(BUILD_STATE_FILE, updatedState)
 
 				// 5. 只有磁盘写入成功后才更新内存状态
+				const previousStatus = stateBackup?.status
 				this.currentState = updatedState
 
-				this.logger.info(
-					`[BuildStateTracer] 状态已更新: ${updatedState.status} (${updatedState.progress.toFixed(1)}%)`,
-				)
+				// ✅ 状态流转日志：输出上一次状态 → 当前状态
+				if (previousStatus !== updatedState.status && updates.status) {
+					this.logger.info(
+						`[BuildStateTracer] 状态流转: ${previousStatus || 'null'} → ${updatedState.status} (${updatedState.progress.toFixed(1)}%)`,
+					)
+				} else {
+					this.logger.info(
+						`[BuildStateTracer] 状态已更新: ${updatedState.status} (${updatedState.progress.toFixed(1)}%)`,
+					)
+				}
 			} catch (error) {
 				// 6. 发生错误时回滚
 				this.logger.error("[BuildStateTracer] 状态更新失败，尝试回滚", error)
@@ -569,6 +577,20 @@ export class BuildStateTracer {
 	 * 检查是否已暂停 - 增强状态检查
 	 */
 	public isPaused(): boolean {
+		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED
+	}
+
+	/**
+	 * ✅ 检查当前状态是否受保护（不应被 ERROR/INTERRUPTED 覆盖）
+	 * 
+	 * 设计原则：
+	 * - PAUSED 是用户主动操作，优先级高于系统自动状态
+	 * - 只有用户主动操作（继续/构建/清空）才能覆盖 PAUSED
+	 * - ERROR/INTERRUPTED 是系统状态，不应覆盖用户意图
+	 * 
+	 * @returns true 表示状态受保护，调用者不应更新为 ERROR/INTERRUPTED
+	 */
+	public isStatusProtected(): boolean {
 		return this.currentState?.status === KNOWLEDGE_GRAPH_STATUS.PAUSED
 	}
 

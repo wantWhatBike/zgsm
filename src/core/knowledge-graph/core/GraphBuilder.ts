@@ -8,6 +8,8 @@ import { ILogger } from "../../../utils/logger"
 import { BuildStateTracer } from "./BuildStateTracer"
 import { ProgressTracer } from "../tools/ProgressTracer"
 import { Mutex } from "../utils/Mutex"
+import { AbortedError } from "../errors/KnowledgeGraphError"
+import { LOG_CONFIG } from "../constants"
 
 /**
  * 依赖注入接口
@@ -88,6 +90,17 @@ export class GraphBuilder {
 		return this.buildStateTracer.isPaused() || 
 		       this.abortController?.signal.aborted || 
 		       (this.isEnabledCheck !== null && !this.isEnabledCheck())
+	}
+
+	/**
+	 * ✅ 统一设置停止检查器（DRY 原则）
+	 * 给所有组件设置相同的停止检查函数
+	 */
+	private setupStopCheckers(): void {
+		const checker = () => this.shouldStop()
+		this.rootAnalyzer.setPauseChecker(checker)
+		this.fileSummarizer.setPauseChecker(checker)
+		this.directorySummarizer.setPauseChecker(checker)
 	}
 
 	/**
@@ -227,10 +240,8 @@ export class GraphBuilder {
 			}
 			this.abortController = new AbortController()
 			
-			// 8. 设置各组件的统一终止检查器
-			this.rootAnalyzer.setPauseChecker(() => this.shouldStop())
-			this.fileSummarizer.setPauseChecker(() => this.shouldStop())
-			this.directorySummarizer.setPauseChecker(() => this.shouldStop())
+			// 8. ✅ 设置各组件的统一终止检查器（使用抽取的方法）
+			this.setupStopCheckers()
 			
 			// 9. 创建新的构建任务（此时状态已是 RUNNING）
 			this.currentBuildPromise = this.executeBuild(workspacePath, options)
@@ -336,10 +347,8 @@ export class GraphBuilder {
 				this.abortController = new AbortController()  // 创建新的
 				this.logger.info("[GraphBuilder] 已创建新的 abortController")
 				
-				// 3. 🔑 重新设置 stopChecker（使用新的 abortController）
-				this.rootAnalyzer.setPauseChecker(() => this.shouldStop())
-				this.fileSummarizer.setPauseChecker(() => this.shouldStop())
-				this.directorySummarizer.setPauseChecker(() => this.shouldStop())
+				// 3. 🔑 重新设置 stopChecker（使用抽取的方法）
+				this.setupStopCheckers()
 				this.logger.debug("[GraphBuilder] stopChecker 已更新")
 				
 				this.logger.info("[GraphBuilder] 暂停已取消，任务将在下一个检查点继续执行")
@@ -362,10 +371,8 @@ export class GraphBuilder {
 				this.abortController = new AbortController()
 				this.logger.info("[GraphBuilder] 已创建 abortController")
 				
-				// 3. 设置 stopChecker
-				this.rootAnalyzer.setPauseChecker(() => this.shouldStop())
-				this.fileSummarizer.setPauseChecker(() => this.shouldStop())
-				this.directorySummarizer.setPauseChecker(() => this.shouldStop())
+				// 3. ✅ 设置 stopChecker（使用抽取的方法）
+				this.setupStopCheckers()
 				
 				// 4. 创建新任务
 				this.currentBuildPromise = this.executeBuild(workspacePath, { resumeFromPrevious: true })
@@ -1000,22 +1007,52 @@ export class GraphBuilder {
 
 
 	/**
+	 * ✅ 安全截断错误消息（防御性编程）
+	 */
+	private truncateErrorMessage(message: string): string {
+		return message.length > LOG_CONFIG.MAX_ERROR_MESSAGE_LENGTH 
+			? message.substring(0, LOG_CONFIG.MAX_ERROR_MESSAGE_LENGTH) + '...' 
+			: message
+	}
+
+	/**
 	 * 处理构建错误
-	 * ✅ 优化：区分中断和错误
+	 * ✅ 优化：使用类型判断替代字符串匹配，尊重 PAUSED 状态
+	 * 
+	 * 设计原则：
+	 * - PAUSED 状态优先级高于 ERROR/INTERRUPTED
+	 * - 只有用户主动操作才能覆盖 PAUSED 状态
+	 * - 使用 AbortedError 类型判断，避免字符串匹配
 	 */
 	private async handleBuildError(error: unknown): Promise<void> {
 		const errorMessage = error instanceof Error ? error.message : "构建失败"
-		this.logger.error(`[GraphBuilder] 构建错误: ${errorMessage}`)
+		const truncatedErrorMsg = this.truncateErrorMessage(errorMessage)
+		this.logger.error(`[GraphBuilder] 构建错误: ${truncatedErrorMsg}`)
+		
+		// ✅ 使用类型判断替代字符串匹配（更可靠）
+		if (error instanceof AbortedError) {
+			this.logger.info(`[GraphBuilder] 构建被用户中止，保持当前状态`)
+			// 不更新状态，因为用户已经暂停了
+			return
+		}
+		
+		// ✅ 调用者负责判断：当前状态是否受保护
+		if (this.buildStateTracer.isStatusProtected()) {
+			this.logger.info(`[GraphBuilder] 当前状态受保护（PAUSED），只记录错误，不改变状态`)
+			// 只更新 error 字段，不传 status
+			await this.buildStateTracer.updateBuildState({ error: truncatedErrorMsg })
+			return
+		}
 		
 		// ✅ 判断是否是中断（清空导致）
 		const isInterrupted = errorMessage.includes("was cleared") || 
 		                      errorMessage.includes("已清空") ||
 		                      errorMessage.includes("interrupted")
 		
-		// 清理状态
+		// 正常处理：更新为 ERROR 或 INTERRUPTED
 		await this.buildStateTracer.updateBuildState({
 			status: isInterrupted ? KNOWLEDGE_GRAPH_STATUS.INTERRUPTED : KNOWLEDGE_GRAPH_STATUS.ERROR,
-			error: errorMessage
+			error: truncatedErrorMsg
 		})
 	}
 

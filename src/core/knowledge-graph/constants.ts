@@ -17,6 +17,13 @@ export const UI_CONFIG = {
   DEBOUNCE_DELAY: 300,
 } as const
 
+// ✅ 日志输出长度限制配置（防御性编程）
+export const LOG_CONFIG = {
+  MAX_ERROR_MESSAGE_LENGTH: 300,     // 错误消息最大长度
+  MAX_RESPONSE_BODY_LENGTH: 200,     // API 响应体最大长度
+  MAX_RESPONSE_PREVIEW_LENGTH: 200,  // 响应预览最大长度
+} as const
+
 // 可视化配置常量
 export const VISUALIZATION_CONFIG = {
   // Worker 阈值：节点数超过此值使用 Web Worker
@@ -347,7 +354,8 @@ export const ERROR_CODES = {
   STORAGE_ERROR: 'STORAGE_ERROR',
   NETWORK_ERROR: 'NETWORK_ERROR',
   INVALID_RESPONSE: 'INVALID_RESPONSE',
-  TIMEOUT: 'TIMEOUT'
+  TIMEOUT: 'TIMEOUT',
+  ABORTED: 'ABORTED'  // ✅ 用户主动中止操作（暂停）
 } as const
 
 // 默认构建状态
