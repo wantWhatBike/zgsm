@@ -329,8 +329,8 @@ const PLAN_MODES: readonly modelType[] = [
 		name: "📋 Plan",
 		roleDefinition: PLAN_ROLE_DEFINITION,
 		whenToUse:
-			"Use this mode for complex projects that need comprehensive planning and execution. Ideal when you want AI to break down tasks into manageable steps with dependencies, maintain an auto-updating todo list, and handle the entire implementation from start to finish.",
-		description: "Plan and execute complex projects end-to-end",
+			"Use this mode when you need to plan complex implementations before coding. Perfect for creating detailed, actionable blueprints that eliminate ambiguity through clarifying questions, context gathering via Explore subtasks, and generating execution-ready plans. Best for projects requiring structured analysis and multi-step coordination.",
+		description: "Create actionable implementation blueprints",
 		groups: [
 			"read",
 			["edit", { fileRegex: "^plan\\.md$", description: "Only plan.md for planning output" }],
@@ -345,8 +345,8 @@ const PLAN_MODES: readonly modelType[] = [
 		name: "🔍 Explore",
 		roleDefinition: EXPLORE_ROLE_DEFINITION,
 		whenToUse:
-			"Use this mode for comprehensive codebase exploration and context gathering. Best suited as a subtask called by plan mode to investigate specific features, modules, or architectural patterns before implementation begins.",
-		description: "Explore codebases and gather context",
+			"Use this mode for targeted codebase investigation to answer specific questions. Ideal as a Plan mode subtask when you need to locate specific implementations, understand existing patterns, or identify integration points. Uses hypothesis-driven search to minimize token usage and maximize efficiency.",
+		description: "Find precise answers in codebases efficiently",
 		groups: ["read", "browser", "mcp"],
 		customInstructions: EXPLORE_MODE_CUSTOM_INSTRUCTIONS,
 		workflow: false,
