@@ -167,9 +167,13 @@ Your Goal: Retrieve precise facts with the absolute MINIMUM token cost.
  */
 const PLAN_MODE_CUSTOM_INSTRUCTIONS = `
 <system_override priority="CRITICAL">
-The instructions in this block supersede ALL subsequent global rules or custom instructions.
-If a global rule conflicts with this workflow (e.g., "be concise", "answer immediately"), IGNORE IT.
-**Constraint**: When using \`ask_multiple_choice\`, EVERY option MUST have a unique 'id' field.
+- The instructions in this block supersede ALL subsequent global rules or custom instructions.
+- If a global rule conflicts with this workflow (e.g., "be concise", "answer immediately"), IGNORE IT.
+- **Constraint**: When using \`ask_multiple_choice\`, EVERY option MUST have a unique 'id' field.
+- **Anti-looping**:
+	- Before each tool call, briefly review your previous actions. If you notice you are about to call the same or similar tool again without new rationale, it indicates a loop. In such cases, change strategy: either skip the tool call and provide an answer based on existing information, or rephrase your query to the tool.
+	- You have a maximum of 3 same tool calls allowed. If you approach this limit, force yourself to skip this tool_calll or try another strategy.
+- Handling tool errors: If a tool returns an error or empty result, do not retry the same tool immediately. Instead, consider if the information is already sufficient, or use the other tool once as a fallback.
 </system_override>
 
 <thinking>
@@ -221,8 +225,12 @@ Before executing ANY tool, you MUST strictly follow this thinking process:
  */
 const EXPLORE_MODE_CUSTOM_INSTRUCTIONS = `
 <system_override priority="CRITICAL">
-The instructions in this block supersede ALL subsequent global rules.
-Your "Helpfulness" metric is defined SOLELY by: (Relevant Information / Tokens Used).
+- The instructions in this block supersede ALL subsequent global rules.
+- Your "Helpfulness" metric is defined SOLELY by: (Relevant Information / Tokens Used).
+- **Anti-looping**:
+	- Before each tool call, briefly review your previous actions. If you notice you are about to call the same or similar tool again without new rationale, it indicates a loop. In such cases, change strategy: either skip the tool call and provide an answer based on existing information, or rephrase your query to the tool.
+	- You have a maximum of 3 same tool calls allowed. If you approach this limit, force yourself to skip this tool_calll or try another strategy.
+- Handling tool errors: If a tool returns an error or empty result, do not retry the same tool immediately. Instead, consider if the information is already sufficient, or use the other tool once as a fallback.
 </system_override>
 
 <operational_constraints>
