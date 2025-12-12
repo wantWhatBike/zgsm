@@ -80,15 +80,14 @@ export class BuildStateTracer {
 				failedFiles: 0,
 				currentFile: "",
 				totalFilesToProcess: totalFilesToProcess,
-				phaseProgress: {
-					root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-					file_analysis: {
-						processed: 0,
-						total: totalFilesToProcess,
-						status: KNOWLEDGE_GRAPH_STATUS.PENDING,
-					},
-					directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+			phaseProgress: {
+				root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+				directory_file_analysis: {
+					processed: 0,
+					total: 0,
+					status: KNOWLEDGE_GRAPH_STATUS.PENDING,
 				},
+			},
 				llmStatistics: {
 					totalInputTokens: 0,
 					totalOutputTokens: 0,
@@ -255,11 +254,10 @@ export class BuildStateTracer {
 		}
 
 		// 阶段权重配置
-		const phaseWeights = {
-			[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS]: 0.05,
-			[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS]: 0.85,
-			[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS]: 0.1,
-		}
+	const phaseWeights = {
+		[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS]: 0.1,
+		[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS]: 0.9,
+	}
 
 		// 统一使用 phaseProgress 计算进度
 		if (!state.phaseProgress) {
@@ -276,19 +274,12 @@ export class BuildStateTracer {
 			totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS] * 100
 		}
 
-		// 文件分析
-		if (state.phaseProgress.file_analysis) {
-			const { processed, total, status } = state.phaseProgress.file_analysis
-			const progress = status === "completed" ? 1 : total > 0 ? processed / total : 0
-			totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS] * 100
-		}
-
-		// 目录分析
-		if (state.phaseProgress.directory_analysis) {
-			const { processed, total, status } = state.phaseProgress.directory_analysis
-			const progress = status === "completed" ? 1 : total > 0 ? processed / total : 0
-			totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS] * 100
-		}
+	// 目录文件分析（合并阶段）
+	if (state.phaseProgress.directory_file_analysis) {
+		const { processed, total, status } = state.phaseProgress.directory_file_analysis
+		const progress = status === "completed" ? 1 : total > 0 ? processed / total : 0
+		totalProgress += progress * phaseWeights[KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS] * 100
+	}
 
 		return Math.max(0, Math.min(100, totalProgress))
 	}
@@ -297,7 +288,7 @@ export class BuildStateTracer {
 	 * 更新阶段进度
 	 */
 	public async updatePhaseProgress(
-		phase: "root_analysis" | "file_analysis" | "directory_analysis",
+		phase: "root_analysis" | "directory_file_analysis",
 		processed: number,
 		total?: number,
 		status?: "pending" | "running" | "completed",
@@ -309,15 +300,14 @@ export class BuildStateTracer {
 
 			// 确保 phaseProgress 存在
 			if (!this.currentState.phaseProgress) {
-				this.currentState.phaseProgress = {
-					root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-					file_analysis: {
-						processed: 0,
-						total: this.currentState.totalFilesToProcess,
-						status: KNOWLEDGE_GRAPH_STATUS.PENDING,
-					},
-					directory_analysis: { processed: 0, total: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-				}
+			this.currentState.phaseProgress = {
+				root_analysis: { processed: 0, total: 1, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
+				directory_file_analysis: {
+					processed: 0,
+					total: 0,
+					status: KNOWLEDGE_GRAPH_STATUS.PENDING,
+				},
+			}
 			}
 
 			// 更新指定阶段的进度

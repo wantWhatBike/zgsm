@@ -1,8 +1,7 @@
 import { ILogger } from "../../../utils/logger"
-import { SearchResult, SearchQuery, SearchCodesResult, MatchedFunction, FileCallChain, FileSummary } from "../types"
+import { SearchResult, SearchQuery, SearchCodesResult, MatchedFunction, FileCallChain, FileSummary, DirectorySummary } from "../types"
 import { RootInfo } from "../types"
-import { DirectorySummarizer } from "./DirectorySummarizer"
-import { FileSummarizer } from "./FileSummarizer"
+import { DirectoryFileSummarizer } from "./DirectoryFileSummarizer"
 import { RootAnalyzer } from "./RootAnalyzer"
 import * as path from "path"
 import type { GraphData, GraphNode, GraphLink } from "@roo-code/types"
@@ -15,15 +14,13 @@ import { SEARCH_CODES_CONFIG } from "../constants"
 export class GraphRetriever {
 	private logger: ILogger
     private rootAnalyzer: RootAnalyzer
-	private fileSummrizer: FileSummarizer
-	private directorySummarizer: DirectorySummarizer
+	private directoryFileSummarizer: DirectoryFileSummarizer
 	private workspacePath: string
 
-	constructor(logger: ILogger, rootAnalyzer: RootAnalyzer, fileSummrizer: FileSummarizer, directorySummarizer: DirectorySummarizer, workspacePath: string) {
+	constructor(logger: ILogger, rootAnalyzer: RootAnalyzer, directoryFileSummarizer: DirectoryFileSummarizer, workspacePath: string) {
 		this.logger = logger
         this.rootAnalyzer = rootAnalyzer
-		this.directorySummarizer = directorySummarizer
-		this.fileSummrizer = fileSummrizer
+		this.directoryFileSummarizer = directoryFileSummarizer
 		this.workspacePath = workspacePath
 	}
 
@@ -46,6 +43,9 @@ export class GraphRetriever {
 	private buildReverseDependencyIndex(fileSummaries: FileSummary[]): Map<string, string[]> {
 		const reverseDeps = new Map<string, string[]>()
 		
+		// TODO: dependencies 字段已从 schema 删除，此功能暂时禁用
+		// 后续需要重新设计依赖关系的获取和存储方式
+		/* 
 		for (const file of fileSummaries) {
 			if (!file.dependencies || file.dependencies.length === 0) {
 				continue
@@ -58,6 +58,7 @@ export class GraphRetriever {
 				reverseDeps.get(dep)!.push(file.path)
 			}
 		}
+		*/
 		
 		return reverseDeps
 	}
@@ -147,7 +148,7 @@ export class GraphRetriever {
 
 		try {
 			// 1. 获取所有文件摘要
-			const fileSummaries = await this.fileSummrizer.getFileSummaries()
+			const fileSummaries = await this.directoryFileSummarizer.getFileSummaries()
 			if (!fileSummaries || fileSummaries.length === 0) {
 				this.logger?.warn(`[GraphRetriever] 没有文件摘要数据`)
 				return []
@@ -161,83 +162,94 @@ export class GraphRetriever {
 				firstKeywordIndex: number
 			}>()
 
-			for (const summary of fileSummaries) {
-				const matchedFunctions = new Set<string>()
-				let matchScore = 0
-				let firstKeywordIndex = keywords.length // 初始化为最大值
+		for (const summary of fileSummaries) {
+			const matchedFunctions = new Set<string>()
+			let matchScore = 0
+			let firstKeywordIndex = keywords.length // 初始化为最大值
 
-				for (let i = 0; i < keywords.length; i++) {
-					const keyword = keywords[i]
-					const keywordLower = keyword.toLowerCase()
-					let matched = false
+			for (let i = 0; i < keywords.length; i++) {
+				const keyword = keywords[i]
+				const keywordLower = keyword.toLowerCase()
+				let matched = false
 
-					// 检索 description 字段（都是模糊检索，大小写不敏感）
-					if (summary.description && summary.description.toLowerCase().includes(keywordLower)) {
-						matchScore += 3 // description 匹配权重为 3
-						matched = true
+				// TODO: description, keywords, functions 字段已从 schema 删除
+				// 后续需要重新设计搜索策略，可能基于 summary 字段或其他方式
+				
+				/* 已删除字段的检索逻辑 - 暂时禁用
+				// 检索 description 字段（都是模糊检索，大小写不敏感）
+				if (summary.description && summary.description.toLowerCase().includes(keywordLower)) {
+					matchScore += 3 // description 匹配权重为 3
+					matched = true
+				}
+
+				// 检索 keywords 字段
+				if (summary.keywords && Array.isArray(summary.keywords)) {
+					if (type === "precise") {
+						// 精确检索：完全匹配
+						if (summary.keywords.some((k: string) => k.toLowerCase() === keywordLower)) {
+							matchScore += 5 // keywords 精确匹配权重为 5
+							matched = true
+						}
+					} else {
+						// 模糊检索：包含关键词
+						if (summary.keywords.some((k: string) => k.toLowerCase().includes(keywordLower))) {
+							matchScore += 4 // keywords 模糊匹配权重为 4
+							matched = true
+						}
 					}
+				}
 
-					// 检索 keywords 字段
-					if (summary.keywords && Array.isArray(summary.keywords)) {
+				// 检索 functions 字段
+				if (summary.functions && typeof summary.functions === "object") {
+					const functionNames = Object.keys(summary.functions)
+					for (const funcName of functionNames) {
+						const funcNameLower = funcName.toLowerCase()
+						let funcMatched = false
+
 						if (type === "precise") {
-							// 精确检索：完全匹配
-							if (summary.keywords.some((k: string) => k.toLowerCase() === keywordLower)) {
-								matchScore += 5 // keywords 精确匹配权重为 5
-								matched = true
+							// 精确检索：函数名完全等于关键词
+							if (funcNameLower === keywordLower) {
+								matchedFunctions.add(funcName)
+								funcMatched = true
 							}
 						} else {
-							// 模糊检索：包含关键词
-							if (summary.keywords.some((k: string) => k.toLowerCase().includes(keywordLower))) {
-								matchScore += 4 // keywords 模糊匹配权重为 4
-								matched = true
+							// 模糊检索：函数名包含关键词
+							if (funcNameLower.includes(keywordLower)) {
+								matchedFunctions.add(funcName)
+								funcMatched = true
 							}
 						}
-					}
 
-					// 检索 functions 字段
-					if (summary.functions && typeof summary.functions === "object") {
-						const functionNames = Object.keys(summary.functions)
-						for (const funcName of functionNames) {
-							const funcNameLower = funcName.toLowerCase()
-							let funcMatched = false
-
-							if (type === "precise") {
-								// 精确检索：函数名完全等于关键词
-								if (funcNameLower === keywordLower) {
-									matchedFunctions.add(funcName)
-									funcMatched = true
-								}
-							} else {
-								// 模糊检索：函数名包含关键词
-								if (funcNameLower.includes(keywordLower)) {
-									matchedFunctions.add(funcName)
-									funcMatched = true
-								}
-							}
-
-							if (funcMatched) {
-								matchScore += 2 // function 匹配权重为 2
-								matched = true
-							}
+						if (funcMatched) {
+							matchScore += 2 // function 匹配权重为 2
+							matched = true
 						}
-					}
-
-					// 记录第一个匹配的关键词索引
-					if (matched && i < firstKeywordIndex) {
-						firstKeywordIndex = i
 					}
 				}
+				*/
+				
+				// 临时方案：仅搜索 summary 字段（核心功能描述）
+				if (summary.summary && summary.summary.toLowerCase().includes(keywordLower)) {
+					matchScore += 3
+					matched = true
+				}
 
-				// 如果有匹配，添加到结果集
-				if (matchScore > 0) {
-					matchedFiles.set(summary.path, {
-						summary,
-						matchedFunctions,
-						matchScore,
-						firstKeywordIndex,
-					})
+				// 记录第一个匹配的关键词索引
+				if (matched && i < firstKeywordIndex) {
+					firstKeywordIndex = i
 				}
 			}
+
+			// 如果有匹配，添加到结果集
+			if (matchScore > 0) {
+				matchedFiles.set(summary.path, {
+					summary,
+					matchedFunctions,
+					matchScore,
+					firstKeywordIndex,
+				})
+			}
+		}
 
 			// 3. 排序：按输入关键词顺序排序
 			const sortedResults = Array.from(matchedFiles.entries())
@@ -261,11 +273,15 @@ export class GraphRetriever {
 			// 5. 格式化结果并生成文件级调用链
 			const results: SearchCodesResult[] = []
 			for (const [, data] of sortedResults) {
-				// 提取匹配的函数信息
-				const matchedFunctions: MatchedFunction[] = Array.from(data.matchedFunctions).map((funcName) => ({
-					name: funcName,
-					description: (data.summary.functions && data.summary.functions[funcName]) || "",
-				}))
+			// TODO: functions 字段已删除，matchedFunctions 暂时返回空数组
+			// 提取匹配的函数信息
+			const matchedFunctions: MatchedFunction[] = []
+			/* 已删除字段的逻辑
+			Array.from(data.matchedFunctions).map((funcName) => ({
+				name: funcName,
+				description: (data.summary.functions && data.summary.functions[funcName]) || "",
+			}))
+			*/
 				
 				// 追溯文件级调用链
 				const layers = this.traceCallChain([data.summary.path], reverseDeps, maxDepth)
@@ -277,14 +293,14 @@ export class GraphRetriever {
 					formatted,
 				}
 
-				results.push({
-					path: data.summary.path,
-					summary: data.summary.summary || "",
-					description: data.summary.description || "",
-					match_functions: matchedFunctions,
-					dependencies: data.summary.dependencies || [],
-					call_chain: callChain,
-				})
+			results.push({
+				path: data.summary.path,
+				summary: data.summary.summary || "",
+				description: "",  // TODO: description 字段已删除，暂时返回空字符串
+				match_functions: matchedFunctions,
+				dependencies: [],  // TODO: dependencies 字段已删除，暂时返回空数组
+				call_chain: callChain,
+			})
 			}
 
 			this.logger?.info(`[GraphRetriever] 搜索到 ${results.length} 个文件`)
@@ -324,11 +340,11 @@ export class GraphRetriever {
 		try {
 			// 1. 获取所有文件摘要和目录摘要
 			this.logger?.info(`[GraphRetriever] 正在获取文件摘要...`)
-			const fileSummaries = await this.fileSummrizer.getFileSummaries()
+			const fileSummaries = await this.directoryFileSummarizer.getFileSummaries()
 			this.logger?.info(`[GraphRetriever] 文件摘要数量: ${fileSummaries?.length || 0}`)
 			
 			this.logger?.info(`[GraphRetriever] 正在获取目录摘要...`)
-			const directorySummaries = await this.directorySummarizer.getDirectorySummaries(workspacePath)
+			const directorySummaries = await this.directoryFileSummarizer.getDirectorySummaries()
 			this.logger?.info(`[GraphRetriever] 目录摘要数量: ${directorySummaries?.length || 0}`)
 
 			if (!fileSummaries || fileSummaries.length === 0) {
@@ -351,13 +367,13 @@ export class GraphRetriever {
 					const parentPath = path.dirname(dirPath)
 					const parentId = parentPath === "." || parentPath === "" ? undefined : parentPath
 
-					const node: GraphNode = {
-						id: dirPath,
-						label: path.basename(dirPath) || dirPath,
-						type: 'directory',
-						parentId: parentId,
-						description: dirSummary.description,
-					}
+				const node: GraphNode = {
+					id: dirPath,
+					label: path.basename(dirPath) || dirPath,
+					type: 'directory',
+					parentId: parentId,
+					description: dirSummary.summary || "",  // TODO: description 字段已删除，临时使用 summary 字段
+				}
 
 					nodes.push(node)
 					nodeMap.set(dirPath, node)
@@ -373,14 +389,14 @@ export class GraphRetriever {
 				const dirPath = path.dirname(filePath)
 				const parentId = dirPath === "." || dirPath === "" ? undefined : dirPath
 
-				const node: GraphNode = {
-					id: filePath,
-					label: path.basename(filePath),
-					type: 'file',
-					fileType: fileSummary.type,
-					parentId: parentId,
-					description: fileSummary.description,
-				}
+			const node: GraphNode = {
+				id: filePath,
+				label: path.basename(filePath),
+				type: 'file',
+				fileType: fileSummary.type,
+				parentId: parentId,
+				description: fileSummary.summary || "",  // TODO: description 字段已删除，临时使用 summary 字段
+			}
 
 				nodes.push(node)
 				nodeMap.set(filePath, node)
@@ -402,9 +418,11 @@ export class GraphRetriever {
 				}
 			}
 
+		// TODO: dependencies 字段已从 schema 删除，Import 关系暂时无法构建
 		// 3.2 构建 Import 关系（文件依赖关系）
-		this.logger?.info(`[GraphRetriever] 构建 Import 关系...`)
+		this.logger?.info(`[GraphRetriever] 构建 Import 关系（已禁用：dependencies 字段已删除）...`)
 		
+		/* 已删除字段的逻辑 - 暂时禁用
 		// 统计：依赖匹配成功/失败数量（用于调试）
 		let matchedCount = 0
 		let unmatchedCount = 0
@@ -440,6 +458,7 @@ export class GraphRetriever {
 		if (unmatchedDeps.length > 0) {
 			this.logger?.warn(`[GraphRetriever] 未匹配的依赖示例 (前${Math.min(unmatchedDeps.length, 5)}个): ${unmatchedDeps.slice(0, 5).join('; ')}`)
 		}
+		*/
 
 			// 统计节点类型
 			const fileNodes = nodes.filter(n => n.type === 'file')

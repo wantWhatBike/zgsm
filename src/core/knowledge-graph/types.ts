@@ -15,13 +15,10 @@ export interface FileSummary {
   path: string
   type: 'source' | 'test'
   summary: string  // 核心功能描述（≤15字）
-  description: string
-  keywords: string[]
-  functions: Record<string, string>
-  dependencies: string[]
   timestamp: string
-  // 继承 FileInfo 的字段以保持一致性
-  size: number
+  size: number // 文件大小（字节）
+  lines: number // 文件行数
+  length: number // 文件字符数
   lastModified: number
 }
 
@@ -62,9 +59,6 @@ export interface SearchCodesResult {
 export interface DirectorySummary {
   path: string
   summary: string  // 核心目的描述（≤15字）
-  description: string
-  keywords: string[]
-  key_files: string[]
   timestamp: string
 }
 
@@ -117,6 +111,9 @@ export interface KnowledgeGraphConfig {
   contextWindowThreshold?: number
   llmTimeoutMs?: number
   llmMaxRetries?: number
+  // 目录文件分析配置
+  maxFilesPerDirectory?: number  // 单目录最大文件数
+  maxDefinitionLines?: number    // 文件大纲最大行数
 }
 
 import type { BuildProgress, KnowledgeGraphBuildState } from "@roo-code/types"

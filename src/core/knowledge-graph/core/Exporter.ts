@@ -17,25 +17,21 @@ import * as fs from "fs/promises"
 import { createWriteStream } from "fs"
 import { ILogger } from "../../../utils/logger"
 import { IStorage } from "../storage/IStorage"
-import { FileSummarizer } from "./FileSummarizer"
+import { DirectoryFileSummarizer } from "./DirectoryFileSummarizer"
 import { RootAnalyzer } from "./RootAnalyzer"
-import { DirectorySummarizer } from "./DirectorySummarizer"
 
 export class Exporter {
 	private logger: ILogger
 	private rootAnalyzer: RootAnalyzer
-	private fileSummarizer: FileSummarizer
-	private directorySummarizer: DirectorySummarizer
+	private directoryFileSummarizer: DirectoryFileSummarizer
 
 	constructor(
 		rootAnalyzer: RootAnalyzer,
-		fileSummarizer: FileSummarizer,
-		directorySummarizer: DirectorySummarizer,
+		directoryFileSummarizer: DirectoryFileSummarizer,
 		logger: ILogger,
 	) {
 		this.rootAnalyzer = rootAnalyzer
-		this.fileSummarizer = fileSummarizer
-		this.directorySummarizer = directorySummarizer
+		this.directoryFileSummarizer = directoryFileSummarizer
 		this.logger = logger
 	}
 
@@ -46,10 +42,10 @@ export class Exporter {
 		try {
 			const { format, outputPath, includeMetadata = true } = options
 
-			// 获取数据
-			const rootInfo = await this.rootAnalyzer.getRootInfo()
-			const fileSummaries = await this.fileSummarizer.getFileSummaries()
-			const directorySummaries = await this.directorySummarizer.getDirectorySummaries(workspacePath)
+		// 获取数据
+		const rootInfo = await this.rootAnalyzer.getRootInfo()
+		const fileSummaries = await this.directoryFileSummarizer.getFileSummaries()
+		const directorySummaries = await this.directoryFileSummarizer.getDirectorySummaries()
 
 			// 根据格式导出
 			let result: ExportResult
@@ -266,36 +262,45 @@ export class Exporter {
 		content += "## 文件摘要\n\n"
 		if (fileSummaries) {
 			for (const summary of fileSummaries) {
-				// 限制数量
-				content += `### ${summary.path}\n\n`
-				content += `- **类型**: ${summary.type}\n`
-				content += `- **关键词**: ${summary.keywords.join(", ")}\n`
-				content += `- **描述**: ${summary.description}\n\n`
+			// 限制数量
+			content += `### ${summary.path}\n\n`
+			content += `- **类型**: ${summary.type}\n`
+			content += `- **摘要**: ${summary.summary}\n`
+			// TODO: keywords, description, functions 字段已删除，导出格式已简化
+			/* 已删除字段的导出逻辑
+			content += `- **关键词**: ${summary.keywords.join(", ")}\n`
+			content += `- **描述**: ${summary.description}\n\n`
 
-				if (Object.keys(summary.functions).length > 0) {
-					content += "**核心函数**:\n"
-					for (const [funcName, funcDesc] of Object.entries(summary.functions)) {
-						content += `- ${funcName}: ${funcDesc}\n`
-					}
-					content += "\n"
+			if (Object.keys(summary.functions).length > 0) {
+				content += "**核心函数**:\n"
+				for (const [funcName, funcDesc] of Object.entries(summary.functions)) {
+					content += `- ${funcName}: ${funcDesc}\n`
 				}
+				content += "\n"
+			}
+			*/
+			content += "\n"
 			}
 		}
 
 		if (directorySummaries) {
 			// 目录摘要
 			content += "## 目录摘要\n\n"
-			for (const summary of directorySummaries) {
-				// 限制数量
-				content += `### ${summary.path}\n\n`
-				content += `- **关键词**: ${summary.keywords.join(", ")}\n`
-				content += `- **描述**: ${summary.description}\n`
+		for (const summary of directorySummaries) {
+			// 限制数量
+			content += `### ${summary.path}\n\n`
+			content += `- **摘要**: ${summary.summary}\n`
+			// TODO: keywords, description, key_files 字段已删除，导出格式已简化
+			/* 已删除字段的导出逻辑
+			content += `- **关键词**: ${summary.keywords.join(", ")}\n`
+			content += `- **描述**: ${summary.description}\n`
 
-				if (summary.key_files.length > 0) {
-					content += `- **核心文件**: ${summary.key_files.join(", ")}\n`
-				}
-				content += "\n"
+			if (summary.key_files.length > 0) {
+				content += `- **核心文件**: ${summary.key_files.join(", ")}\n`
 			}
+			*/
+			content += "\n"
+		}
 		}
 		return content
 	}

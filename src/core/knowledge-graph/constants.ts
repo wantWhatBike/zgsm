@@ -87,6 +87,9 @@ export const DEFAULT_CONFIG: KnowledgeGraphConfig = {
   contextWindowThreshold: 25,  // ✅ 优化：降低到 25%，避免批次过大导致响应慢（原 50%）
   llmTimeoutMs: 300000,
   llmMaxRetries: 5,
+  // 新增配置：目录文件分析
+  maxFilesPerDirectory: 50,      // 单目录最大文件数，超过则只发送文件名
+  maxDefinitionLines: 100,       // 文件大纲最大行数
 }
 
 
@@ -378,7 +381,6 @@ export const DEFAULT_BUILD_STATE: KnowledgeGraphBuildState = {
   totalDuration: 0,
   phaseProgress: {
     root_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-    file_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING },
-    directory_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING }
+    directory_file_analysis: { total: 0, processed: 0, status: KNOWLEDGE_GRAPH_STATUS.PENDING }
   }
 }

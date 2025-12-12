@@ -513,21 +513,16 @@ export const KnowledgeGraphSettings = ({
 									{t("knowledgegraph:fileCollection")}: {formatDuration(phaseDurations.fileCollection)}
 								</div>
 							)}
-							{phaseDurations.rootAnalysis && (
-								<div>
-									{t("knowledgegraph:rootAnalysis")}: {formatDuration(phaseDurations.rootAnalysis)}
-								</div>
-							)}
-							{phaseDurations.fileSummary && (
-								<div>
-									{t("knowledgegraph:fileSummary")}: {formatDuration(phaseDurations.fileSummary)}
-								</div>
-							)}
-							{phaseDurations.directorySummary && (
-								<div>
-									{t("knowledgegraph:directorySummary")}: {formatDuration(phaseDurations.directorySummary)}
-								</div>
-							)}
+					{phaseDurations.rootAnalysis && (
+						<div>
+							{t("knowledgegraph:rootAnalysis")}: {formatDuration(phaseDurations.rootAnalysis)}
+						</div>
+					)}
+					{phaseDurations.directoryFileAnalysis && (
+						<div>
+							{t("knowledgegraph:directoryFileAnalysis")}: {formatDuration(phaseDurations.directoryFileAnalysis)}
+						</div>
+					)}
 							{hasTotalDuration && (
 								<div className="font-medium pt-1 text-vscode-foreground">
 									{t("knowledgegraph:totalDuration")}: {formatDuration(totalDuration)}

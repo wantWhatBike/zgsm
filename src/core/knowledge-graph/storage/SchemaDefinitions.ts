@@ -55,7 +55,7 @@ const FILE_SUMMARIES_SCHEMA: TableSchema = {
 			sqlType: 'TEXT',
 			isIndexed: true,
 			storeAsColumn: true,
-			llmDescription: 'File type',
+			llmDescription: 'File type (source or test)',
 			llmExample: 'source'
 		},
 		{
@@ -67,44 +67,32 @@ const FILE_SUMMARIES_SCHEMA: TableSchema = {
 			llmExample: 'Utility functions for data transformation'
 		},
 		{
-			name: 'description',
-			sqlType: 'TEXT',
-			isIndexed: true,
-			storeAsColumn: true,
-			llmDescription: '~150 words: business logic, architectural role, data flow',
-			llmExample: 'This file provides utility functions...'
-		},
-		{
-			name: 'keywords',
-			sqlType: 'TEXT',
-			isIndexed: true,
-			storeAsColumn: true,
-			llmDescription: 'Keywords array (max 10)',
-			llmExample: ['keyword1', 'keyword2', 'keyword3']
-		},
-		{
-			name: 'functions',
-			sqlType: 'TEXT',
-			storeAsColumn: true,
-			llmDescription: 'Function name to description mapping',
-			llmExample: {
-				function_name1: 'Function description, 50-100 words',
-				function_name2: 'Function description, 50-100 words'
-			}
-		},
-		{
-			name: 'dependencies',
-			sqlType: 'TEXT',
-			storeAsColumn: true,
-			llmDescription: 'Dependency file paths',
-			llmExample: ['path/to/file1.ts', 'path/to/file2.ts']
-		},
-		{
 			name: 'timestamp',
 			sqlType: 'TEXT',
 			storeAsColumn: true,
 			llmDescription: 'ISO timestamp',
 			llmExample: '2024-01-01T00:00:00.000Z'
+		},
+		{
+			name: 'size',
+			sqlType: 'INTEGER',
+			storeAsColumn: true,
+			llmDescription: 'File size in bytes',
+			llmExample: 1024
+		},
+		{
+			name: 'lines',
+			sqlType: 'INTEGER',
+			storeAsColumn: true,
+			llmDescription: 'Number of lines in file',
+			llmExample: 50
+		},
+		{
+			name: 'length',
+			sqlType: 'INTEGER',
+			storeAsColumn: true,
+			llmDescription: 'Number of characters in file',
+			llmExample: 2048
 		},
 		{
 			name: 'lastModified',
@@ -140,29 +128,6 @@ const DIRECTORY_SUMMARIES_SCHEMA: TableSchema = {
 			storeAsColumn: true,
 			llmDescription: 'Core purpose in ≤15 words',
 			llmExample: 'Utility modules for common operations'
-		},
-		{
-			name: 'description',
-			sqlType: 'TEXT',
-			isIndexed: true,
-			storeAsColumn: true,
-			llmDescription: '~150 words: role, functionality, business value',
-			llmExample: 'This directory contains utility modules...'
-		},
-		{
-			name: 'keywords',
-			sqlType: 'TEXT',
-			isIndexed: true,
-			storeAsColumn: true,
-			llmDescription: 'Keywords array (max 10)',
-			llmExample: ['keyword1', 'keyword2']
-		},
-		{
-			name: 'key_files',
-			sqlType: 'TEXT',
-			storeAsColumn: true,
-			llmDescription: 'Key file names (max 5)',
-			llmExample: ['file1.ts', 'file2.ts']
 		},
 		{
 			name: 'timestamp',
@@ -259,26 +224,29 @@ export class SchemaDefinitions {
 			throw new Error(`Unknown table: ${tableName}`)
 		}
 
+		// LLM只应该生成它能知道的字段，元信息（size/lines/length/lastModified）由代码填充
+		const llmOnlyFields = new Set(['path', 'type', 'summary', 'timestamp'])
+
 		// 根据表名返回不同格式
 		if (tableName === 'file_summaries') {
 			// 文件摘要返回数组格式
 			const example: any = {}
 			for (const field of schema.fields) {
-				if (field.llmDescription) {
+				if (field.llmDescription && llmOnlyFields.has(field.name)) {
 					example[field.name] = field.llmExample || field.llmDescription
 				}
 			}
 			return [example]
-		} else if (tableName === 'directory_summaries') {
-			// 目录摘要返回单个对象格式
-			const example: any = {}
-			for (const field of schema.fields) {
-				if (field.llmDescription) {
-					example[field.name] = field.llmExample || field.llmDescription
-				}
+	} else if (tableName === 'directory_summaries') {
+		// 目录摘要返回单个对象格式
+		const example: any = {}
+		for (const field of schema.fields) {
+			if (field.llmDescription && (tableName === 'directory_summaries' || llmOnlyFields.has(field.name))) {
+				example[field.name] = field.llmExample || field.llmDescription
 			}
-			return example
 		}
+		return example
+	}
 
 		return {}
 	}

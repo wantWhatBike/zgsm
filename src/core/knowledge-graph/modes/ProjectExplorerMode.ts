@@ -101,7 +101,8 @@ export class ProjectExplorerMode {
         for (const item of items.slice(0, 10)) { // 限制显示数量
           result += `### ${item.name}\n`
           result += `- **路径**: ${item.path}\n`
-          result += `- **描述**: ${item.description}\n`
+          // TODO: description 字段已删除，暂时不显示
+          // result += `- **描述**: ${item.description}\n`
           result += `- **相关度**: ${(item.relevance * 100).toFixed(1)}%\n`
           
           if (item.highlights.length > 0) {
@@ -148,7 +149,8 @@ export class ProjectExplorerMode {
       let details = `# 文件详情: ${filePath}\n\n`
       details += `**名称**: ${fileResult.name}\n`
       details += `**路径**: ${fileResult.path}\n`
-      details += `**描述**: ${fileResult.description}\n`
+      // TODO: description 字段已删除，暂时不显示
+      // details += `**描述**: ${fileResult.description}\n`
       details += `**相关度**: ${(fileResult.relevance * 100).toFixed(1)}%\n`
       
       if (fileResult.highlights.length > 0) {
@@ -259,8 +261,7 @@ export class ProjectExplorerMode {
   private translatePhase(phase: string): string {
     const phaseMap: Record<string, string> = {
       'root_analysis': '根目录分析',
-      'file_analysis': '文件分析',
-      'directory_analysis': '目录分析',
+      'directory_file_analysis': '目录文件分析',
       'dependency_analysis': '依赖分析',
       'completed': '已完成'
     }

@@ -2,8 +2,7 @@ import * as vscode from "vscode"
 import type { ClineProvider } from "../webview/ClineProvider"
 import { LLMClient } from "./llm/LLMClient"
 import { RootAnalyzer } from "./core/RootAnalyzer"
-import { FileSummarizer } from "./core/FileSummarizer"
-import { DirectorySummarizer } from "./core/DirectorySummarizer"
+import { DirectoryFileSummarizer } from "./core/DirectoryFileSummarizer"
 import { Exporter } from "./core/Exporter"
 import {
 	KnowledgeGraphConfig,
@@ -286,9 +285,9 @@ export class KnowledgeGraphManager {
 			const { fileStorage, sqliteStorage, fileService, llmClient, progressTracer } = 
 				await this.createBaseServices(workspacePath)
 
-			// 2. 创建分析器（传入两个存储）
-			const { rootAnalyzer, fileSummarizer, directorySummarizer } = 
-				this.createAnalyzers(llmClient, fileStorage, sqliteStorage)
+		// 2. 创建分析器（传入两个存储）
+		const { rootAnalyzer, directoryFileSummarizer } = 
+			this.createAnalyzers(llmClient, fileStorage, sqliteStorage)
 
 			// 3. 创建状态跟踪器（使用 JSON 文件存储）
 			const stateTracer = await this.createStateTracer(fileStorage)
@@ -302,26 +301,24 @@ export class KnowledgeGraphManager {
 				this.needsStateReset = false
 			}
 
-			// 4. 创建图构建器
-			this.graphBuilder = this.createGraphBuilder(stateTracer, {
-				rootAnalyzer,
-				fileSummarizer,
-				directorySummarizer,
-				fileService,
-			}, progressTracer)
+		// 4. 创建图构建器
+		this.graphBuilder = this.createGraphBuilder(stateTracer, {
+			rootAnalyzer,
+			directoryFileSummarizer,
+			fileService,
+		}, progressTracer)
 			
 			// ✅ 4.1 注入启用状态检查函数
 			this.graphBuilder.setIsEnabledCheck(() => this.isEnabled)
 
-			// 5. 创建检索和导出器
-			this.graphRetriever = new GraphRetriever(
-				this.logger!,
-				rootAnalyzer,
-				fileSummarizer,
-				directorySummarizer,
-				workspacePath,
-			)
-			this.exporter = new Exporter(rootAnalyzer, fileSummarizer, directorySummarizer, this.logger!)
+		// 5. 创建检索和导出器
+		this.graphRetriever = new GraphRetriever(
+			this.logger!,
+			rootAnalyzer,
+			directoryFileSummarizer,
+			workspacePath,
+		)
+		this.exporter = new Exporter(rootAnalyzer, directoryFileSummarizer, this.logger!)
 
 			// 6. ✅ 创建自动构建调度器（和其他组件一样）
 			this.autoRebuildScheduler = new AutoRebuildScheduler(
@@ -329,8 +326,8 @@ export class KnowledgeGraphManager {
 				() => this.tryAutoRebuild()
 			)
 
-			// 7. 设置统一的暂停检查器
-			this.setupPauseCheckers(stateTracer, { rootAnalyzer, fileSummarizer, directorySummarizer, fileService })
+		// 7. 设置统一的暂停检查器
+		this.setupPauseCheckers(stateTracer, { rootAnalyzer, directoryFileSummarizer, fileService })
 		} catch (error) {
 			throw ErrorHandler.wrapError(error, "初始化核心组件")
 		}
@@ -408,19 +405,15 @@ export class KnowledgeGraphManager {
 		// RootAnalyzer 使用 JSON 文件存储
 		const rootAnalyzer = new RootAnalyzer(llmClient, fileStorage, this.config, this.logger!)
 		
-		// FileSummarizer 使用 SQLite 存储
-		const fileSummarizer = new FileSummarizer(llmClient, sqliteStorage, this.config, this.logger!)
-		
-		// DirectorySummarizer 使用 SQLite 存储
-		const directorySummarizer = new DirectorySummarizer(
+		// DirectoryFileSummarizer 使用 SQLite 存储（合并阶段）
+		const directoryFileSummarizer = new DirectoryFileSummarizer(
 			llmClient,
-			fileSummarizer,
 			sqliteStorage,
 			this.config,
-			this.logger!,
+			this.logger!
 		)
 
-		return { rootAnalyzer, fileSummarizer, directorySummarizer }
+		return { rootAnalyzer, directoryFileSummarizer }
 	}
 
 	/**
@@ -439,8 +432,7 @@ export class KnowledgeGraphManager {
 	private createGraphBuilder(stateTracer: BuildStateTracer, components: any, progressTracer: ProgressTracer): GraphBuilder {
 		const graphBuilder = new GraphBuilder(this.config, {
 			rootAnalyzer: components.rootAnalyzer,
-			fileAnalyzer: components.fileSummarizer,
-			directoryAnalyzer: components.directorySummarizer,
+			directoryFileAnalyzer: components.directoryFileSummarizer,
 			fileService: components.fileService,
 			buildStateKeeper: stateTracer,
 			logger: this.logger!,
@@ -458,8 +450,7 @@ export class KnowledgeGraphManager {
 		const pauseChecker = () => stateTracer.isPaused() ?? false
 
 		components.rootAnalyzer.setPauseChecker(pauseChecker)
-		components.fileSummarizer.setPauseChecker(pauseChecker)
-		components.directorySummarizer.setPauseChecker(pauseChecker)
+		components.directoryFileSummarizer.setPauseChecker(pauseChecker)
 		components.fileService.setPauseChecker(pauseChecker)
 		
 		// ✅ 给 LLMClient 也设置暂停检查器，确保重试过程能响应暂停

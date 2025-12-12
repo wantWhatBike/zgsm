@@ -28,15 +28,18 @@ function formatSearchCodesResults(results: SearchCodesResult[]): string {
 			output += `  • 概要: ${result.summary}\n`
 		}
 
-		// 文件描述
-		if (result.description) {
-			output += `  • 描述: ${result.description}\n`
-		}
+	// TODO: description 和 dependencies 字段已删除，暂时不显示
+	/* 已删除字段的显示逻辑
+	// 文件描述
+	if (result.description) {
+		output += `  • 描述: ${result.description}\n`
+	}
 
-		// 文件依赖
-		if (result.dependencies && result.dependencies.length > 0) {
-			output += `  • 依赖: ${result.dependencies.join(", ")}\n`
-		}
+	// 文件依赖
+	if (result.dependencies && result.dependencies.length > 0) {
+		output += `  • 依赖: ${result.dependencies.join(", ")}\n`
+	}
+	*/
 
 		// 匹配的函数
 		if (result.match_functions && result.match_functions.length > 0) {
@@ -48,12 +51,15 @@ function formatSearchCodesResults(results: SearchCodesResult[]): string {
 				const prefix = isLast ? "  └─ " : "  ├─ "
 				const continuationPrefix = isLast ? "      " : "  │   "
 
-				output += `${prefix}${func.name}\n`
+			output += `${prefix}${func.name}\n`
 
-				// 函数描述
-				if (func.description) {
-					output += `${continuationPrefix}描述: ${func.description}\n`
-				}
+			// TODO: function description 字段已删除，暂时不显示
+			/* 已删除字段的显示逻辑
+			// 函数描述
+			if (func.description) {
+				output += `${continuationPrefix}描述: ${func.description}\n`
+			}
+			*/
 
 				// 添加空行分隔函数（除了最后一个）
 				if (!isLast) {

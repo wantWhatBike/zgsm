@@ -1,0 +1,47 @@
+[1mdiff --git a/packages/types/src/knowledge-graph.ts b/packages/types/src/knowledge-graph.ts[m
+[1mindex 39c6f13e0..ece337385 100644[m
+[1m--- a/packages/types/src/knowledge-graph.ts[m
+[1m+++ b/packages/types/src/knowledge-graph.ts[m
+[36m@@ -99,8 +99,7 @@[m [mexport const KNOWLEDGE_GRAPH_STATUS = {[m
+  */[m
+ export const KNOWLEDGE_GRAPH_PHASE = {[m
+ 	ROOT_ANALYSIS: 'root_analysis',[m
+[31m-	FILE_ANALYSIS: 'file_analysis',[m
+[31m-	DIRECTORY_ANALYSIS: 'directory_analysis',[m
+[32m+[m	[32mDIRECTORY_FILE_ANALYSIS: 'directory_file_analysis',[m[41m[m
+ 	DEPENDENCY_ANALYSIS: 'dependency_analysis',[m
+ 	COMPLETED: 'completed',[m
+ } as const[m
+[36m@@ -175,7 +174,7 @@[m [mexport type KnowledgeGraphProvider = z.infer<typeof knowledgeGraphProviderSchema[m
+ [m
+ // --- Shared Types for Build State ---[m
+ [m
+[31m-export type KnowledgeGraphPhase = 'root_analysis' | 'file_analysis' | 'directory_analysis' | 'dependency_analysis' | 'completed';[m
+[32m+[m[32mexport type KnowledgeGraphPhase = 'root_analysis' | 'directory_file_analysis' | 'dependency_analysis' | 'completed';[m[41m[m
+ [m
+ export interface BuildProgress {[m
+   phase: KnowledgeGraphPhase[m
+[36m@@ -219,8 +218,7 @@[m [mexport interface KnowledgeGraphBuildState {[m
+   phaseDurations?: {[m
+     fileCollection?: number[m
+     rootAnalysis?: number[m
+[31m-    fileSummary?: number[m
+[31m-    directorySummary?: number[m
+[32m+[m[32m    directoryFileAnalysis?: number[m[41m[m
+   }[m
+ [m
+   // Phase Progress Details[m
+[36m@@ -230,12 +228,7 @@[m [mexport interface KnowledgeGraphBuildState {[m
+       processed: number[m
+       status: 'pending' | 'running' | 'completed' | 'skipped'[m
+     }[m
+[31m-    file_analysis: {[m
+[31m-      total: number[m
+[31m-      processed: number[m
+[31m-      status: 'pending' | 'running' | 'completed' | 'skipped'[m
+[31m-    }[m
+[31m-    directory_analysis: {[m
+[32m+[m[32m    directory_file_analysis: {[m[41m[m
+       total: number[m
+       processed: number[m
+       status: 'pending' | 'running' | 'completed' | 'skipped'[m

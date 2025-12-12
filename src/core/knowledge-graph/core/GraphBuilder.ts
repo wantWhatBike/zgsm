@@ -1,8 +1,7 @@
 import { KnowledgeGraphConfig, BuildOptions, KnowledgeGraphBuildState, BuildProgress, FileChanges } from "../types"
 import { KNOWLEDGE_GRAPH_STATUS, KNOWLEDGE_GRAPH_PHASE } from "@roo-code/types"
 import { RootAnalyzer } from "./RootAnalyzer"
-import { FileSummarizer } from "./FileSummarizer"
-import { DirectorySummarizer } from "./DirectorySummarizer"
+import { DirectoryFileSummarizer } from "./DirectoryFileSummarizer"
 import { FileService } from "./FileService"
 import { ILogger } from "../../../utils/logger"
 import { BuildStateTracer } from "./BuildStateTracer"
@@ -16,8 +15,7 @@ import { LOG_CONFIG } from "../constants"
  */
 export interface GraphBuilderDependencies {
 	rootAnalyzer: RootAnalyzer
-	fileAnalyzer: FileSummarizer
-	directoryAnalyzer: DirectorySummarizer
+	directoryFileAnalyzer: DirectoryFileSummarizer
 	fileService: FileService
 	buildStateKeeper: BuildStateTracer
 	logger: ILogger
@@ -31,8 +29,7 @@ export class GraphBuilder {
 	private config: KnowledgeGraphConfig
 	// 依赖组件
 	private rootAnalyzer: RootAnalyzer
-	private fileSummarizer: FileSummarizer
-	private directorySummarizer: DirectorySummarizer
+	private directoryFileSummarizer: DirectoryFileSummarizer
 	private fileService: FileService
 	private logger: ILogger
 
@@ -57,8 +54,7 @@ export class GraphBuilder {
 	constructor(config: KnowledgeGraphConfig, dependencies: GraphBuilderDependencies) {
 		this.config = config
 		this.rootAnalyzer = dependencies.rootAnalyzer
-		this.fileSummarizer = dependencies.fileAnalyzer
-		this.directorySummarizer = dependencies.directoryAnalyzer
+		this.directoryFileSummarizer = dependencies.directoryFileAnalyzer
 		this.fileService = dependencies.fileService
 		this.logger = dependencies.logger
 		this.buildStateTracer = dependencies.buildStateKeeper
@@ -99,8 +95,8 @@ export class GraphBuilder {
 	private setupStopCheckers(): void {
 		const checker = () => this.shouldStop()
 		this.rootAnalyzer.setPauseChecker(checker)
-		this.fileSummarizer.setPauseChecker(checker)
-		this.directorySummarizer.setPauseChecker(checker)
+		this.directoryFileSummarizer.setPauseChecker(checker)
+		this.fileService.setPauseChecker(checker)
 	}
 
 	/**
@@ -471,15 +467,11 @@ export class GraphBuilder {
 				
 				this.logger.info("[GraphBuilder] [4/6] 清除根目录分析结果...")
 				await this.rootAnalyzer.clear()
-				this.logger.info("[GraphBuilder] ✓ 根目录分析结果已清除")
-				
-				this.logger.info("[GraphBuilder] [5/6] 清除文件摘要...")
-				await this.fileSummarizer.clear()
-				this.logger.info("[GraphBuilder] ✓ 文件摘要已清除")
-				
-				this.logger.info("[GraphBuilder] [6/6] 清除目录摘要...")
-				await this.directorySummarizer.clear()
-				this.logger.info("[GraphBuilder] ✓ 目录摘要已清除")
+			this.logger.info("[GraphBuilder] ✓ 根目录分析结果已清除")
+			
+			this.logger.info("[GraphBuilder] [5/6] 清除目录文件摘要...")
+			await this.directoryFileSummarizer.clear()
+			this.logger.info("[GraphBuilder] ✓ 目录文件摘要已清除")
 
 				this.logger.info("[GraphBuilder] ------------------------------------------")
 				this.logger.info("[GraphBuilder] ========== 清空完成 ==========")
@@ -555,10 +547,9 @@ export class GraphBuilder {
 			this.logger.info("[GraphBuilder] 关键文件变更会影响项目结构和依赖关系")
 			this.logger.info("================================================")
 			
-			// 清空所有已处理的数据
-			await this.fileSummarizer.clear()
-			await this.directorySummarizer.clear()
-			await this.rootAnalyzer.clear()
+		// 清空所有已处理的数据
+		await this.directoryFileSummarizer.clear()
+		await this.rootAnalyzer.clear()
 			// 注意：不清空 BuildStateTracer，保留任务ID和状态
 			
 			this.logger.info("[GraphBuilder] 已清空旧数据，将从头开始构建")
@@ -576,33 +567,25 @@ export class GraphBuilder {
 			return
 		}
 
-		// ✅ 只删除真正被删除的文件摘要
-		// 修改的文件通过 update 接口处理（SQLite 用 UPSERT，JSONL 自动先删后加）
+		// ✅ 删除文件时清除对应的摘要
 		if (incrementalResult.deleted.length > 0) {
 			const deletedPaths = incrementalResult.deleted.map(f => f.path)
-			await this.fileSummarizer.deleteSummaries(deletedPaths)
+			await this.directoryFileSummarizer.deleteFileSummaries(deletedPaths)
 			this.logger.info(`[GraphBuilder] 已删除 ${deletedPaths.length} 个文件的摘要`)
-		} else {
-			this.logger.info(`[GraphBuilder] 无需删除文件摘要（没有文件被删除）`)
 		}
-
-		// 根据文件摘要（路径+核心功能关键词(或者核心导出函数)），重新全量生成目录摘要。
-
-		let needDoFileSummary = true
-		let needDoDirectorySummary = true
+		
+		// 检查是否需要执行目录文件分析
+		let needDoDirectoryFileAnalysis = true
 
 		// 检查是否有文件变更
 		const hasFileChanges = incrementalResult.added.length > 0 || incrementalResult.modified.length > 0
 		const hasDeletions = incrementalResult.deleted.length > 0
 
-		if (!hasFileChanges) {
-			needDoFileSummary = false
-			if (!hasDeletions) {
-				needDoDirectorySummary = false
-			}
+		if (!hasFileChanges && !hasDeletions) {
+			needDoDirectoryFileAnalysis = false
 		}
 
-		if (!needDoDirectorySummary && !needDoFileSummary) {
+		if (!needDoDirectoryFileAnalysis) {
 			this.logger.info("[GraphBuilder] 无需更新，构建完成")
 			await this.buildStateTracer.updateBuildState({
 				phase: "completed",
@@ -629,8 +612,7 @@ export class GraphBuilder {
 				phaseDurations: {
 					fileCollection: 0,
 					rootAnalysis: 0,
-					fileSummary: 0,
-					directorySummary: 0,
+					directoryFileAnalysis: 0,
 				},
 			})
 			return
@@ -664,14 +646,14 @@ export class GraphBuilder {
 			})
 		}
 
-		// ✅ 智能恢复三阶段进度（基于 files.json 单一数据源）
+		// ✅ 智能恢复阶段进度（基于 files.json 单一数据源）
 		// 注意：必须在 initializeBuildState 之后调用，避免进度被重置
 		const currentState = this.buildStateTracer.getCurrentState()
 		await this.restorePhaseProgress(currentState, incrementalResult, totalFiles)
 
 		// 获取当前状态以决定从哪里开始
 		const currentPhase = currentState?.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS
-		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.COMPLETED]
+		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DEPENDENCY_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.COMPLETED]
 		const currentPhaseIndex = phases.indexOf(currentPhase)
 
 		// 2. 根目录分析
@@ -715,163 +697,99 @@ export class GraphBuilder {
 			return
 		}
 
-		// 文件摘要
-		if (needDoFileSummary) {
+		// 目录文件分析（合并阶段）
+		if (needDoDirectoryFileAnalysis) {
 			// ✅ 检查停止状态
-			if (await this.checkAndHandleStop("文件摘要开始前")) {
+			if (await this.checkAndHandleStop("目录文件分析开始前")) {
 				return
 			}
 			
-			this.progressTracer.start('fileSummary')
+			this.progressTracer.start('directoryFileAnalysis')
 			this.logger.info(`[GraphBuilder] ================================================`)
-			this.logger.info(`[GraphBuilder] ========== 开始文件摘要阶段 ==========`)
+			this.logger.info(`[GraphBuilder] ========== 开始目录文件分析阶段 ==========`)
 			this.logger.info(`[GraphBuilder] 总文件数: ${totalFiles}`)
-			this.logger.info(`[GraphBuilder] 需处理: ${incrementalResult.added.length + incrementalResult.modified.length} 个文件`)
-			this.logger.info(`[GraphBuilder] 未变更: ${incrementalResult.unchangedCount} 个文件`)
-			this.logger.info(`[GraphBuilder] 新增: ${incrementalResult.added.length}, 修改: ${incrementalResult.modified.length}`)
+			this.logger.info(`[GraphBuilder] 新增: ${incrementalResult.added.length}, 修改: ${incrementalResult.modified.length}, 删除: ${incrementalResult.deleted.length}`)
 			this.logger.info(`[GraphBuilder] ================================================`)
 
-			if (!this.fileSummarizer) {
-				throw new Error("文件分析器未初始化")
+			if (!this.directoryFileSummarizer) {
+				throw new Error("目录文件分析器未初始化")
 			}
-			await this.fileSummarizer.summarizeFiles(
+			
+			await this.buildStateTracer.updateBuildState({
+				phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS,
+				failedFiles: 0,
+				error: "分析目录和文件..."
+			})
+			
+			// 重置阶段进度
+			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS, 0, 0, 'running')
+
+			await this.directoryFileSummarizer.summarizeAll(
 				rootInfo,
 				allFiles,
-				[...incrementalResult.added, ...incrementalResult.modified],
 				workspacePath,
 				async (progress: BuildProgress) => {
 					// 如果正在清除，停止更新状态
 					if (this.isClearing) return
 
-					const batchSize = progress.batchProcessedFilePaths.length
 					const batchDuration = progress.batchDuration || 0
 					
 					// 记录批次统计
-					this.progressTracer.recordBatch('fileSummary', batchSize, batchDuration)
+					this.progressTracer.recordBatch('directoryFileAnalysis', 1, batchDuration)
 					
-					this.logger.info(`[GraphBuilder] 文件摘要: 批次大小: ${batchSize}, 耗时: ${ProgressTracer.formatDuration(batchDuration)}，进度：${progress.totalProcessedFiles}/${progress.filesToProcess}`)
-					
-					// ✅ 计算累计已处理文件数（基于 files.json 的 successCount + 本批次增量）
-					const currentTotalProcessed = incrementalResult.successCount + progress.totalProcessedFiles
-
-					// ✅ 更新阶段进度（file_analysis），总进度由 calculateProgress 自动计算
-					await this.buildStateTracer.updatePhaseProgress(
-						KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, 
-						currentTotalProcessed, 
-						totalFilesToProcess, 
-						'running'
-					)
-
-					// 使用统一的 updateBuildState 方法（不再手动传入 progress）
-					await this.buildStateTracer.updateBuildState({
-						phase: KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS,
-						failedFiles: progress.batchFailedFiles,
-						error: progress.message
-					}, progress.batchProcessedFilePaths, "success")
-				},
-			)
-			
-			// ✅ 检查停止状态
-			if (await this.checkAndHandleStop("文件摘要完成后")) {
-				return
-			}
-			
-			// 标记文件分析阶段完成
-			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, totalFilesToProcess, totalFilesToProcess, 'completed')
-			
-			const fileSummaryDuration = this.progressTracer.end('fileSummary')
-			const batchStats = this.progressTracer.getBatchStats('fileSummary')
-			
-			this.logger.info(`[GraphBuilder] ================================================`)
-			this.logger.info(`[GraphBuilder] ========== 文件摘要阶段完成 ==========`)
-			this.logger.info(`[GraphBuilder] 总耗时: ${ProgressTracer.formatDuration(fileSummaryDuration)}`)
-			this.logger.info(`[GraphBuilder] 总批次: ${batchStats.totalBatches}`)
-			this.logger.info(`[GraphBuilder] 平均每批次: ${batchStats.averageItemsPerBatch} 个文件`)
-			this.logger.info(`[GraphBuilder] 平均批次耗时: ${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
-			this.logger.info(`[GraphBuilder] ================================================`)
-		} else {
-			this.logger.info("[GraphBuilder] 跳过文件摘要阶段 (无文件变更)")
-		}
-
-		// ✅ 检查停止状态
-		if (await this.checkAndHandleStop("文件摘要阶段后")) {
-			return
-		}
-
-		// 目录摘要
-		if (needDoDirectorySummary) {
-			// ✅ 检查停止状态
-			if (await this.checkAndHandleStop("目录摘要开始前")) {
-				return
-			}
-			
-			this.progressTracer.start('directorySummary')
-			this.logger.info(`[GraphBuilder] ================================================`)
-			this.logger.info(`[GraphBuilder] ========== 开始目录摘要阶段 ==========`)
-			this.logger.info(`[GraphBuilder] ================================================`)
-			
-			await this.buildStateTracer.updateBuildState({
-				phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS,
-				failedFiles: 0,
-				error: "分析目录结构..."
-			})
-			
-			// 重置目录分析阶段的进度
-			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, 0, 0, 'running')
-
-			if (!this.directorySummarizer) {
-				throw new Error("目录分析器未初始化")
-			}
-			await this.directorySummarizer.summarizeDirectories(
-				rootInfo,
-				allFiles,
-				async (progress: BuildProgress) => {
-					// 如果正在清除，停止更新状态
-					if (this.isClearing) return
-					
-					// 🔑 记录目录摘要进度（每个目录完成时）
-					// 计算目录摘要阶段对总进度的贡献（目录摘要阶段占总进度 10%）
-					const phaseContribution = progress.filesToProcess > 0 
-						? ((progress.totalProcessedFiles / progress.filesToProcess) * 10).toFixed(1)
-						: '0.0'
 					this.logger.info(
-						`[GraphBuilder] 目录摘要进度: ${progress.totalProcessedFiles}/${progress.filesToProcess} 目录 ` +
-						`(目录摘要阶段占总进度 10%，当前贡献 ${phaseContribution}%)`
+						`[GraphBuilder] 目录文件分析进度: ${progress.totalProcessedFiles}/${progress.filesToProcess} 目录，` +
+						`耗时: ${ProgressTracer.formatDuration(batchDuration)}`
 					)
 					
 					// 使用统一的 updateBuildState 方法
 					await this.buildStateTracer.updateBuildState({
-						phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS,
+						phase: KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS,
 						totalFilesToProcess: progress.filesToProcess,
 						processedFiles: progress.totalProcessedFiles,
 						failedFiles: progress.batchFailedFiles,
 						error: progress.message
 					})
 
-					// 更新阶段进度
-					await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, progress.totalProcessedFiles, progress.filesToProcess, 'running')
-				},
-				incrementalResult // 传递增量变更信息
-			)
+				// 更新阶段进度
+				await this.buildStateTracer.updatePhaseProgress(
+					KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS, 
+					progress.totalProcessedFiles, 
+					progress.filesToProcess, 
+					'running'
+				)
+		},
+		// 传递文件变更信息以支持增量更新
+		{
+			added: incrementalResult.added,
+			modified: incrementalResult.modified,
+			deleted: incrementalResult.deleted,
+			successCount: incrementalResult.successCount
+		}
+	)
 			
 			// ✅ 检查停止状态
-			if (await this.checkAndHandleStop("目录摘要完成后")) {
+			if (await this.checkAndHandleStop("目录文件分析完成后")) {
 				return
 			}
 			
-			// 标记目录分析阶段完成
+			// 标记阶段完成
 			const finalState = this.buildStateTracer.getCurrentState()
-			const totalDirs = finalState?.phaseProgress?.directory_analysis?.total || 0
-			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS, totalDirs, totalDirs, 'completed')
+			const totalDirs = finalState?.phaseProgress?.directory_file_analysis?.total || 0
+			await this.buildStateTracer.updatePhaseProgress(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS, totalDirs, totalDirs, 'completed')
 
-			const directorySummaryDuration = this.progressTracer.end('directorySummary')
+			const directoryFileAnalysisDuration = this.progressTracer.end('directoryFileAnalysis')
+			const batchStats = this.progressTracer.getBatchStats('directoryFileAnalysis')
+			
 			this.logger.info(`[GraphBuilder] ================================================`)
-			this.logger.info(`[GraphBuilder] ========== 目录摘要阶段完成 ==========`)
+			this.logger.info(`[GraphBuilder] ========== 目录文件分析阶段完成 ==========`)
 			this.logger.info(`[GraphBuilder] 总目录数: ${totalDirs}`)
-			this.logger.info(`[GraphBuilder] 总耗时: ${ProgressTracer.formatDuration(directorySummaryDuration)}`)
+			this.logger.info(`[GraphBuilder] 总耗时: ${ProgressTracer.formatDuration(directoryFileAnalysisDuration)}`)
+			this.logger.info(`[GraphBuilder] 总批次: ${batchStats.totalBatches}`)
+			this.logger.info(`[GraphBuilder] 平均批次耗时: ${ProgressTracer.formatDuration(batchStats.averageBatchDuration)}`)
 			this.logger.info(`[GraphBuilder] ================================================`)
 		} else {
-			this.logger.info("[GraphBuilder] 跳过目录摘要阶段 (无目录变更)")
+			this.logger.info("[GraphBuilder] 跳过目录文件分析阶段 (无变更)")
 		}
 		
 		// ✅ 最终检查停止状态
@@ -884,8 +802,7 @@ export class GraphBuilder {
 		const phaseDurations = {
 			fileCollection: this.progressTracer.getDuration('fileCollection'),
 			rootAnalysis: this.progressTracer.getDuration('rootAnalysis'),
-			fileSummary: this.progressTracer.getDuration('fileSummary'),
-			directorySummary: this.progressTracer.getDuration('directorySummary'),
+			directoryFileAnalysis: this.progressTracer.getDuration('directoryFileAnalysis'),
 		}
 		
 		// 计算总耗时
@@ -929,10 +846,9 @@ export class GraphBuilder {
 	 * - phaseProgress 是派生状态，从 files.json 计算得出
 	 * - 不再使用 baseProgress/baseProcessedFiles 双重计算系统
 	 * 
-	 * 三阶段恢复逻辑：
+	 * 两阶段恢复逻辑：
 	 * 1. root_analysis: 根据当前阶段判断是否已完成
-	 * 2. file_analysis: 根据 successCount（来自 files.json）恢复
-	 * 3. directory_analysis: 根据当前阶段和现有状态恢复
+	 * 2. directory_file_analysis: 根据当前阶段和现有状态恢复
 	 */
 	private async restorePhaseProgress(
 		currentState: KnowledgeGraphBuildState | undefined,
@@ -942,14 +858,14 @@ export class GraphBuilder {
 		const currentPhase = currentState?.phase || KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS
 		const successCount = incrementalResult.successCount
 		
-		this.logger.info(`[GraphBuilder] ========== 恢复三阶段进度 ==========`)
+		this.logger.info(`[GraphBuilder] ========== 恢复阶段进度 ==========`)
 		this.logger.info(`[GraphBuilder] 当前阶段: ${currentPhase}`)
 		this.logger.info(`[GraphBuilder] 总文件数: ${totalFiles}`)
 		this.logger.info(`[GraphBuilder] 已成功处理: ${successCount} (来自 files.json)`)
 		
 		// 阶段 1: Root Analysis
 		// 判断逻辑：如果有任何文件已成功处理，说明 root 阶段肯定已完成
-		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.FILE_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS]
+		const phases = [KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS, KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS]
 		const currentPhaseIndex = phases.indexOf(currentPhase as any)
 		const rootCompleted = successCount > 0 || currentPhaseIndex > phases.indexOf(KNOWLEDGE_GRAPH_PHASE.ROOT_ANALYSIS)
 		
@@ -961,38 +877,28 @@ export class GraphBuilder {
 		)
 		this.logger.info(`[GraphBuilder] - root_analysis: ${rootCompleted ? 'completed (1/1)' : 'pending (0/1)'}`)
 		
-		// 阶段 2: File Analysis（核心阶段，基于 files.json 的 successCount）
-		const fileStatus = successCount > 0 ? 'running' : 'pending'
-		await this.buildStateTracer.updatePhaseProgress(
-			'file_analysis',
-			successCount,
-			totalFiles,
-			fileStatus as any
-		)
-		this.logger.info(`[GraphBuilder] - file_analysis: ${fileStatus} (${successCount}/${totalFiles})`)
+		// 阶段 2: Directory File Analysis（合并阶段）
+		const dirFileCompleted = currentPhaseIndex >= phases.indexOf(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_FILE_ANALYSIS)
+		const existingProgress = currentState?.phaseProgress?.directory_file_analysis
 		
-		// 阶段 3: Directory Analysis
-		const dirCompleted = currentPhaseIndex >= phases.indexOf(KNOWLEDGE_GRAPH_PHASE.DIRECTORY_ANALYSIS)
-		const existingDirProgress = currentState?.phaseProgress?.directory_analysis
-		
-		if (dirCompleted && existingDirProgress) {
-			// 恢复现有的目录分析进度
+		if (dirFileCompleted && existingProgress) {
+			// 恢复现有的目录文件分析进度
 			await this.buildStateTracer.updatePhaseProgress(
-				'directory_analysis',
-				existingDirProgress.processed,
-				existingDirProgress.total,
-				existingDirProgress.status as any
+				'directory_file_analysis',
+				existingProgress.processed,
+				existingProgress.total,
+				existingProgress.status as any
 			)
-			this.logger.info(`[GraphBuilder] - directory_analysis: 恢复 (${existingDirProgress.processed}/${existingDirProgress.total})`)
+			this.logger.info(`[GraphBuilder] - directory_file_analysis: 恢复 (${existingProgress.processed}/${existingProgress.total})`)
 		} else {
 			// 保持 pending 状态
 			await this.buildStateTracer.updatePhaseProgress(
-				'directory_analysis',
+				'directory_file_analysis',
 				0,
 				0,
 				'pending'
 			)
-			this.logger.info(`[GraphBuilder] - directory_analysis: pending (0/0)`)
+			this.logger.info(`[GraphBuilder] - directory_file_analysis: pending (0/0)`)
 		}
 		
 		// 计算并显示总进度（由 BuildStateTracer.calculateProgress 自动计算）
@@ -1000,8 +906,8 @@ export class GraphBuilder {
 		const restoredProgress = restoredState?.progress || 0
 		
 		this.logger.info(`[GraphBuilder] 进度已恢复: ${restoredProgress.toFixed(1)}%`)
-		this.logger.info(`[GraphBuilder] - Root 贡献: ${rootCompleted ? '5%' : '0%'}`)
-		this.logger.info(`[GraphBuilder] - File 贡献: ${((successCount / totalFiles) * 85).toFixed(1)}%`)
+		this.logger.info(`[GraphBuilder] - Root 贡献: ${rootCompleted ? '10%' : '0%'}`)
+		this.logger.info(`[GraphBuilder] - DirectoryFile 贡献: ${((successCount / totalFiles) * 90).toFixed(1)}%`)
 		this.logger.info(`[GraphBuilder] ========================================`)
 	}
 

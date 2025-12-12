@@ -99,8 +99,7 @@ export const KNOWLEDGE_GRAPH_STATUS = {
  */
 export const KNOWLEDGE_GRAPH_PHASE = {
 	ROOT_ANALYSIS: 'root_analysis',
-	FILE_ANALYSIS: 'file_analysis',
-	DIRECTORY_ANALYSIS: 'directory_analysis',
+	DIRECTORY_FILE_ANALYSIS: 'directory_file_analysis',
 	DEPENDENCY_ANALYSIS: 'dependency_analysis',
 	COMPLETED: 'completed',
 } as const
@@ -175,7 +174,7 @@ export type KnowledgeGraphProvider = z.infer<typeof knowledgeGraphProviderSchema
 
 // --- Shared Types for Build State ---
 
-export type KnowledgeGraphPhase = 'root_analysis' | 'file_analysis' | 'directory_analysis' | 'dependency_analysis' | 'completed';
+export type KnowledgeGraphPhase = 'root_analysis' | 'directory_file_analysis' | 'dependency_analysis' | 'completed';
 
 export interface BuildProgress {
   phase: KnowledgeGraphPhase
@@ -219,8 +218,7 @@ export interface KnowledgeGraphBuildState {
   phaseDurations?: {
     fileCollection?: number
     rootAnalysis?: number
-    fileSummary?: number
-    directorySummary?: number
+    directoryFileAnalysis?: number
   }
 
   // Phase Progress Details
@@ -230,12 +228,7 @@ export interface KnowledgeGraphBuildState {
       processed: number
       status: 'pending' | 'running' | 'completed' | 'skipped'
     }
-    file_analysis: {
-      total: number
-      processed: number
-      status: 'pending' | 'running' | 'completed' | 'skipped'
-    }
-    directory_analysis: {
+    directory_file_analysis: {
       total: number
       processed: number
       status: 'pending' | 'running' | 'completed' | 'skipped'

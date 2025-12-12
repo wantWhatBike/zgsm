@@ -90,7 +90,7 @@ For each file in the batch, generate:
 `
 
 /**
- * 目录摘要分析提示词模板
+ * 目录摘要分析提示词模板（已废弃，使用 DIRECTORY_FILE_ANALYSIS_PROMPT 替代）
  */
 export const DIRECTORY_ANALYSIS_PROMPT = `
 ## Role
@@ -134,6 +134,68 @@ Based on subdirectory and subfile summaries, generate a structured overview:
 ### Project File List (for reference):
 \`\`\`
 {{allFileList}}
+\`\`\`
+`
+
+/**
+ * 目录文件分析提示词模板（合并阶段）
+ * 一次性生成目录摘要和该目录下所有文件的摘要
+ */
+export const DIRECTORY_FILE_ANALYSIS_PROMPT = `
+## Role
+You are a code analysis specialist focusing on generating structured directory and file summaries for knowledge graph construction.
+
+## Task
+Analyze the provided directory and its files, then generate:
+1. **Directory Summary**: Core purpose in ≤15 words (what this directory does)
+2. **File Summaries**: For each file, generate:
+   - **Summary**: Core function in ≤15 words (what this file does)
+   - **Type**: "source" or "test" (files in test directories or containing "test"/"spec" in filename are "test", others are "source")
+
+## Rules
+1. Output format: JSON object with "directory" and "files" fields
+2. Base analysis strictly on provided file contents (outlines or names)
+3. When {{onlyFileNames}} is "true", infer functionality from file names and directory structure only
+4. When {{onlyFileNames}} is "false", use provided file outlines for more accurate analysis
+5. Keep summaries concise (≤15 words) but informative
+6. Return ONLY valid JSON with no extra text, explanations, or markdown formatting
+
+## Output Format
+\`\`\`json
+{
+  "directory": {
+    "path": "directory path",
+    "summary": "Core purpose in ≤15 words",
+    "timestamp": "ISO timestamp"
+  },
+  "files": [
+    {
+      "path": "file path",
+      "type": "source",
+      "summary": "Core function in ≤15 words",
+      "timestamp": "ISO timestamp"
+    }
+  ]
+}
+\`\`\`
+
+Note: File metadata (size, lines, length, lastModified) will be added by the system automatically.
+
+## Input
+### Project Context:
+\`\`\`
+{{rootInfo}}
+\`\`\`
+
+### Current Directory:
+{{dirPath}}
+
+### Only File Names Mode:
+{{onlyFileNames}}
+
+### File Contents:
+\`\`\`
+{{fileContents}}
 \`\`\`
 `
 
