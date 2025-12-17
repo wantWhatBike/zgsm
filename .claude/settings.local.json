@@ -1,0 +1,14 @@
+{
+	"permissions": {
+		"allow": [
+			"Bash(chmod:*)",
+			"Bash(bash:*)",
+			"Bash(pnpm check-types:*)",
+			"Bash(for file in 02_*.ts 03_*.ts 04_*.ts 05_*.ts 06_*.ts 07_*.ts 08_*.ts 09_*.ts 10_*.ts 11_*.ts 12_*.ts 97_*.ts 98_*.ts 99_*.ts)",
+			"Bash(do sed -i 's/\\\\`;$/`;/g' \"$file\")",
+			"Bash(done)",
+			"Bash(node scripts/generate_agents.js:*)",
+			"Bash(npx tsc:*)"
+		]
+	}
+}

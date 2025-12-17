@@ -2,23 +2,47 @@ import { promises as fs } from "fs"
 import * as path from "path"
 import { formatError, SUBTASK_FILENAMES, subtaskDir } from "./wiki-prompts/common/constants"
 import { ILogger, createLogger } from "../../../utils/logger"
-import { PROJECT_BASIC_ANALYZE_AGENT_TEMPLATE } from "./wiki-prompts/subtasks/01_project-basic-analyze-agent"
-import { GENERATE_THINK_CATALOGUE_TEMPLATE } from "./wiki-prompts/subtasks/02_catalogue-design-agent"
-import { DOCUMENT_GENERATION_AGENT_TEMPLATE } from "./wiki-prompts/subtasks/03_document-generate-agent"
-import { INDEX_GENERATION_AGENT_TEMPLATE } from "./wiki-prompts/subtasks/04_index-generation-agent"
+
+// Import v3.0.0 agent templates
+import PRE_ANALYSIS_AGENT_TEMPLATE from "./wiki-prompts/subtasks/00_pre-analysis-agent"
+import REPOSITORY_ARCHITECTURE_AGENT_TEMPLATE from "./wiki-prompts/subtasks/01_repository-architecture-agent"
+import REPOSITORY_DEPENDENCIES_AGENT_TEMPLATE from "./wiki-prompts/subtasks/02_repository-dependencies-agent"
+import DATA_STRUCTURE_AGENT_TEMPLATE from "./wiki-prompts/subtasks/03_data-structure-agent"
+import CORE_BUSINESS_AGENT_TEMPLATE from "./wiki-prompts/subtasks/04_core-business-agent"
+import API_INDEX_AGENT_TEMPLATE from "./wiki-prompts/subtasks/05_api-index-agent"
+import BUSINESS_FLOW_INDEX_AGENT_TEMPLATE from "./wiki-prompts/subtasks/06_business-flow-index-agent"
+import BUSINESS_FLOW_DETAIL_AGENT_TEMPLATE from "./wiki-prompts/subtasks/07_business-flow-detail-agent"
+import CODE_GUIDE_AGENT_TEMPLATE from "./wiki-prompts/subtasks/08_code-guide-agent"
+import UNIT_TEST_AGENT_TEMPLATE from "./wiki-prompts/subtasks/09_unit-test-agent"
+import EXTERNAL_INTEGRATION_AGENT_TEMPLATE from "./wiki-prompts/subtasks/10_external-integration-agent"
+import TROUBLESHOOTING_AGENT_TEMPLATE from "./wiki-prompts/subtasks/11_troubleshooting-agent"
+import REPOSITORY_OVERVIEW_AGENT_TEMPLATE from "./wiki-prompts/subtasks/12_repository-overview-agent"
+import QUALITY_OPTIMIZATION_AGENT_TEMPLATE from "./wiki-prompts/subtasks/97_quality-optimization-agent"
+import QUALITY_EVALUATION_AGENT_TEMPLATE from "./wiki-prompts/subtasks/98_quality-evaluation-agent"
+import INCREMENTAL_UPDATE_AGENT_TEMPLATE from "./wiki-prompts/subtasks/99_incremental-update-agent"
 
 export const projectWikiCommandName = "project-wiki"
-export const projectWikiCommandDescription = `执行项目深度分析并创建全面的项目技术文档（v2版本）`
+export const projectWikiCommandDescription = `执行项目深度分析并创建全面的项目技术文档（v3.0.0）`
 
-
-// Template data mapping for subtasks only
+// Template data mapping for subtasks (v3.0.0 - 16 agents)
 const SUBTASK_TEMPLATES = {
-	[SUBTASK_FILENAMES.PROJECT_CLASSIFICATION_AGENT]: PROJECT_BASIC_ANALYZE_AGENT_TEMPLATE,
-	[SUBTASK_FILENAMES.THINK_CATALOGUE_AGENT]: GENERATE_THINK_CATALOGUE_TEMPLATE,
-	[SUBTASK_FILENAMES.DOCUMENT_GENERATION_AGENT]: DOCUMENT_GENERATION_AGENT_TEMPLATE,
-	[SUBTASK_FILENAMES.INDEX_GENERATION_AGENT]: INDEX_GENERATION_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.PRE_ANALYSIS_AGENT]: PRE_ANALYSIS_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.REPOSITORY_ARCHITECTURE_AGENT]: REPOSITORY_ARCHITECTURE_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.REPOSITORY_DEPENDENCIES_AGENT]: REPOSITORY_DEPENDENCIES_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.DATA_STRUCTURE_AGENT]: DATA_STRUCTURE_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.CORE_BUSINESS_AGENT]: CORE_BUSINESS_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.API_INDEX_AGENT]: API_INDEX_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.BUSINESS_FLOW_INDEX_AGENT]: BUSINESS_FLOW_INDEX_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.BUSINESS_FLOW_DETAIL_AGENT]: BUSINESS_FLOW_DETAIL_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.CODE_GUIDE_AGENT]: CODE_GUIDE_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.UNIT_TEST_AGENT]: UNIT_TEST_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.EXTERNAL_INTEGRATION_AGENT]: EXTERNAL_INTEGRATION_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.TROUBLESHOOTING_AGENT]: TROUBLESHOOTING_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.REPOSITORY_OVERVIEW_AGENT]: REPOSITORY_OVERVIEW_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.QUALITY_OPTIMIZATION_AGENT]: QUALITY_OPTIMIZATION_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.QUALITY_EVALUATION_AGENT]: QUALITY_EVALUATION_AGENT_TEMPLATE,
+	[SUBTASK_FILENAMES.INCREMENTAL_UPDATE_AGENT]: INCREMENTAL_UPDATE_AGENT_TEMPLATE,
 }
-
 
 // 创建 logger 实例，但允许在测试时被替换
 let logger: ILogger = createLogger()
