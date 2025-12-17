@@ -38,7 +38,6 @@ export const WIKI_OUTPUT_FILE_PATHS = {
 
 	// 中间文件
 	PRE_REPORT_MD: ".cospec/wiki/.staging/pre-report.md",
-	PROJECT_CLASSIFICATION_JSON: ".cospec/wiki/.staging/project-classification.json",
 	KB_META_JSON: ".cospec/wiki/.kb-meta.json",
 
 	// 最终文档（12类）
@@ -104,7 +103,7 @@ export const COMMON_RULES = `1. 使用\`todo_list\` 规划任务，逐个执行�
 `
 
 // Subtask directory and filenames for v3.0.0
-export const subtaskDir = path.join(getGlobalCommandsDir(), "project-wiki", "subtasks")
+export const SUBTASK_DIR = path.join(getGlobalCommandsDir(), "costrict-project-wiki-tasks", PROJECT_WIKI_VERSION)
 
 export const SUBTASK_FILENAMES = {
 	// Pre-analysis (00)

@@ -1,6 +1,6 @@
 import { promises as fs } from "fs"
 import * as path from "path"
-import { formatError, SUBTASK_FILENAMES, subtaskDir } from "./wiki-prompts/common/constants"
+import { formatError, SUBTASK_FILENAMES, SUBTASK_DIR } from "./wiki-prompts/common/constants"
 import { ILogger, createLogger } from "../../../utils/logger"
 
 // Import v3.0.0 agent templates
@@ -58,10 +58,10 @@ export async function ensureProjectWikiSubtasksExists() {
 
 	try {
 		// Ensure subtask directory exists
-		await fs.mkdir(subtaskDir, { recursive: true })
+		await fs.mkdir(SUBTASK_DIR, { recursive: true })
 
 		// Check if subtask setup is needed
-		const needsSetup = await checkIfSubtaskSetupNeeded(subtaskDir)
+		const needsSetup = await checkIfSubtaskSetupNeeded(SUBTASK_DIR)
 		if (!needsSetup) {
 			logger.info("[projectWikiHelpers] project-wiki subtasks already exist")
 			return
@@ -70,10 +70,10 @@ export async function ensureProjectWikiSubtasksExists() {
 		logger.info("[projectWikiHelpers] Setting up project-wiki subtasks...")
 
 		// Clean up existing subtask directory
-		await fs.rm(subtaskDir, { recursive: true, force: true })
+		await fs.rm(SUBTASK_DIR, { recursive: true, force: true })
 
 		// Generate subtask files
-		await generateSubtaskFiles(subtaskDir)
+		await generateSubtaskFiles(SUBTASK_DIR)
 
 		const duration = Date.now() - startTime
 		logger.info(`[projectWikiHelpers] project-wiki subtasks setup completed in ${duration}ms`)

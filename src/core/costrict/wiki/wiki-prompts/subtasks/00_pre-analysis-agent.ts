@@ -21,7 +21,6 @@ export const PRE_ANALYSIS_AGENT_TEMPLATE = (workspace: string) => `
 
 ## 输出文件
 1. \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}\`
-2. \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}\`
 
 ## 执行流程
 
@@ -149,7 +148,7 @@ git log -100 --pretty=format: --name-only | grep -v '^$' | cut -d/ -f1 | sort | 
 
 ### 阶段七：生成输出文件
 
-#### 输出1：生成 pre-report.md
+#### 生成 pre-report.md
 使用 \`write_file\` 工具写入 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}\`
 
 **报告结构**：
@@ -228,12 +227,12 @@ git log -100 --pretty=format: --name-only | grep -v '^$' | cut -d/ -f1 | sort | 
 
 ### [待确认 3] 额外忽略
 > **[待填写]** _例如：legacy/ - 已废弃代码，或填写"无"_
-\`\`\`
 
-#### 输出2：生成 project-classification.json
-使用 \`write_file\` 工具写入 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}\`
+## 六、项目分类元数据
 
-\`\`\`json
+> 以下信息供知识库生成系统自动读取，请勿手动修改格式
+
+\\\`\\\`\\\`json
 {
   "classifyName": "Applications|Frameworks|Libraries|...",
   "confidence": "高|中|低",
@@ -246,6 +245,7 @@ git log -100 --pretty=format: --name-only | grep -v '^$' | cut -d/ -f1 | sort | 
   "evidence": ["证据1", "证据2"],
   "summary": "项目摘要描述"
 }
+\\\`\\\`\\\`
 \`\`\`
 
 ### 阶段八：完成提示

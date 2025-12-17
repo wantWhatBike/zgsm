@@ -1,7 +1,13 @@
 // Costrict Wiki v3.0.0 - 智能代码仓库分析和文档生成系统
 // 整合预分析、文档生成、质量评估、质量优化、增量更新功能
 
-import { WIKI_OUTPUT_FILE_PATHS, DOCUMENT_CONFIGS, COMMON_RULES, PROJECT_WIKI_VERSION } from "./common/constants"
+import {
+	WIKI_OUTPUT_FILE_PATHS,
+	DOCUMENT_CONFIGS,
+	COMMON_RULES,
+	PROJECT_WIKI_VERSION,
+	SUBTASK_DIR,
+} from "./common/constants"
 
 // 主入口模板
 export const PROJECT_WIKI_TEMPLATE = (workspace: string) => `
@@ -19,11 +25,18 @@ export const PROJECT_WIKI_TEMPLATE = (workspace: string) => `
 - 必须使用\`update_todo_list\`工具规划任务，并严格执行
 
 3. **任务执行**:
-- 你是"任务调度器"，只负责模式切换、任务规划、任务调度，不具备写文件、命令行执行权限。下文中定义的所有具体执行操作，必须全部交给子任务。
-
+- 你是"任务调度器"，只负责模式切换、任务规划、任务调度，不具备写文件、命令行执行权限。下文中定义的所有具体执行操作，必须全部交给子任务
 - 使用 \`new_task\` 工具创建 💻 Code 模式的子任务
-
 - 必须给子任务传递充分上下文信息，使用如下模板（根据实际情况填充占位符）：
+
+**通用子任务规则**（所有子任务必须遵守）：
+\`\`\`
+\${COMMON_TASK_RULES}:
+  ${COMMON_RULES}
+  4. 必须使用 \`read_file\` 工具读取指令文件，严格按照指令文件中的指令执行
+  5. **read_file工具使用限制**: 每次读取文件必须 ≤ 200行，必须带明确的开始行和结束行参数（指令文件除外）
+  6. 工具使用顺序要求: list_files/search_files 定位文件 → list_code_definition_names 定位开始行和结束行 → read_file（传入开始行和结束行参数，行范围禁止超过200行）
+\`\`\`
 
 **子任务创建模板**：
 \\\`\\\`\\\`yaml
@@ -41,10 +54,8 @@ new_task:
         2. 严格遵守获取到的任务指令，规划 \\\`todo_list\\\` 待办项，逐个执行
         3. {其它指令}
       ## Rules
-        1. 必须使用 \\\`read_file\\\` 工具读取指令文件，严格按照指令文件中的指令执行
-        2. **read_file工具使用限制**: 每次读取文件必须 ≤ 200行，必须带明确的开始行和结束行参数（指令文件除外）
-        3. 工具使用顺序要求: list_files/search_files 定位文件 → list_code_definition_names 定位开始行和结束行 → read_file （传入开始行和结束行参数，行范围禁止超过200行）
-        4. {其他注意事项}
+        \${COMMON_TASK_RULES}
+        7. {其他特定规则}
       ## Input
         {输入信息}
       ## Output
@@ -80,13 +91,46 @@ new_task:
 
 ## 📋 执行流程
 
-### 步骤0：模式检测
+### 步骤0：知识库完整性校验
 
-检查 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.KB_META_JSON}\` 是否存在
+**校验步骤**：
 
-**说明**：
-- **文件不存在** → 执行完整流程（步骤1-7），在步骤3执行【全量生成】
-- **文件存在** → 跳过步骤1-2和步骤4，直接到步骤3执行【增量更新】，然后继续步骤5-7
+1. **检查元数据文件**：
+   检查 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.KB_META_JSON}\` 是否存在
+
+2. **如果元数据文件存在，进行深度校验**：
+   - 读取元数据文件，提取 \`repository_info.is_library\` 和 \`repository_info.has_api\` 字段
+   - 根据项目类型，校验以下文档是否完整：
+
+   **必需文档（所有项目）**：
+   - 仓库架构（${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_ARCHITECTURE_MD}）
+   - 仓库依赖（${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_DEPENDENCIES_MD}）
+   - 数据结构（${WIKI_OUTPUT_FILE_PATHS.DATA_STRUCTURE_MD}）
+   - 代码编写指南（${WIKI_OUTPUT_FILE_PATHS.CODE_GUIDE_MD}）
+   - 单元测试（${WIKI_OUTPUT_FILE_PATHS.UNIT_TEST_MD}）
+   - 外部接入指南（${WIKI_OUTPUT_FILE_PATHS.EXTERNAL_INTEGRATION_MD}）
+   - 排障指南（${WIKI_OUTPUT_FILE_PATHS.TROUBLESHOOTING_MD}）
+   - 仓库概览（${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_OVERVIEW_MD}）
+
+   **条件型文档**：
+   - 核心业务领域（${WIKI_OUTPUT_FILE_PATHS.CORE_BUSINESS_MD}）- 仅当 \`is_library=false\`
+   - API索引（${WIKI_OUTPUT_FILE_PATHS.API_INDEX_MD}）- 仅当 \`has_api=true\`
+   - 业务流程索引（${WIKI_OUTPUT_FILE_PATHS.BUSINESS_FLOW_INDEX_MD}）- 仅当 \`is_library=false\`
+   - 业务流程详解（${WIKI_OUTPUT_FILE_PATHS.BUSINESS_FLOW_DETAIL_MD}）- 仅当 \`is_library=false\`
+
+**执行逻辑判断**：
+
+- **场景1：元数据文件不存在**
+  → **判定**：首次生成
+  → **动作**：执行完整流程（步骤1-7），在步骤3执行【全量生成】
+
+- **场景2：元数据文件存在 且 所有应生成的文档完整**
+  → **判定**：知识库完整，适合增量更新
+  → **动作**：跳过步骤1-2和步骤4，直接到步骤3执行【增量更新】，然后继续步骤5-7
+
+- **场景3：元数据文件存在 但 部分必需文档缺失**
+  → **判定**：知识库损坏或不完整
+  → **动作**：执行完整流程（步骤1-7），在步骤3执行【全量生成】以重建知识库
 
 ---
 
@@ -107,7 +151,7 @@ new_task:
 
       ## Instructions
         1. 使用 \`read_file\`工具读取指令文件内容并严格遵循：
-           \`~/.roo/commands/project-wiki/subtasks/00_pre-analysis-agent.md\`
+           \`${SUBTASK_DIR}/00_pre-analysis-agent.md\`
         2. 根据指令执行：
            - 项目骨架扫描（目录结构、语言统计）
            - 技术栈识别（依赖配置、框架）
@@ -115,15 +159,14 @@ new_task:
            - 业务模块识别
            - 忽略范围确定
            - 项目分类（类型、规模、复杂度）
-        3. 输出两个文件：
-           - ${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}
-           - ${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}
+        3. 输出文件：
+           - ${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}（包含项目分类元数据）
         4. 完成后提示用户查看预分析报告并确认
 
       ## Rules
-        ${COMMON_RULES}
-        4. 必须使用 \`write_file\` 工具将内容写入文件，禁止将完整报告输出到会话
-        5. 完成后使用 \`attempt_completion\` 返回项目分类结果（is_library, has_api）
+        \${COMMON_TASK_RULES}
+        7. 必须使用 \`write_file\` 工具将内容写入文件，禁止将完整报告输出到会话
+        8. 完成后使用 \`attempt_completion\` 返回项目分类结果（is_library, has_api）
 
       ## Input
         工作区路径：${workspace}
@@ -155,28 +198,30 @@ new_task:
         预分析已完成，需要读取项目分类结果并创建输出目录结构。
 
       ## Instructions
-        1. 使用 \`read_file\`工具读取项目分类结果：
-           \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}\`
-        2. 提取关键信息：
+        1. 使用 \`read_file\`工具读取预分析报告：
+           \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}\`
+        2. 从报告的"六、项目分类元数据"章节中提取JSON代码块
+        3. 解析JSON，提取关键信息：
            - \`is_library\`：是否为公共库类型
            - \`has_api\`：是否有对外API
            - \`primary_language\`：主要编程语言
            - \`frameworks\`：框架列表
-        3. 使用 \`execute_command\`工具创建输出目录：
+        4. 使用 \`execute_command\`工具创建输出目录：
            \`\`\`bash
            mkdir -p "${workspace}/${WIKI_OUTPUT_FILE_PATHS.BUSINESS_KB_DIR}"
            mkdir -p "${workspace}/${WIKI_OUTPUT_FILE_PATHS.TECH_KB_DIR}"
            mkdir -p "${workspace}/${WIKI_OUTPUT_FILE_PATHS.TEST_KB_DIR}"
            \`\`\`
-        4. 使用 \`attempt_completion\` 返回项目分类结果（JSON格式）
+        5. 使用 \`attempt_completion\` 返回项目分类结果（JSON格式）
 
       ## Rules
-        1. 必须准确读取JSON文件内容
-        2. 提取的信息将用于决定哪些文档需要生成
-        3. 输出目录必须创建成功
+        \${COMMON_TASK_RULES}
+        7. 必须准确从markdown中提取JSON信息
+        8. 提取的信息将用于决定哪些文档需要生成
+        9. 输出目录必须创建成功
 
       ## Input
-        分类结果文件：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}\`
+        预分析报告文件：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}\`
 
       ## Output
         返回项目分类结果的JSON对象
@@ -228,12 +273,12 @@ new_task:
 
       ## Instructions
         1. 使用 \`read_file\`工具读取指令文件：
-           \`~/.roo/commands/project-wiki/subtasks/01_repository-architecture-agent.md\`
+           \`${SUBTASK_DIR}/01_repository-architecture-agent.md\`
         2. 严格按照指令执行，生成仓库架构文档
         3. 输出文件：${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_ARCHITECTURE_MD}
 
       ## Rules
-        ${COMMON_RULES}
+        \${COMMON_TASK_RULES}
 
       ## Input
         - 工作区：${workspace}
@@ -260,13 +305,13 @@ new_task:
 
       ## Instructions
         1. 读取指令文件：
-           \`~/.roo/commands/project-wiki/subtasks/99_incremental-update-agent.md\`
+           \`${SUBTASK_DIR}/99_incremental-update-agent.md\`
         2. 基于Git diff分析代码变更
         3. 智能更新受影响的文档
         4. 更新 ${WIKI_OUTPUT_FILE_PATHS.KB_META_JSON}
 
       ## Rules
-        ${COMMON_RULES}
+        \${COMMON_TASK_RULES}
 \`\`\`
 
 **执行要点**：
@@ -293,15 +338,16 @@ new_task:
         所有文档已生成完成，需要创建元信息文件记录生成信息。
 
       ## Instructions
-        1. 使用 \`read_file\`工具读取项目分类结果：
-           \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}\`
-        2. 使用 \`execute_command\`工具获取Git信息：
+        1. 使用 \`read_file\`工具读取预分析报告：
+           \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}\`
+        2. 从报告的"六、项目分类元数据"章节中提取JSON信息（is_library, has_api, primary_language, frameworks）
+        3. 使用 \`execute_command\`工具获取Git信息：
            \`\`\`bash
            git rev-parse HEAD
            git branch --show-current
            \`\`\`
-        3. 使用 \`read_file\`工具读取 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_DEPENDENCIES_MD}\`，提取仓库依赖列表
-        4. 使用 \`write_file\`工具创建 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.KB_META_JSON}\`：
+        4. 使用 \`read_file\`工具读取 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_DEPENDENCIES_MD}\`，提取仓库依赖列表
+        5. 使用 \`write_file\`工具创建 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.KB_META_JSON}\`：
            \`\`\`json
            {
              "generated_at": "{{当前ISO 8601时间戳}}",
@@ -319,12 +365,13 @@ new_task:
            \`\`\`
 
       ## Rules
-        1. 时间戳必须使用ISO 8601格式
-        2. 所有信息必须准确提取，不可虚构
-        3. JSON格式必须正确
+        \${COMMON_TASK_RULES}
+        7. 时间戳必须使用ISO 8601格式
+        8. 所有信息必须准确提取，不可虚构
+        9. JSON格式必须正确
 
       ## Input
-        - 项目分类结果：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PROJECT_CLASSIFICATION_JSON}\`
+        - 预分析报告：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.PRE_REPORT_MD}\`
         - 仓库依赖文档：\`${workspace}/${WIKI_OUTPUT_FILE_PATHS.REPOSITORY_DEPENDENCIES_MD}\`
 
       ## Output
@@ -345,7 +392,7 @@ new_task:
 
 **如果用户选择"是"**：
 
-创建子任务98：质量评估
+创建子任务：质量评估
 
 \`\`\`yaml
 new_task:
@@ -356,15 +403,31 @@ new_task:
       ## Role
         您是知识库质量评估专家
 
+      ## Background
+        需要评估知识库文档，确保内容与实际代码仓库一致
+
       ## Instructions
         1. 读取指令文件：
-           \`~/.roo/commands/project-wiki/subtasks/98_quality-evaluation-agent.md\`
-        2. 评估所有知识库文档的质量
-        3. 检查准确性、完整性、幻觉内容
-        4. 生成评估报告
+           \`${SUBTASK_DIR}/98_quality-evaluation-agent.md\`
+        2. 读取所有知识库文档
+        3. 提取文档中提到的所有文件路径、函数名、依赖、配置等信息
+        4. 逐一验证这些信息在实际代码仓库中是否存在、是否准确
+        5. 记录所有发现的问题（不存在、不准确、过时等）
+        6. 按照评估维度进行打分和分析
+        7. 生成评估报告
 
       ## Rules
-        ${COMMON_RULES}
+        \${COMMON_TASK_RULES}
+        7. 必须与实际代码仓库对比验证，不能仅凭文档内容评估
+        8. 只评估知识库文档，不修改任何文件
+        9. 详细记录每个问题的具体位置和原因
+        10. **评估专用工具约束**（补充通用规则）：
+           - 禁止使用 \`read_file\` 工具去验证文件路径是否存在
+           - 验证文件路径是否存在时，必须使用 \`list_files\` 工具或 \`execute_command\` 工具执行 \`ls {路径}\`
+           - 验证函数名、类名等代码定义时，优先使用 \`list_code_definition_names\` 或 \`search_files\` 工具定位
+
+      ## Output
+        生成评估报告到 \`${workspace}/${WIKI_OUTPUT_FILE_PATHS.STAGING_OUTPUT_DIR}eval-report.md\`
 \`\`\`
 
 **执行要点**：
@@ -401,14 +464,14 @@ new_task:
 
       ## Instructions
         1. 读取指令文件：
-           \`~/.roo/commands/project-wiki/subtasks/97_quality-optimization-agent.md\`
+           \`${SUBTASK_DIR}/97_quality-optimization-agent.md\`
         2. 获取评估报告（会话历史或文件）
         3. 按优先级修复问题
         4. 生成修复报告
 
       ## Rules
-        ${COMMON_RULES}
-        4. ⚠️ 只能修改 ${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR} 目录下的知识库文档
+        \${COMMON_TASK_RULES}
+        7. ⚠️ 只能修改 ${WIKI_OUTPUT_FILE_PATHS.WIKI_OUTPUT_DIR} 目录下的知识库文档
 \`\`\`
 
 ---
