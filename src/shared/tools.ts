@@ -93,6 +93,8 @@ export type NativeToolArgs = {
 	read_file: { files: FileEntry[] }
 	attempt_completion: { result: string }
 	execute_command: { command: string; cwd?: string }
+	enter_plan_mode: {}
+	exit_plan_mode: {}
 	apply_diff: { path: string; diff: string }
 	search_and_replace: { path: string; operations: Array<{ search: string; replace: string }> }
 	search_replace: { file_path: string; old_string: string; new_string: string }
@@ -101,6 +103,15 @@ export type NativeToolArgs = {
 	ask_followup_question: {
 		question: string
 		follow_up: Array<{ text: string; mode?: string }>
+	}
+	ask_multiple_choice: {
+		title?: string
+		questions: Array<{
+			id: string
+			prompt: string
+			allow_multiple?: boolean
+			options: Array<{ id: string; label: string }>
+		}>
 	}
 	browser_action: BrowserActionParams
 	codebase_search: { query: string; path?: string }
@@ -267,6 +278,8 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 	access_mcp_resource: "access mcp resources",
 	ask_followup_question: "ask questions",
 	ask_multiple_choice: "ask multiple choice",
+	enter_plan_mode: "enter plan mode",
+	exit_plan_mode: "exit plan mode",
 	attempt_completion: "complete tasks",
 	switch_mode: "switch modes",
 	new_task: "create new task",
@@ -302,7 +315,7 @@ export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 		tools: ["use_mcp_tool", "access_mcp_resource"],
 	},
 	modes: {
-		tools: ["switch_mode", "new_task"],
+		tools: ["switch_mode", "new_task", "enter_plan_mode", "exit_plan_mode"],
 		alwaysAvailable: true,
 	},
 }
@@ -311,6 +324,8 @@ export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 export const ALWAYS_AVAILABLE_TOOLS: ToolName[] = [
 	"ask_followup_question",
 	"ask_multiple_choice",
+	"enter_plan_mode",
+	"exit_plan_mode",
 	"attempt_completion",
 	"switch_mode",
 	"new_task",

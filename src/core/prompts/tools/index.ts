@@ -20,6 +20,8 @@ import { getListFilesDescription } from "./list-files"
 import { getBrowserActionDescription } from "./browser-action"
 import { getAskFollowupQuestionDescription } from "./ask-followup-question"
 import { getAskMultipleChoiceDescription } from "./ask-multiple-choice"
+import { getEnterPlanModeDescription } from "./enter-plan-mode"
+import { getExitPlanModeDescription } from "./exit-plan-mode"
 import { getAttemptCompletionDescription } from "./attempt-completion"
 import { getUseMcpToolDescription } from "./use-mcp-tool"
 import { getAccessMcpResourceDescription } from "./access-mcp-resource"
@@ -48,6 +50,8 @@ const toolDescriptionMap: Record<string, (args: ToolArgs) => string | undefined>
 	browser_action: (args) => getBrowserActionDescription(args),
 	ask_followup_question: () => getAskFollowupQuestionDescription(),
 	ask_multiple_choice: () => getAskMultipleChoiceDescription(),
+	enter_plan_mode: () => getEnterPlanModeDescription(),
+	exit_plan_mode: () => getExitPlanModeDescription(),
 	attempt_completion: (args) => getAttemptCompletionDescription(args),
 	use_mcp_tool: (args) => getUseMcpToolDescription(args),
 	access_mcp_resource: (args) => getAccessMcpResourceDescription(args),
@@ -142,22 +146,163 @@ export function getToolDescriptionsForMode(
 		tools.delete("run_slash_command")
 	}
 
-	// Map tool descriptions for allowed tools
-	const descriptions = Array.from(tools).map((toolName) => {
-		const descriptionFn = toolDescriptionMap[toolName]
-		if (!descriptionFn) {
-			return undefined
-		}
+	// 🆕 按工具类型分组并添加视觉分隔
+	const fileOperationTools = ['read_file', 'write_to_file', 'apply_diff', 'search_files', 'list_files']
+	const executionTools = ['execute_command', 'new_task']
+	const interactionTools = ['ask_followup_question', 'ask_multiple_choice', 'update_todo_list', 'attempt_completion']
+	const planningTools = ['enter_plan_mode', 'exit_plan_mode', 'switch_mode']
+	const mcpTools = ['use_mcp_tool', 'access_mcp_resource']
+	const codeAnalysisTools = ['codebase_search']
+	const browserTools = ['browser_action']
+	const experimentalTools = ['run_slash_command', 'generate_image']
 
-		const description = descriptionFn({
-			...args,
-			toolOptions: undefined, // No tool options in group-based approach
-		})
+	// 按类别组织工具描述
+	const sections: string[] = []
 
-		return description
-	})
+	// 文件操作工具组
+	const fileOps = Array.from(tools).filter(t => fileOperationTools.includes(t))
+	if (fileOps.length > 0) {
+		sections.push(
+			"====================================",
+			"FILE OPERATION TOOLS",
+			"====================================",
+			...fileOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
 
-	return `# Tools\n\n${descriptions.filter(Boolean).join("\n\n")}`
+	// 执行工具组
+	const execOps = Array.from(tools).filter(t => executionTools.includes(t))
+	if (execOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"EXECUTION TOOLS",
+			"====================================",
+			...execOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// 交互工具组
+	const interactOps = Array.from(tools).filter(t => interactionTools.includes(t))
+	if (interactOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"INTERACTION & TASK MANAGEMENT TOOLS",
+			"====================================",
+			...interactOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// 规划工具组
+	const planOps = Array.from(tools).filter(t => planningTools.includes(t))
+	if (planOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"PLANNING & MODE SWITCHING TOOLS",
+			"====================================",
+			...planOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// MCP工具组
+	const mcpOps = Array.from(tools).filter(t => mcpTools.includes(t))
+	if (mcpOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"MCP TOOLS",
+			"====================================",
+			...mcpOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// 代码分析工具组
+	const codeOps = Array.from(tools).filter(t => codeAnalysisTools.includes(t))
+	if (codeOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"CODE ANALYSIS TOOLS",
+			"====================================",
+			...codeOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// 浏览器工具组
+	const browserOps = Array.from(tools).filter(t => browserTools.includes(t))
+	if (browserOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"BROWSER TOOLS",
+			"====================================",
+			...browserOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// 实验性工具组
+	const expOps = Array.from(tools).filter(t => experimentalTools.includes(t))
+	if (expOps.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"EXPERIMENTAL TOOLS",
+			"====================================",
+			...expOps.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	// 其他未分类工具
+	const otherTools = Array.from(tools).filter(t =>
+		!fileOperationTools.includes(t) &&
+		!executionTools.includes(t) &&
+		!interactionTools.includes(t) &&
+		!planningTools.includes(t) &&
+		!mcpTools.includes(t) &&
+		!codeAnalysisTools.includes(t) &&
+		!browserTools.includes(t) &&
+		!experimentalTools.includes(t)
+	)
+	if (otherTools.length > 0) {
+		sections.push(
+			"",
+			"====================================",
+			"OTHER TOOLS",
+			"====================================",
+			...otherTools.map(toolName => toolDescriptionMap[toolName]?.({
+				...args,
+				toolOptions: undefined,
+			})).filter(Boolean) as string[]
+		)
+	}
+
+	return `# Tools\n\n${sections.filter(Boolean).join("\n")}`
 }
 
 // Export individual description functions for backward compatibility

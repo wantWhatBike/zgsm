@@ -117,7 +117,7 @@ import {
 	saveTaskMessages,
 	taskMetadata,
 } from "../task-persistence"
-import { getEnvironmentDetails } from "../environment/getEnvironmentDetails"
+import { injectContextForTask, removeHistoricalInjectedBlocks } from "../costrict/context"
 import { checkContextWindowExceededError } from "../context/context-management/context-error-handling"
 import {
 	type CheckpointDiffOptions,
@@ -137,6 +137,7 @@ import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
 import psTree from "ps-tree"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
+import { getEffectiveCondensingPrompt } from "../costrict/prompts/prompt-helper"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -181,6 +182,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	readonly metadata: TaskMetadata
 
 	todoList?: TodoItem[]
+
+	// CoStrict: Plan mode state (single source of truth per task)
+	planModeState?: import("../costrict/prompts/system").PlanModeState
 
 	readonly rootTask: Task | undefined = undefined
 	readonly parentTask: Task | undefined = undefined
@@ -429,7 +433,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					" seconds",
 			)
 		}
-
+		
 		this.taskId = historyItem ? historyItem.id : crypto.randomUUID()
 		this.rootTaskId = historyItem ? historyItem.rootTaskId : rootTask?.taskId
 		this.parentTaskId = historyItem ? historyItem.parentTaskId : parentTask?.taskId
@@ -1472,7 +1476,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const systemPrompt = await this.getSystemPrompt()
 
 		// Get condensing configuration
-		const state = await this.providerRef.deref()?.getState()
+		const provider = this.providerRef.deref()
+		const state = await provider?.getState()
 		// These properties may not exist in the state type yet, but are used for condensing configuration
 		const customCondensingPrompt = state?.customCondensingPrompt
 		const condensingApiConfigId = state?.condensingApiConfigId
@@ -1500,6 +1505,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// Use the task's locked protocol, NOT the current settings (fallback to xml if not set)
 		const useNativeTools = isNativeProtocol(this._taskToolProtocol ?? "xml")
 
+		// costrict: Get effective condensing prompt with automatic fallback
+		const effectiveCondensingPrompt = await getEffectiveCondensingPrompt(
+			customCondensingPrompt,
+			provider?.context,
+		)
+
 		const {
 			messages,
 			summary,
@@ -1514,7 +1525,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			this.taskId,
 			prevContextTokens,
 			false, // manual trigger
-			customCondensingPrompt, // User's custom prompt
+			effectiveCondensingPrompt, // costrict: Use effective prompt with automatic fallback
 			condensingApiHandler, // Specific handler for condensing
 			useNativeTools, // Pass native tools flag for proper message handling
 		)
@@ -2244,7 +2255,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		// Add environment details to the existing last user message (which contains the tool_result)
 		// This avoids creating a new user message which would cause consecutive user messages
-		const environmentDetails = await getEnvironmentDetails(this, true)
 		let lastUserMsgIndex = -1
 		for (let i = this.apiConversationHistory.length - 1; i >= 0; i--) {
 			if (this.apiConversationHistory[i].role === "user") {
@@ -2255,20 +2265,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		if (lastUserMsgIndex >= 0) {
 			const lastUserMsg = this.apiConversationHistory[lastUserMsgIndex]
 			if (Array.isArray(lastUserMsg.content)) {
-				// Remove any existing environment_details blocks before adding fresh ones
-				const contentWithoutEnvDetails = lastUserMsg.content.filter(
-					(block: Anthropic.Messages.ContentBlockParam) => {
-						if (block.type === "text" && typeof block.text === "string") {
-							const isEnvironmentDetailsBlock =
-								block.text.trim().startsWith("<environment_details>") &&
-								block.text.trim().endsWith("</environment_details>")
-							return !isEnvironmentDetailsBlock
-						}
-						return true
-					},
-				)
-				// Add fresh environment details
-				lastUserMsg.content = [...contentWithoutEnvDetails, { type: "text" as const, text: environmentDetails }]
+				// costrict: Use centralized injection logic to add fresh context and system-reminder
+				lastUserMsg.content = await injectContextForTask(this, lastUserMsg.content, true)
 			}
 		}
 
@@ -2418,28 +2416,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				maxReadCharacterLimit,
 			})
 
-			const environmentDetails = await getEnvironmentDetails(this, currentIncludeFileDetails)
+			// costrict: Use centralized injection logic to add fresh context and system-reminder
+			const finalUserContent = await injectContextForTask(this, parsedUserContent, currentIncludeFileDetails)
 
-			// Remove any existing environment_details blocks before adding fresh ones.
-			// This prevents duplicate environment details when resuming tasks with XML tool calls,
-			// where the old user message content may already contain environment details from the previous session.
-			// We check for both opening and closing tags to ensure we're matching complete environment detail blocks,
-			// not just mentions of the tag in regular content.
-			const contentWithoutEnvDetails = parsedUserContent.filter((block) => {
-				if (block.type === "text" && typeof block.text === "string") {
-					// Check if this text block is a complete environment_details block
-					// by verifying it starts with the opening tag and ends with the closing tag
-					const isEnvironmentDetailsBlock =
-						block.text.trim().startsWith("<environment_details>") &&
-						block.text.trim().endsWith("</environment_details>")
-					return !isEnvironmentDetailsBlock
-				}
-				return true
-			})
-
-			// Add environment details as its own text block, separate from tool
-			// results.
-			let finalUserContent = [...contentWithoutEnvDetails, { type: "text" as const, text: environmentDetails }]
 			// Only add user message to conversation history if:
 			// 1. This is the first attempt (retryAttempt === 0), AND
 			// 2. The original userContent was not empty (empty signals delegation resume where
@@ -3741,7 +3720,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			mode,
 			zgsmCodeMode,
 			autoCondenseContext = true,
-			autoCondenseContextPercent = 100,
+			// Changed from 100 to 85 to trigger condensing earlier and reduce context bloat.
+			// This provides more headroom before hitting token limits.
+			autoCondenseContextPercent = 85,
 			profileThresholds = {},
 		} = state ?? {}
 
@@ -3923,7 +3904,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const effectiveHistory = getEffectiveApiHistory(this.apiConversationHistory)
 		const messagesSinceLastSummary = getMessagesSinceLastSummary(effectiveHistory)
 		const messagesWithoutImages = maybeRemoveImageBlocks(messagesSinceLastSummary, this.api)
-		const cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])
+
+		// CoStrict: Remove injected blocks from historical user messages (keep only the last one)
+		// This prevents sending duplicate context blocks (project_layout, environment_details, etc.)
+		// to the LLM, significantly reducing token usage while maintaining the latest context.
+		// The apiConversationHistory remains unchanged (single source of truth for persistence).
+		const messagesWithCleanedContext = removeHistoricalInjectedBlocks(messagesWithoutImages as ApiMessage[])
+
+		const cleanConversationHistory = this.buildCleanConversationHistory(messagesWithCleanedContext as ApiMessage[])
 
 		// Check auto-approval limits
 		const approvalResult = await this.autoApprovalHandler.checkAutoApprovalLimits(

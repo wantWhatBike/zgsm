@@ -25,6 +25,13 @@ export const DEFAULT_WRITE_DELAY_MS = 1000
 export const MAX_WORKSPACE_FILES = 200
 
 /**
+ * Default maximum number of file entries to include in git status context.
+ * Set to 0 to disable git status inclusion.
+ * Higher values provide more context but increase token usage.
+ */
+export const DEFAULT_MAX_GIT_STATUS_FILES = 15
+
+/**
  * Default terminal output character limit constant.
  * This provides a reasonable default that aligns with typical terminal usage
  * while preventing context window explosions from extremely long lines.

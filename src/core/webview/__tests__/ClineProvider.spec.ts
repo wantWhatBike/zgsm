@@ -897,14 +897,14 @@ describe("ClineProvider", () => {
 		expect(mockPostMessage).toHaveBeenCalled()
 	})
 
-	test("autoCondenseContextPercent defaults to 100", async () => {
+	test("autoCondenseContextPercent defaults to 85", async () => {
 		// Mock globalState.get to return undefined for autoCondenseContextPercent
 		;(mockContext.globalState.get as any).mockImplementation((key: string) =>
 			key === "autoCondenseContextPercent" ? undefined : null,
 		)
 
 		const state = await provider.getState()
-		expect(state.autoCondenseContextPercent).toBe(100)
+		expect(state.autoCondenseContextPercent).toBe(85)
 	})
 
 	test("handles autoCondenseContextPercent message", async () => {

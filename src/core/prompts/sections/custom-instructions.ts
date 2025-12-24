@@ -221,7 +221,7 @@ export async function loadRuleFiles(cwd: string): Promise<string> {
  * Load AGENTS.md or AGENT.md file from the project root if it exists
  * Checks for both AGENTS.md (standard) and AGENT.md (alternative) for compatibility
  */
-async function loadAgentRulesFile(cwd: string): Promise<string> {
+export async function loadAgentRulesFile(cwd: string): Promise<string> {
 	// Try both filenames - AGENTS.md (standard) first, then AGENT.md (alternative)
 	const filenames = ["AGENTS.md", "AGENT.md"]
 

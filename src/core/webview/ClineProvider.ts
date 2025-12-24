@@ -44,6 +44,7 @@ import {
 	DEFAULT_MODES,
 	DEFAULT_FILE_READ_CHARACTER_LIMIT,
 	DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
+	DEFAULT_MAX_GIT_STATUS_FILES,
 	getModelId,
 	MAX_WORKSPACE_FILES,
 } from "@roo-code/types"
@@ -2054,7 +2055,7 @@ export class ClineProvider
 			allowedMaxRequests,
 			allowedMaxCost,
 			autoCondenseContext: autoCondenseContext ?? true,
-			autoCondenseContextPercent: autoCondenseContextPercent ?? 100,
+			autoCondenseContextPercent: autoCondenseContextPercent ?? 85,
 			uriScheme: vscode.env.uriScheme,
 			currentTaskItem: this.getCurrentTask()?.taskId
 				? (taskHistory || []).find((item: HistoryItem) => item.id === this.getCurrentTask()?.taskId)
@@ -2167,7 +2168,7 @@ export class ClineProvider
 			includeTaskHistoryInEnhance: includeTaskHistoryInEnhance ?? true,
 			includeCurrentTime: includeCurrentTime ?? true,
 			includeCurrentCost: includeCurrentCost ?? true,
-			maxGitStatusFiles: maxGitStatusFiles ?? 0,
+			maxGitStatusFiles: maxGitStatusFiles ?? DEFAULT_MAX_GIT_STATUS_FILES,
 			taskSyncEnabled,
 			remoteControlEnabled,
 			imageGenerationProvider,
@@ -2318,7 +2319,7 @@ export class ClineProvider
 			allowedMaxRequests: stateValues.allowedMaxRequests,
 			allowedMaxCost: stateValues.allowedMaxCost,
 			autoCondenseContext: stateValues.autoCondenseContext ?? true,
-			autoCondenseContextPercent: stateValues.autoCondenseContextPercent ?? 100,
+			autoCondenseContextPercent: stateValues.autoCondenseContextPercent ?? 85,
 			taskHistory: stateValues.taskHistory ?? [],
 			allowedCommands: stateValues.allowedCommands,
 			deniedCommands: stateValues.deniedCommands,
@@ -2417,7 +2418,7 @@ export class ClineProvider
 			taskSyncEnabled: false,
 			includeCurrentTime: stateValues.includeCurrentTime ?? true,
 			includeCurrentCost: stateValues.includeCurrentCost ?? true,
-			maxGitStatusFiles: stateValues.maxGitStatusFiles ?? 0,
+			maxGitStatusFiles: stateValues.maxGitStatusFiles ?? DEFAULT_MAX_GIT_STATUS_FILES,
 			// taskSyncEnabled,
 			remoteControlEnabled: (() => {
 				return false

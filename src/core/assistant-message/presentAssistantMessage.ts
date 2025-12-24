@@ -34,6 +34,8 @@ import { useMcpToolTool } from "../tools/UseMcpToolTool"
 import { accessMcpResourceTool } from "../tools/accessMcpResourceTool"
 import { askFollowupQuestionTool } from "../tools/AskFollowupQuestionTool"
 import { askMultipleChoiceTool } from "../tools/AskMultipleChoiceTool"
+import { enterPlanModeTool } from "../tools/EnterPlanModeTool"
+import { exitPlanModeTool } from "../tools/ExitPlanModeTool"
 import { switchModeTool } from "../tools/SwitchModeTool"
 import { attemptCompletionTool, AttemptCompletionCallbacks } from "../tools/AttemptCompletionTool"
 import { newTaskTool } from "../tools/NewTaskTool"
@@ -829,6 +831,26 @@ export async function presentAssistantMessage(cline: Task) {
 			}
 
 			switch (block.name) {
+				case "enter_plan_mode":
+					await enterPlanModeTool.handle(cline, block as ToolUse<"enter_plan_mode">, {
+						askApproval,
+						handleError,
+						pushToolResult,
+						removeClosingTag,
+						toolProtocol,
+						toolCallId,
+					})
+					break
+				case "exit_plan_mode":
+					await exitPlanModeTool.handle(cline, block as ToolUse<"exit_plan_mode">, {
+						askApproval,
+						handleError,
+						pushToolResult,
+						removeClosingTag,
+						toolProtocol,
+						toolCallId,
+					})
+					break
 				case "write_to_file":
 					await checkpointSaveAndMark(cline)
 					await writeToFileTool.handle(cline, block as ToolUse<"write_to_file">, {

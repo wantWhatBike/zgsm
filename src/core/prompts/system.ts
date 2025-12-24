@@ -17,6 +17,7 @@ import { PromptVariables, loadSystemPromptFile } from "./sections/custom-system-
 
 import { getToolDescriptionsForMode } from "./tools"
 import { getEffectiveProtocol, isNativeProtocol } from "@roo-code/types"
+import { getCoStrictSystemPromptForMode } from "../costrict/prompts/system"
 import {
 	getRulesSection,
 	getSystemInfoSection,
@@ -174,6 +175,10 @@ ${await addCustomInstructions(baseInstructions, globalCustomInstructions || "", 
 	return basePrompt
 }
 
+function isCoStrictClaudeOverrideMode(mode: string): mode is "code" | "ask" | "architect" {
+	return mode === "code" || mode === "ask" || mode === "architect"
+}
+
 export const SYSTEM_PROMPT = async (
 	context: vscode.ExtensionContext,
 	cwd: string,
@@ -201,6 +206,37 @@ export const SYSTEM_PROMPT = async (
 	}
 	const shell = getShell(settings?.terminalShellIntegrationDisabled)
 	language = language ?? formatLanguage(await defaultLang())
+
+	// Claude Code style system prompt override (per final plan):
+	// - Applies only to code/ask/architect
+	// - Ignores file-based `.roo/system-prompt-{mode}` overrides for these modes
+	// - Fully covers prompt content, while preserving RULES/SystemInfo/custom instructions injection
+	if (isCoStrictClaudeOverrideMode(mode)) {
+		const promptComponent = getPromptComponent(customModePrompts, mode)
+		return await getCoStrictSystemPromptForMode({
+			vscodeContext: context,
+			mode,
+			cwd,
+			shell,
+			language,
+			settings,
+			promptComponent,
+			globalCustomInstructions,
+			rooIgnoreInstructions,
+			supportsComputerUse,
+			mcpHub,
+			diffStrategy,
+			diffEnabled,
+			browserViewportSize,
+			customModeConfigs: customModes,
+			experiments,
+			enableMcpServerCreation,
+			partialReadsEnabled,
+			parallelToolCallsEnabled,
+			modelId,
+		})
+	}
+
 	// Try to load custom system prompt from file
 	const variablesForPrompt: PromptVariables = {
 		workspace: cwd,

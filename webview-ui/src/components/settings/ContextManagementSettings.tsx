@@ -3,6 +3,7 @@ import React from "react"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { Database, FoldVertical } from "lucide-react"
+import { DEFAULT_MAX_GIT_STATUS_FILES } from "@roo-code/types"
 
 import { cn } from "@/lib/utils"
 import { Input, Slider, Button } from "@/components/ui"
@@ -164,11 +165,11 @@ export const ContextManagementSettings = ({
 							min={0}
 							max={50}
 							step={1}
-							value={[maxGitStatusFiles ?? 0]}
+							value={[maxGitStatusFiles ?? DEFAULT_MAX_GIT_STATUS_FILES]}
 							onValueChange={([value]) => setCachedStateField("maxGitStatusFiles", value)}
 							data-testid="max-git-status-files-slider"
 						/>
-						<span className="w-10">{maxGitStatusFiles ?? 0}</span>
+						<span className="w-10">{maxGitStatusFiles ?? DEFAULT_MAX_GIT_STATUS_FILES}</span>
 					</div>
 					<div className="text-vscode-descriptionForeground text-sm mt-1">
 						{t("settings:contextManagement.maxGitStatusFiles.description")}

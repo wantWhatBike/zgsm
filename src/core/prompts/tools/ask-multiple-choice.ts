@@ -1,11 +1,14 @@
 export function getAskMultipleChoiceDescription(): string {
 	return `## ask_multiple_choice
-Description: Interrupts the current workflow to present structured multiple-choice questions to the user. Forces selection from predefined options (no free-text). Use this tool when you need explicit user decisions or to resolve ambiguity before proceeding.
+Description: Use this tool when you need to ask the user questions during execution. This allows you to:
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices as you work
+4. Offer choices to the user about what direction to take.
 
-Use this tool when:
-- You need to choose between mutually exclusive options (e.g., architecture patterns, frameworks).
-- You need to clarify user intent (e.g., "Add new file?" vs "Update existing?").
-- You want to collect multiple related decisions in a single interaction.
+Usage notes:
+- Use multiSelect: true to allow multiple answers to be selected for a question
+- If you recommend a specific option, make that the first option in the list and add \"(Recommended)\" at the end of the label
 
 CRITICAL: Every question and every option MUST have an id field - results cannot be matched without ids.
 

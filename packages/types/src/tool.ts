@@ -30,6 +30,8 @@ export const toolNames = [
 	"access_mcp_resource",
 	"ask_followup_question",
 	"ask_multiple_choice",
+	"enter_plan_mode",
+	"exit_plan_mode",
 	"attempt_completion",
 	"switch_mode",
 	"new_task",

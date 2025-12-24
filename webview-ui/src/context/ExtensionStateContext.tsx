@@ -12,6 +12,7 @@ import {
 	type CloudOrganizationMembership,
 	ORGANIZATION_ALLOW_ALL,
 	DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
+	DEFAULT_MAX_GIT_STATUS_FILES,
 } from "@roo-code/types"
 
 import { ExtensionMessage, ExtensionState, MarketplaceInstalledMetadata, Command } from "@roo/ExtensionMessage"
@@ -292,6 +293,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		openRouterImageGenerationSelectedModel: "",
 		includeCurrentTime: true,
 		includeCurrentCost: true,
+		maxGitStatusFiles: DEFAULT_MAX_GIT_STATUS_FILES,
 	})
 
 	const [didHydrateState, setDidHydrateState] = useState(false)
