@@ -106,80 +106,9 @@ export async function getCoStrictSystemPromptForMode(ctx: CoStrictPromptContext)
 	const promptKey = (ctx.mode === 'ask' || ctx.mode === 'architect') ? ctx.mode : 'code'
 	const selectedPrompt = SYSTEM_PROMPTS[promptKey]
 
-	// Code 模式使用新的强制执行框架结构
-	if (promptKey === 'code') {
-		const codePrompt = selectedPrompt as typeof SYSTEM_PROMPTS.code
-		// ===== 第一层：强制执行框架（流程优先，首因位置，100%利用） =====
-		const layer1_enforcement = [
-			codePrompt.identity_minimal, // 20 tokens - 超精简身份
-			codePrompt.mandatory_workflow_checklist, // 400 tokens - 工作流优先
-			codePrompt.iron_rules_brief, // 80 tokens - 三大铁律
-			codePrompt.before_every_tool_use, // 150 tokens - 工具前检查
-		].join("\n\n")
-
-		// ===== 第二层：工具区透明化处理 =====
-		const layer2_tool_meta = codePrompt.tool_usage_meta // Meta-instruction
-		const layer2_tools_start = codePrompt.tool_catalog_start // 工具开始标记
-
-		// ===== 第二层：工具区（仅 XML 模式，Native 模式此区域很短） =====
-		const layer2_tools = isNativeProtocol(effectiveProtocol)
-			? // Native 模式：极简说明
-				[codePrompt.tool_section_intro_native].join("\n\n")
-			: // XML 模式：完整工具目录
-				[
-					codePrompt.tool_section_intro_xml,
-					getSharedToolUseSection(effectiveProtocol),
-					toolsCatalog,
-					codePrompt.tool_section_end,
-				]
-					.filter(Boolean)
-					.join("\n\n")
-
-		// MCP 区（如果有）
-		const layer2_mcp = mcpServersSection
-			? `
-
-<mcp>
-${mcpServersSection}
-</mcp>`
-			: ""
-
-		// ===== 第2.5层：分隔标记（工具区后，注意力唤醒） =====
-		const layer2_5_separator = codePrompt.core_rules_separator
-
-		// ===== 第三层：详细规则+指南（保留所有原有内容） =====
-		const layer3_detailed = [
-			codePrompt.iron_rules_detailed, // 三大铁律（详细版）
-			codePrompt.core_principles, // 核心原则
-			codePrompt.workflow_detailed, // 详细工作流说明
-			codePrompt.task_management, // 任务管理详细指南
-			codePrompt.tool_usage_strategies, // 工具使用策略
-			codePrompt.communication_guidelines, // 沟通风格和其他指南
-			codePrompt.identity_context, // 🆕 详细身份上下文（从首因移到这里）
-		].join("\n\n")
-
-		// ===== 第四层：近因区执行检查清单（重复关键流程和规则） =====
-		const layer4_checklist = codePrompt.final_execution_checklist
-
-		// ===== 组装最终提示词（混合优化方案：流程优先 + 工具透明化） =====
-		const parts = [
-			layer1_enforcement, // 首因：流程+规则（650 tokens，100%利用）
-			layer2_tool_meta, // 🆕 工具使用总纲
-			layer2_tools_start, // 🆕 工具开始标记
-			layer2_tools, // 工具区（XML详细/Native简短）
-			layer2_mcp, // MCP区（如果有）
-			layer2_5_separator, // 🆕 分隔标记（注意力唤醒）
-			baseInstructions || "", // 自定义指令（如果有）
-			layer3_detailed, // 详细规则和指南
-			layer4_checklist, // 近因：执行检查清单
-		].filter(Boolean)
-
-		return parts.join("\n\n")
-	}
-
 	// Ask 和 Architect 模式保持原有结构
 	// TypeScript needs explicit type narrowing here
-	if (promptKey === 'ask' || promptKey === 'architect') {
+	if (promptKey === 'code' || promptKey === 'ask' || promptKey === 'architect') {
 		const rolePrompt = selectedPrompt as typeof SYSTEM_PROMPTS.ask | typeof SYSTEM_PROMPTS.architect
 		const primacySection = `${rolePrompt.role}`
 		const recencySection = `
@@ -191,12 +120,11 @@ ${rolePrompt.guidelines}`
 		// 注意：即使是 native 协议（无工具描述），也要保留合理的换行分隔
 		const toolsSection = toolsCatalog
 			? `
-
-<tools>
+===
 Note:
 - The following tools are your capability catalog. Consult as needed for parameter formats.
 - You don't need to memorize all details - reference this section when executing.
-
+<tools>
 ${getSharedToolUseSection(effectiveProtocol)}
 ${toolsCatalog}
 </tools>`
@@ -207,7 +135,10 @@ ${toolsCatalog}
 
 <mcp>
 ${mcpServersSection}
-</mcp>`
+</mcp>
+===
+
+`
 			: ""
 
 		// 组装最终提示词
