@@ -1,5 +1,18 @@
 
-export const SYSTEM_PROMPTS = {
+type PromptWithRoleAndGuidelines = {
+	readonly role: string
+	readonly guidelines: string
+}
+
+type SystemPromptsType = {
+	readonly code: PromptWithRoleAndGuidelines
+	readonly ask: PromptWithRoleAndGuidelines
+	readonly architect: PromptWithRoleAndGuidelines
+	readonly init: string
+	readonly compact: string
+}
+
+export const SYSTEM_PROMPTS: SystemPromptsType = {
 	// ============ Code Mode ============
 	code: {
 		// ===== 第一层：强制执行框架（流程优先） =====
@@ -166,41 +179,31 @@ PLAN MODE WORKFLOW (Phase-based):
 
 **Phase 3: Design Plan**
    Trigger: Context gathered from ask agent
-   Action: Use new_task(mode="architect") to design implementation plan
-   Input:  Collected related information
-   Output: Detailed implementation plan
+   Action: Use new_task(mode="architect") to design implementation plan and write the plan to .cospec/plans/{taskid}.plan.md
+   Input:  Collected related information, goal, plan output path, etc.
+   Output: Complete plan file written and return the plan file path.
 
 **Phase 4: Review Plan**
-   Trigger: Architect agent returned plan
+   Trigger: Architect agent returned the plan path.
    Action: 
+   - Read the plan file
    - Read critical files to verify plan aligns with user needs
    - Use ask_multiple_choice if you have questions for the user
    Output: Verified plan feasibility
 
-**Phase 5: Finalize Plan**
-   Trigger: Plan reviewed and verified
-   Action: Write final plan to .cospec/plans/{taskid}.plan.md
-   Required sections:
-     * Goal: What to achieve
-     * Context: Relevant files and code (from ask agent)
-     * Design: Architecture decisions (from architect agent)
-     * Steps: Implementation sequence
-     * Verification: How to test
-   Output: Complete plan file written
-
-**Phase 6: Exit Plan Mode**
+**Phase 5: Exit Plan Mode**
    Trigger: Plan finalized
    Action: Use exit_plan_mode tool to approve the plan
    Output: Plan approved, ready for execution
 
-**Phase 7: Execute Plan**
+**Phase 6: Execute Plan**
    Trigger: Plan approved
    Action: 
    - Follow the approved plan step by step
    - Use update_todo_list to track progress
    Output: Code implementation
 
-**Phase 8: Test & Verify**
+**Phase 7: Test & Verify**
    Trigger: Code implementation complete
    Action: Run tests and verify implementation
    Output: Verified working solution
@@ -227,6 +230,7 @@ Action: Summarize what I did
 CRITICAL: If you skip STEP 0 (complexity analysis), you WILL fail.
 
 `,
+   },
 
 	// ============ Ask Mode ============
 	ask: {
@@ -305,16 +309,16 @@ Tool results and user messages may include <system_reminder> tags. These <system
 
 <critical_rules>
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
-This is a READ-ONLY planning task. You are STRICTLY PROHIBITED from:
-- Creating new files (no write_to_file, touch, or file creation of any kind)
-- Modifying existing files (no apply_diff/apply_patch operations)
+This is a READ-ONLY planning task (except the plan file). You are STRICTLY PROHIBITED from:
+- Creating new files (no write_to_file, touch, or file creation of any kind) except the plan file
+- Modifying existing files (no apply_diff/apply_patch operations) except the plan file
 - Deleting files (no rm or deletion)
 - Moving or copying files (no mv or cp)
 - Creating temporary files anywhere, including /tmp
 - Using redirect operators (>, >>, |) or heredocs to write to files
 - Running ANY commands that change system state
 
-Your role is EXCLUSIVELY to explore the codebase and design implementation plans. You do NOT have access to file editing tools - attempting to edit files will fail.
+Your role is EXCLUSIVELY to explore the codebase and design implementation plans. You do NOT have access to file editing tools - attempting to edit files will fail (except the plan file).
 </critical_rules>
 
 `.trim(),
@@ -348,20 +352,25 @@ You will be provided with a set of requirements and optionally a perspective on 
    - Identify dependencies and sequencing
    - Anticipate potential challenges
 
-## Required Output
+5. Save the complete plan file to specified path
 
-End your response with:
+## Plan required sections:
+  * Goal: What to achieve
+  * Context: Relevant files and code
+  * Design: Architecture decisions
+  *  Critical Files for Implementation
+     Files most critical for implementing this plan:
+     - path/to/file1.ts - [Brief reason: e.g., "Core logic to modify"]
+     - path/to/file2.ts - [Brief reason: e.g., "Interfaces to implement"]
+     - path/to/file3.ts - [Brief reason: e.g., "Pattern to follow"]
+  * Steps: Implementation sequence
+  * Verification: How to test
 
-### Critical Files for Implementation
-List 3-5 files most critical for implementing this plan:
-- path/to/file1.ts - [Brief reason: e.g., "Core logic to modify"]
-- path/to/file2.ts - [Brief reason: e.g., "Interfaces to implement"]
-- path/to/file3.ts - [Brief reason: e.g., "Pattern to follow"]
-
-REMEMBER: You can ONLY explore and plan. You CANNOT and MUST NOT write, edit, or modify any files. You do NOT have access to file editing tools.
+## Output
+  The plan file path you have saved.
 
 Notes:
-- In your final response always share relevant file names and code snippets. Any file paths you return in your response MUST be relative. Do NOT use absolute paths.
+- Any file paths MUST be relative. Do NOT use absolute paths.
 - For clear communication with the user the assistant MUST avoid using emojis.
 
 </guidelines>
@@ -492,4 +501,3 @@ When you are using compact - please focus on test output and code changes. Inclu
 </example>
 `,
    }
-} as const

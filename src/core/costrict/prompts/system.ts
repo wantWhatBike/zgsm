@@ -1,7 +1,7 @@
 import type * as vscode from "vscode"
 
 import type { SystemPromptSettings } from "../../prompts/types"
-import { getEffectiveProtocol, isNativeProtocol } from "@roo-code/types"
+import { getEffectiveProtocol, isNativeProtocol, SYSTEM_PROMPTS } from "@roo-code/types"
 import type { ModeConfig, PromptComponent } from "@roo-code/types"
 import { DiffStrategy } from "../../../shared/tools"
 import { getGroupName, getModeBySlug, getModeSelection, modes, type Mode } from "../../../shared/modes"
@@ -100,16 +100,16 @@ export async function getCoStrictSystemPromptForMode(ctx: CoStrictPromptContext)
 			)
 
 	// ==================== 5. 组装：强制执行框架（流程优先） ====================
-	const { SYSTEM_PROMPTS } = await import("@roo-code/types")
 
 	// 获取当前模式对应的系统提示词，默认使用 code 模式
 	const promptKey = (ctx.mode === 'ask' || ctx.mode === 'architect') ? ctx.mode : 'code'
-	const selectedPrompt = SYSTEM_PROMPTS[promptKey]
+	const selectedPrompt = SYSTEM_PROMPTS[promptKey as keyof typeof SYSTEM_PROMPTS]
 
 	// Ask 和 Architect 模式保持原有结构
 	// TypeScript needs explicit type narrowing here
 	if (promptKey === 'code' || promptKey === 'ask' || promptKey === 'architect') {
-		const rolePrompt = selectedPrompt as typeof SYSTEM_PROMPTS.ask | typeof SYSTEM_PROMPTS.architect
+		// selectedPrompt is guaranteed to have role and guidelines properties for these modes
+		const rolePrompt = selectedPrompt as { role: string; guidelines: string }
 		const primacySection = `${rolePrompt.role}`
 		const recencySection = `
 ${baseInstructions || ""}
@@ -153,7 +153,5 @@ ${mcpServersSection}
 
 export async function getCoStrictCompactPrompt(context: vscode.ExtensionContext): Promise<string> {
 	void context // kept for signature stability
-	// 引用迁移后的位置
-	const { SYSTEM_PROMPTS } = await import("@roo-code/types")
-	return SYSTEM_PROMPTS.compact
+	return SYSTEM_PROMPTS.compact as string
 }

@@ -72,20 +72,19 @@ In the subtask prompt:
 - Provide comprehensive background context from Phase 1 exploration including filenames and code path traces
 - Describe requirements and constraints
 - Request a detailed implementation plan
+- Write plan to the plan file (provide the plan file path).
 
 ### Phase 3: Review
 Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's intentions.
 1. Read the critical files identified by agents to deepen your understanding
 2. Ensure that the plans align with the user's original request
-3. Use AskUserQuestion to clarify any remaining questions with the user
+3. Use ask_multiple_choice tool to clarify any remaining questions with the user
+4. Ensure the plan:
+  - Include only your recommended approach, not all alternatives
+  - Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
+  - Include the paths of critical files to be modified
 
-### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- Include only your recommended approach, not all alternatives
-- Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
-- Include the paths of critical files to be modified
-
-### Phase 5: Call exit_plan_mode
+### Phase 4: Call exit_plan_mode
 At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call exit_plan_mode to indicate to the user that you are done planning.
 This is critical - your turn should only end with either asking the user a question or calling exit_plan_mode. Do not stop unless it's for these 2 reasons.
 

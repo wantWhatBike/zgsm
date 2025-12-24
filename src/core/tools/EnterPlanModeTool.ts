@@ -10,7 +10,7 @@ Entered plan mode. You should now focus on exploring the codebase and designing 
 
 In plan mode, you should:
 1. Use the new_task tool with mode="ask" to explore the codebase and collect task-related information. (1-3 times)
-2. Consolidate collected information and use the new_task tool (architect mode) to design an implementation plan based on it.
+2. Consolidate collected information and use the new_task tool with mode="architect" to design an implementation plan based on it.
 3. Validate the feasibility of the plan through a review of key files.
 4. Use the ask_multiple_choice tool if you need to clarify the approach
 5. Save the complete plan to the specified path as a file.

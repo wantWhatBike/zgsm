@@ -31,7 +31,8 @@ none.
 
 Usage:
 
-<exit_plan_mode><exit_plan_mode/>
+<exit_plan_mode>
+<exit_plan_mode/>
 `
 }
 

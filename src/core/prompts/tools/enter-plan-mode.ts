@@ -49,7 +49,7 @@ In plan mode, you'll:
 2. Understand existing patterns and architecture
 3. Design an implementation approach
 4. Present your plan to the user for approval
-5. Use AskUserQuestion if you need to clarify approaches
+5. Use ask_multiple_choice if you need to clarify approaches
 6. Exit plan mode with the exit_plan_mode tool when ready to implement
 
 GOOD Examples:
@@ -93,7 +93,8 @@ none.
 
 Usage:
 
-<enter_plan_mode><enter_plan_mode/>
+<enter_plan_mode>
+<enter_plan_mode/>
 `
 }
 
