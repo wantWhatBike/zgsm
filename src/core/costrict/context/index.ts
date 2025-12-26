@@ -16,7 +16,6 @@ export { injectContextForTask, removeHistoricalInjectedBlocks } from "./context-
 // Low-level builders (advanced usage)
 export { buildEnvironmentContext } from "./environment-context"
 export { buildSystemReminder } from "./system-reminder"
-export { generateDirectoryLayout } from "./directory-layout"
 
 // Core injector (for custom orchestration)
 export { injectContextIntoMessage, removeInjectedBlocks } from "./context-injector"

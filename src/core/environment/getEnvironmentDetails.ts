@@ -25,7 +25,6 @@ import { Task } from "../task/Task"
 import { getShell, getWindowsTerminalInfo } from "../../utils/shell"
 import { getOperatingSystem } from "../../utils/zgsmUtils"
 import { defaultLang } from "../../utils/language"
-import { generateDirectoryLayout } from "../costrict/context/directory-layout"
 
 export async function getEnvironmentDetails(cline: Task, includeFileDetails: boolean = false) {
 	let details = ""
@@ -339,61 +338,45 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 
 		details += `\n# Browser Session Status\nActive - A browser session is currently open and ready for browser_action commands${viewportInfo}\n`
 	}
-	// CoStrict: Unified directory layout for ALL providers
-	// - Uses Task-scoped WeakMap cache: compute once, reuse for entire conversation
-	// - Round 1: Cache miss → generates and caches result
-	// - Round 2+: Cache hit → returns instantly (zero cost, no provider discrimination)
-	// - Respects user config: maxWorkspaceFiles=0 disables directory listing
-	details += await generateDirectoryLayout(
-		cline,
-		cline.cwd,
-		cline.rooIgnoreController,
-		state,
-		maxWorkspaceFiles
-	)
+	const alwaysIncludeFileDetails =
+	Experiments.isEnabled(experiments ?? {}, EXPERIMENT_IDS.ALWAYS_INCLUDE_FILE_DETAILS) ??
+	apiConfiguration?.apiProvider === "zgsm"
+	if (includeFileDetails || alwaysIncludeFileDetails) {
+		details += `\n\n# Current Workspace Directory (${cline.cwd.toPosix()}) Files${alwaysIncludeFileDetails ? " (Directory Tree KPT Format: Use 1 to represent files and objects to represent directories)" : ""}\n`
+			const isDesktop = arePathsEqual(cline.cwd, path.join(os.homedir(), "Desktop"))
+
+			if (isDesktop) {
+			// Don't want to immediately access desktop since it would show
+			// permission popup.
+				details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
+			} else {
+				const maxFiles = maxWorkspaceFiles ?? MAX_WORKSPACE_FILES
+
+			// Early return for limit of 0
+				if (maxFiles === 0) {
+					details += "(Workspace files context disabled. Use list_files to explore if needed.)"
+				} else {
+				const [files, didHitLimit] = await listFiles(
+					cline.cwd,
+					true,
+					(alwaysIncludeFileDetails ? 3 : 1) * maxFiles,
+				)
+					const { showRooIgnoredFiles = false } = state ?? {}
+
+					const result = formatResponse.formatFilesList(
+						cline.cwd,
+						files,
+						didHitLimit,
+						cline.rooIgnoreController,
+						showRooIgnoredFiles,
+						undefined,
+					alwaysIncludeFileDetails,
+					)
+					details += result
+				}
+			}
+		}
+	}
 	// costirct: todo_list has moved to system-reminder building in costrict context
 	return `<environment_details>\n${details.trim()}\n</environment_details>`
-    // CoStrict:  overwrite file_details and todo_list reminder
-// 	if (includeFileDetails || alwaysIncludeFileDetails) {
-// 		details += `\n\n# Current Workspace Directory (${cline.cwd.toPosix()}) Files${alwaysIncludeFileDetails ? " (Directory Tree KPT Format: Use 1 to represent files and objects to represent directories)" : ""}\n`
-// 			const isDesktop = arePathsEqual(cline.cwd, path.join(os.homedir(), "Desktop"))
-//
-// 			if (isDesktop) {
-// 			// Don't want to immediately access desktop since it would show
-// 			// permission popup.
-// 				details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
-// 			} else {
-// 				const maxFiles = maxWorkspaceFiles ?? MAX_WORKSPACE_FILES
-//
-// 			// Early return for limit of 0
-// 				if (maxFiles === 0) {
-// 					details += "(Workspace files context disabled. Use list_files to explore if needed.)"
-// 				} else {
-// 				const [files, didHitLimit] = await listFiles(
-// 					cline.cwd,
-// 					true,
-// 					(alwaysIncludeFileDetails ? 3 : 1) * maxFiles,
-// 				)
-// 					const { showRooIgnoredFiles = false } = state ?? {}
-//
-// 					const result = formatResponse.formatFilesList(
-// 						cline.cwd,
-// 						files,
-// 						didHitLimit,
-// 						cline.rooIgnoreController,
-// 						showRooIgnoredFiles,
-// 						undefined,
-// 					alwaysIncludeFileDetails,
-// 					)
-// 					details += result
-// 				}
-// 			}
-// 		}
-// 	}
-//	const todoListEnabled =
-//		state && typeof state.apiConfiguration?.todoListEnabled === "boolean"
-//			? state.apiConfiguration.todoListEnabled
-//			: true
-//	const reminderSection = todoListEnabled ? formatReminderSection(cline.todoList) : ""
-//	return `<environment_details>\n${details.trim()}\n${reminderSection}\n</environment_details>`
 }
