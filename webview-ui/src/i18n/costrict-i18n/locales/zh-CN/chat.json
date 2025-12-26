@@ -101,7 +101,7 @@
 		"description": "在云端运行远程代理，随时随地访问任务，与他人协作等更多功能。"
 	},
 	"copy": {
-		"errorDetail": "复制错误详情，联系管理员"
+		"errorDetail": "点我复制错误详情，联系管理员"
 	},
 	"slashCommand": {
 		"wantsToRun": "CoStrict 想要运行斜杠命令",
@@ -144,7 +144,7 @@
 		"headerTitle": "CoStrict 有如下问题需要您解答：",
 		"userSkipped": "已跳过",
 		"userConfirmed": "已确认",
-		"skipHint": "如果选项都不满足您的需求，<code>可以在下方输入框直接说明您的需求</code>；<code>点击\"跳过\"，将跳过此问卷</code>",
+		"skipHint": "如果选项都不满足您的需求，<code>可以在下方输入框直接说明您的需求；</code><code>点击\"跳过\"，将跳过此问卷</code>",
 		"loading": "准备问题中..."
 	}
 }

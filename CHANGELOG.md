@@ -1,5 +1,46 @@
 # CoStrict Change Log
 
+## [2.1.5]
+
+- Add skills support
+- Add detection for Windows CMD special escape characters in dangerous substitutions
+- Remove deprecated simple read file tool implementation
+- Update environment variable prefixes from PKG*\* to COSTRICT_PKG*\* (#844)
+- Sync roocode [last commit](https://github.com/zgsm-ai/costrict/commit/343d5e9dcb4cfc7307275cfd47ce0639f720175d)
+- Fix known issues
+
+## [2.1.4]
+
+- Fix Suppress 'ask promise was ignored' error in handleError (#9914)
+- Optimize response render configuration, adjust streaming limit parameters to improve performance
+- Enhance ReadFileTool file reading functionality
+- Add tool protocol display feature, showing current tool protocol (Native/XML) in task header
+- Add showSpeedInfo setting option to control speed info display in UI settings (CoStrict provider only)
+- Update resolveToolProtocol function to simplify decision tree
+- Update test cases to reflect new tool protocol behavior
+- Update protocol resolution test logic
+- Add multilingual support for tool protocol, performance metrics, and speed info display (English, Simplified Chinese, Traditional Chinese)
+- Fix known issues
+
+## [2.1.3]
+
+- Update error detail copy button with visual indicator (red dot) and improved instructions
+- Enhance error messages for copying error details in English, Chinese (Simplified), and Chinese (Traditional)
+- Fix code review race condition in completion handling by adding async delay to cleanup operations
+- Add partial message check and completion flag to prevent duplicate completion handling in code review
+- Add ask_multiple_choice native tool support for structured user input collection
+- Update gemini-cli model configurations with tool protocol support
+- Update tool protocol resolution logic to prioritize user preferences (XML protocol now takes precedence over native tools)
+- Refactor resolveToolProtocol function with simplified decision tree
+- Update test cases to reflect new tool protocol behavior
+- Add ask_multiple_choice native tool support
+- Sync roocode [last commit](https://github.com/zgsm-ai/costrict/commit/1e71015e54e4d6a0feadaa891ff5f56cae3f056b)
+- Fix known issues
+
+## [2.1.2]
+
+- Enhanced code review mode with improved UI behavior and provider support
+
 ## [2.1.1]
 
 - Fix model response handling for "no tools used" scenarios

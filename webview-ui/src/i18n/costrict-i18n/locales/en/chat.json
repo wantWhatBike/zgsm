@@ -101,7 +101,7 @@
 		"description": "Run CoStrict agents in the cloud, access your tasks from anywhere, collaborate with others, and more."
 	},
 	"copy": {
-		"errorDetail": "Copy error detail,Contact the administrator"
+		"errorDetail": "Click here to copy the error details and contact the administrator."
 	},
 	"slashCommand": {
 		"wantsToRun": "CoStrict wants to run a slash command",
@@ -141,7 +141,7 @@
 		"headerTitle": "CoStrict has the following questions for you:",
 		"userSkipped": "Skipped",
 		"userConfirmed": "Confirmed",
-		"skipHint": "If none of the options meet your needs, <code>you can directly describe your requirements in the input box below</code>; <code>click \"Skip\" to skip this questionnaire</code>",
+		"skipHint": "If none of the options meet your needs, <code>you can directly describe your requirements in the input box below; </code><code>click \"Skip\" to skip this questionnaire</code>",
 		"loading": "Preparing questions..."
 	}
 }

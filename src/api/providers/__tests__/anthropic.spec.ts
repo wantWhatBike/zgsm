@@ -454,8 +454,8 @@ describe("AnthropicHandler", () => {
 			)
 		})
 
-		it("should not include tools when toolProtocol is xml", async () => {
-			// Create handler with xml tool protocol in options
+		it("should not include tools when toolProtocol is set to xml (user preference takes precedence)", async () => {
+			// When toolProtocol is set to xml, it takes precedence over supportsNativeTools
 			const xmlHandler = new AnthropicHandler({
 				...mockOptions,
 				toolProtocol: "xml",
@@ -471,6 +471,7 @@ describe("AnthropicHandler", () => {
 				// Just consume
 			}
 
+			// XML protocol means no tools should be included in the request
 			expect(mockCreate).toHaveBeenCalledWith(
 				expect.not.objectContaining({
 					tools: expect.anything(),

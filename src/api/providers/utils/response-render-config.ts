@@ -3,26 +3,22 @@ import { isJetbrainsPlatform } from "../../../utils/platform"
 
 export const renderModes = {
 	noLimit: {
-		limit: 0,
-		interval: 16,
+		interval: 6,
 	},
 	fast: {
-		limit: 1,
-		interval: 50,
+		interval: 15,
 	},
 	medium: {
-		limit: 5,
-		interval: 100,
+		interval: 30,
 	},
 	slow: {
-		limit: 10,
-		interval: 150,
+		interval: 60,
 	},
 }
 
 export function getApiResponseRenderMode() {
 	if (isJetbrainsPlatform()) {
-		return renderModes.medium
+		return renderModes.fast
 	}
 	const apiResponseRenderMode = vscode.workspace
 		.getConfiguration("zgsm")

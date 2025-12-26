@@ -2,6 +2,7 @@ import { safeWriteJson } from "../../utils/safeWriteJson"
 import * as path from "path"
 import * as os from "os"
 import * as fs from "fs/promises"
+import { getRooDirectoriesForCwd } from "../../services/roo-config/index.js"
 import pWaitFor from "p-wait-for"
 import * as vscode from "vscode"
 import dedent from "dedent"
@@ -17,6 +18,7 @@ import {
 	RooCodeSettings,
 	ExperimentId,
 } from "@roo-code/types"
+import { customToolRegistry } from "@roo-code/core"
 import { CloudService } from "@roo-code/cloud"
 import { TelemetryService } from "@roo-code/telemetry"
 
@@ -912,6 +914,9 @@ export const webviewMessageHandler = async (
 			const requestedProvider = message?.values?.provider
 			const providerFilter = requestedProvider ? toRouterName(requestedProvider) : undefined
 
+			// Optional refresh flag to flush cache before fetching (useful for providers requiring credentials)
+			const shouldRefresh = message?.values?.refresh === true
+
 			const routerModels: Record<RouterName, ModelRecord> = providerFilter
 				? ({} as Record<RouterName, ModelRecord>)
 				: {
@@ -1018,6 +1023,12 @@ export const webviewMessageHandler = async (
 			const modelFetchPromises = providerFilter
 				? candidates.filter(({ key }) => key === providerFilter)
 				: candidates
+
+			// If refresh flag is set and we have a specific provider, flush its cache first
+			if (shouldRefresh && providerFilter && modelFetchPromises.length > 0) {
+				const targetCandidate = modelFetchPromises[0]
+				await flushModels(targetCandidate.options, true)
+			}
 
 			const results = await Promise.allSettled(
 				modelFetchPromises.map(async ({ key, options }) => {
@@ -1853,6 +1864,25 @@ export const webviewMessageHandler = async (
 			if (Array.isArray(todos)) {
 				await setPendingTodoList(todos)
 			}
+			break
+		}
+		case "refreshCustomTools": {
+			try {
+				const toolDirs = getRooDirectoriesForCwd(getCurrentCwd(), true).map((dir) => path.join(dir, "tools"))
+				await customToolRegistry.loadFromDirectories(toolDirs)
+
+				await provider.postMessageToWebview({
+					type: "customToolsResult",
+					tools: customToolRegistry.getAllSerialized(),
+				})
+			} catch (error) {
+				await provider.postMessageToWebview({
+					type: "customToolsResult",
+					tools: [],
+					error: error instanceof Error ? error.message : String(error),
+				})
+			}
+
 			break
 		}
 		case "saveApiConfiguration":

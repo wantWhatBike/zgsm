@@ -203,6 +203,7 @@ export const globalSettingsSchema = z.object({
 	includeTaskHistoryInEnhance: z.boolean().optional(),
 	historyPreviewCollapsed: z.boolean().optional(),
 	reasoningBlockCollapsed: z.boolean().optional(),
+	showSpeedInfo: z.boolean().optional(),
 	/**
 	 * Controls the keyboard behavior for sending messages in the chat input.
 	 * - "send": Enter sends message, Shift+Enter creates newline (default)
@@ -316,7 +317,6 @@ export const isGlobalStateKey = (key: string): key is Keys<GlobalState> =>
 // Default settings when running evals (unless overridden).
 export const EVALS_SETTINGS: RooCodeSettings = {
 	apiProvider: "openrouter",
-	openRouterUseMiddleOutTransform: false,
 	zgsmCodeMode: "vibe",
 	lastShownAnnouncementId: "jul-09-2025-3-23-0",
 

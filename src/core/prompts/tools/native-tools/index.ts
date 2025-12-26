@@ -40,6 +40,7 @@ export function getNativeTools(partialReadsEnabled: boolean = true): OpenAI.Chat
 		applyPatch,
 		askFollowupQuestion,
 		askMultipleChoice,
+		exitPlanMode,
 		enterPlanMode,
 		attemptCompletion,
 		browserAction,

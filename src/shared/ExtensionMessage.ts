@@ -16,6 +16,7 @@ import type {
 	ShareVisibility,
 	QueuedMessage,
 	IZgsmModelResponseData,
+	SerializedCustomToolDefinition,
 } from "@roo-code/types"
 
 import { GitCommit } from "../utils/git"
@@ -151,6 +152,7 @@ export interface ExtensionMessage {
 		| "browserSessionUpdate"
 		| "browserSessionNavigate"
 		| "claudeCodeRateLimits"
+		| "customToolsResult"
 	text?: string
 	payload?: any // Add a generic payload for now, can refine later
 	// Checkpoint warning message
@@ -248,6 +250,7 @@ export interface ExtensionMessage {
 	browserSessionMessages?: ClineMessage[] // For browser session panel updates
 	isBrowserSessionActive?: boolean // For browser session panel updates
 	stepIndex?: number // For browserSessionNavigate: the target step index to display
+	tools?: SerializedCustomToolDefinition[] // For customToolsResult
 }
 
 export type ExtensionState = Pick<
@@ -318,6 +321,7 @@ export type ExtensionState = Pick<
 	| "openRouterImageGenerationSelectedModel"
 	| "includeTaskHistoryInEnhance"
 	| "reasoningBlockCollapsed"
+	| "showSpeedInfo"
 	| "errorCode"
 	| "enterBehavior"
 	| "includeCurrentTime"
@@ -367,6 +371,7 @@ export type ExtensionState = Pick<
 
 	cloudUserInfo: CloudUserInfo | null
 	cloudIsAuthenticated: boolean
+	cloudAuthSkipModel?: boolean // Flag indicating auth completed without model selection (user should pick 3rd-party provider)
 	cloudApiUrl?: string
 	cloudOrganizations?: CloudOrganizationMembership[]
 	sharingEnabled: boolean
@@ -383,7 +388,6 @@ export type ExtensionState = Pick<
 	profileThresholds: Record<string, number>
 	hasOpenedModeSelector: boolean
 	openRouterImageApiKey?: string
-	openRouterUseMiddleOutTransform?: boolean
 	messageQueue?: QueuedMessage[]
 	lastShownAnnouncementId?: string
 	apiModelId?: string
@@ -514,6 +518,11 @@ export interface ClineApiReqInfo {
 	selectReason?: string
 	isAuto?: boolean
 	originModelId?: string
+	// Raw timing data for frontend calculation
+	requestIdTimestamp?: number
+	responseIdTimestamp?: number
+	responseEndTimestamp?: number
+	completionTokens?: number
 }
 
 export type ClineApiReqCancelReason = "streaming_failed" | "user_cancelled"

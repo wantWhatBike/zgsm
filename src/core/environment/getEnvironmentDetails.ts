@@ -22,6 +22,7 @@ import { formatResponse } from "../prompts/responses"
 import { getGitStatus } from "../../utils/git"
 
 import { Task } from "../task/Task"
+import { formatReminderSection } from "./reminder"
 import { getShell, getWindowsTerminalInfo } from "../../utils/shell"
 import { getOperatingSystem } from "../../utils/zgsmUtils"
 import { defaultLang } from "../../utils/language"
@@ -339,44 +340,45 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 		details += `\n# Browser Session Status\nActive - A browser session is currently open and ready for browser_action commands${viewportInfo}\n`
 	}
 	const alwaysIncludeFileDetails =
-	Experiments.isEnabled(experiments ?? {}, EXPERIMENT_IDS.ALWAYS_INCLUDE_FILE_DETAILS) ??
-	apiConfiguration?.apiProvider === "zgsm"
+		Experiments.isEnabled(experiments ?? {}, EXPERIMENT_IDS.ALWAYS_INCLUDE_FILE_DETAILS) ??
+		apiConfiguration?.apiProvider === "zgsm"
 	if (includeFileDetails || alwaysIncludeFileDetails) {
 		details += `\n\n# Current Workspace Directory (${cline.cwd.toPosix()}) Files${alwaysIncludeFileDetails ? " (Directory Tree KPT Format: Use 1 to represent files and objects to represent directories)" : ""}\n`
-			const isDesktop = arePathsEqual(cline.cwd, path.join(os.homedir(), "Desktop"))
+		const isDesktop = arePathsEqual(cline.cwd, path.join(os.homedir(), "Desktop"))
 
-			if (isDesktop) {
+		if (isDesktop) {
 			// Don't want to immediately access desktop since it would show
 			// permission popup.
-				details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
-			} else {
-				const maxFiles = maxWorkspaceFiles ?? MAX_WORKSPACE_FILES
+			details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
+		} else {
+			const maxFiles = maxWorkspaceFiles ?? MAX_WORKSPACE_FILES
 
 			// Early return for limit of 0
-				if (maxFiles === 0) {
-					details += "(Workspace files context disabled. Use list_files to explore if needed.)"
-				} else {
+			if (maxFiles === 0) {
+				details += "(Workspace files context disabled. Use list_files to explore if needed.)"
+			} else {
 				const [files, didHitLimit] = await listFiles(
 					cline.cwd,
 					true,
 					(alwaysIncludeFileDetails ? 3 : 1) * maxFiles,
 				)
-					const { showRooIgnoredFiles = false } = state ?? {}
+				const { showRooIgnoredFiles = false } = state ?? {}
 
-					const result = formatResponse.formatFilesList(
-						cline.cwd,
-						files,
-						didHitLimit,
-						cline.rooIgnoreController,
-						showRooIgnoredFiles,
-						undefined,
+				const result = formatResponse.formatFilesList(
+					cline.cwd,
+					files,
+					didHitLimit,
+					cline.rooIgnoreController,
+					showRooIgnoredFiles,
+					undefined,
 					alwaysIncludeFileDetails,
-					)
-					details += result
-				}
+				)
+
+				details += result
 			}
 		}
 	}
+
 	// costirct: todo_list has moved to system-reminder building in costrict context
 	return `<environment_details>\n${details.trim()}\n</environment_details>`
 }

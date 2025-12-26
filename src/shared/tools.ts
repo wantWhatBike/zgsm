@@ -109,8 +109,8 @@ export type NativeToolArgs = {
 		questions: Array<{
 			id: string
 			prompt: string
-			allow_multiple?: boolean
 			options: Array<{ id: string; label: string }>
+			allow_multiple?: boolean
 		}>
 	}
 	browser_action: BrowserActionParams

@@ -124,6 +124,7 @@ export interface WebviewMessage {
 		| "searchFiles"
 		| "toggleApiConfigPin"
 		| "hasOpenedModeSelector"
+		| "clearCloudAuthSkipModel"
 		| "cloudButtonClicked"
 		| "rooCloudSignIn"
 		| "cloudLandingPageSignIn"
@@ -205,9 +206,10 @@ export interface WebviewMessage {
 		| "openDebugUiHistory"
 		| "downloadErrorDiagnostics"
 		| "requestClaudeCodeRateLimits"
+		| "refreshCustomTools"
 	text?: string
 	editedMessageContent?: string
-	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud" | "zgsm-account"
+	tab?: "settings" | "history" | "mcp" | "modes" | "chat" | "marketplace" | "cloud" | "zgsm-account" | "codeReview"
 	disabled?: boolean
 	context?: string
 	dataUri?: string

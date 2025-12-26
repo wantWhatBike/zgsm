@@ -250,7 +250,7 @@ export class CodeReviewService {
 		this.updateTaskState({ timeoutId })
 
 		const resetMode = async () => {
-			await provider.handleModeSwitch(this.prevMode)
+			await provider.handleModeSwitch(this.prevMode === "review" ? "code" : this.prevMode)
 			this.prevMode = ""
 		}
 
@@ -297,16 +297,18 @@ export class CodeReviewService {
 				})
 			} finally {
 				clearTimeout(timeoutId)
-				await provider.removeClineFromStack()
-				await provider.refreshWorkspace()
-				await resetMode()
+				setTimeout(async () => {
+					await provider.removeClineFromStack()
+					await provider.refreshWorkspace()
+					await resetMode()
+				}, 500)
 			}
 		}
 
 		// 🔑 立即同步注册所有事件监听器（避免竞态条件）
 		// 方式1：通过 Message 事件检测 completion_result（最早触发）
-		task.on(RooCodeEventName.Message, ({ action, message: msg }) => {
-			if (action === "created" && msg.type === "say" && msg.say === "completion_result") {
+		task.on(RooCodeEventName.Message, ({ message: msg }) => {
+			if (!completionHandled && msg.type === "say" && !msg.partial && msg.say === "completion_result") {
 				this.logger.info("[CodeReview] Detected completion via Message event (completion_result)")
 				handleCompletion()
 			}

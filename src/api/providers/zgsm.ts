@@ -7,8 +7,11 @@ import {
 	azureOpenAiDefaultApiVersion,
 	DEEP_SEEK_DEFAULT_TEMPERATURE,
 	OPENAI_AZURE_AI_INFERENCE_PATH,
+	NATIVE_TOOL_DEFAULTS,
 	zgsmDefaultModelId,
-	zgsmModels,
+	zgsmModelsConfig as zgsmModels,
+	// TOOL_PROTOCOL,
+	isNativeProtocol,
 } from "@roo-code/types"
 
 import type { ApiHandlerOptions } from "../../shared/api"
@@ -35,8 +38,10 @@ import { handleOpenAIError } from "./utils/openai-error-handler"
 import { getModels } from "./fetchers/modelCache"
 import { ClineApiReqCancelReason } from "../../shared/ExtensionMessage"
 import { getEditorType } from "../../utils/getEditorType"
+import { ChatCompletionChunk } from "openai/resources/index.mjs"
 
 const autoModeModelId = "Auto"
+const isDev = process.env.NODE_ENV === "development"
 
 export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandler {
 	protected options: ApiHandlerOptions
@@ -111,6 +116,9 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 			workflowModes.includes(metadata?.parentTaskMode) ||
 			workflowModes.includes(metadata?.zgsmCodeMode)
 		this.apiResponseRenderModeInfo = getApiResponseRenderMode()
+		if ("review" === metadata?.mode) {
+			this.client.maxRetries = 1
+		}
 		// 1. Cache calculation results and configuration
 		const { info: modelInfo, reasoning } = this.getModel()
 		const modelUrl = this.baseURL || ZgsmAuthConfig.getInstance().getDefaultApiBaseUrl()
@@ -149,115 +157,161 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 			)
 		}
 
-		// 5. Handle streaming and non-streaming requests
-		if (this.options.openAiStreamingEnabled ?? true) {
-			const convertedMessages = this.convertMessages(
-				systemPrompt,
-				messages,
-				deepseekReasoner,
-				ark,
-				enabledLegacyFormat,
-				modelInfo,
-			)
+		try {
+			// 5. Handle streaming and non-streaming requests
+			if (this.options.openAiStreamingEnabled ?? true) {
+				const convertedMessages = this.convertMessages(
+					systemPrompt,
+					messages,
+					deepseekReasoner,
+					ark,
+					enabledLegacyFormat,
+					modelInfo,
+				)
 
-			const requestOptions = this.buildStreamingRequestOptions(
-				modelId,
-				convertedMessages,
-				deepseekReasoner,
-				isGrokXAI,
-				reasoning,
-				modelInfo,
-				metadata,
-			)
-			requestOptions.extra_body.prompt_mode = fromWorkflow ? (metadata?.zgsmCodeMode ?? "vibe") : "vibe"
-			const isAuto = this.options.zgsmModelId === autoModeModelId
-			let stream: any
-			let selectedLLM: string | undefined = this.options.zgsmModelId
-			let selectReason: string | undefined
-			try {
-				this.logger.info(`[RequestID]:`, requestId)
+				const requestOptions = this.buildStreamingRequestOptions(
+					modelId,
+					convertedMessages,
+					deepseekReasoner,
+					isGrokXAI,
+					reasoning,
+					modelInfo,
+					metadata,
+				)
+				requestOptions.extra_body.prompt_mode = fromWorkflow ? (metadata?.zgsmCodeMode ?? "vibe") : "vibe"
+				const isAuto = this.options.zgsmModelId === autoModeModelId
+				let stream: any
+				let selectedLLM: string | undefined = this.options.zgsmModelId
+				let selectReason: string | undefined
+				let requestIdTimestamp: number | undefined
+				let responseIdTimestamp: number | undefined
+				try {
+					requestIdTimestamp = Date.now()
+					this.logger.info(`[RequestID ${modelId}]:`, requestId)
 
-				if (metadata?.onRequestHeadersReady && typeof metadata.onRequestHeadersReady === "function") {
-					metadata.onRequestHeadersReady(_headers)
+					if (metadata?.onRequestHeadersReady && typeof metadata.onRequestHeadersReady === "function") {
+						metadata.onRequestHeadersReady(_headers)
+					}
+
+					const { data, response } = await this.client.chat.completions
+						.create(
+							requestOptions,
+							Object.assign(isAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {}, {
+								headers: _headers,
+								signal: this.abortController.signal,
+							}),
+						)
+						.withResponse()
+					this.logger.info(`[ResponseID ${modelId}]:`, response.headers.get("x-request-id"))
+					responseIdTimestamp = Date.now()
+					if (isAuto) {
+						selectedLLM = response.headers.get("x-select-llm") || ""
+						selectReason = response.headers.get("x-select-reason") || ""
+
+						const userInputHeader = isDev ? response.headers.get("x-user-input") : null
+						if (userInputHeader) {
+							const decodedUserInput = Buffer.from(userInputHeader, "base64").toString("utf-8")
+							this.logger.info(`[x-user-input]: ${decodedUserInput}`)
+						}
+					}
+
+					stream = data
+				} catch (error) {
+					throw handleOpenAIError(error, this.providerName)
 				}
 
-				const { data, response } = await this.client.chat.completions
-					.create(
+				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+				isDev && this.logger.info(`[ResponseID ${modelId} sse render start]:`, requestId)
+
+				// 6. Optimize stream processing - use batch processing and buffer
+				yield* this.handleOptimizedStream(
+					stream,
+					modelInfo,
+					isAuto,
+					selectedLLM,
+					selectReason,
+					requestId,
+					isNativeProtocol(metadata?.toolProtocol),
+					responseIdTimestamp,
+					requestIdTimestamp,
+					metadata?.onPerformanceTiming,
+				)
+			} else {
+				// Non-streaming processing
+				const requestOptions = this.buildNonStreamingRequestOptions(
+					modelId,
+					systemPrompt,
+					messages,
+					deepseekReasoner,
+					enabledLegacyFormat,
+					modelInfo,
+					metadata,
+				)
+				let response
+				requestOptions.extra_body.prompt_mode = fromWorkflow ? "strict" : "vibe"
+				let requestIdTimestamp: number | undefined
+				let responseIdTimestamp: number | undefined
+				try {
+					requestIdTimestamp = Date.now()
+					this.logger.info(`[RequestID]:`, requestId)
+					response = await this.client.chat.completions.create(
 						requestOptions,
 						Object.assign(isAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {}, {
 							headers: _headers,
 							signal: this.abortController.signal,
 						}),
 					)
-					.withResponse()
-				this.logger.info(`[ResponseID]:`, response.headers.get("x-request-id"))
-				if (isAuto) {
-					selectedLLM = response.headers.get("x-select-llm") || ""
-					selectReason = response.headers.get("x-select-reason") || ""
-					const isDev = process.env.NODE_ENV === "development"
-
-					const userInputHeader = isDev ? response.headers.get("x-user-input") : null
-					if (userInputHeader) {
-						const decodedUserInput = Buffer.from(userInputHeader, "base64").toString("utf-8")
-						this.logger.info(`[x-user-input]: ${decodedUserInput}`)
-					}
+					this.logger.info(`[ResponseId]:`, response._request_id)
+					responseIdTimestamp = Date.now()
+				} catch (error) {
+					throw handleOpenAIError(error, this.providerName)
 				}
 
-				stream = data
-			} catch (error) {
-				throw handleOpenAIError(error, this.providerName)
-			}
+				const message = response.choices?.[0]?.message
 
-			// 6. Optimize stream processing - use batch processing and buffer
-			yield* this.handleOptimizedStream(stream, modelInfo, isAuto, selectedLLM, selectReason)
-		} else {
-			// Non-streaming processing
-			const requestOptions = this.buildNonStreamingRequestOptions(
-				modelId,
-				systemPrompt,
-				messages,
-				deepseekReasoner,
-				enabledLegacyFormat,
-				modelInfo,
-				metadata,
-			)
-			let response
-			requestOptions.extra_body.prompt_mode = fromWorkflow ? "strict" : "vibe"
-			try {
-				this.logger.info(`[RequestID]:`, requestId)
-				response = await this.client.chat.completions.create(
-					requestOptions,
-					Object.assign(isAzureAiInference ? { path: OPENAI_AZURE_AI_INFERENCE_PATH } : {}, {
-						headers: _headers,
-						signal: this.abortController.signal,
-					}),
-				)
-				this.logger.info(`[ResponseId]:`, response._request_id)
-			} catch (error) {
-				throw handleOpenAIError(error, this.providerName)
-			}
-
-			const message = response.choices?.[0]?.message
-
-			if (message?.tool_calls) {
-				for (const toolCall of message.tool_calls) {
-					if (toolCall.type === "function") {
-						yield {
-							type: "tool_call",
-							id: toolCall.id,
-							name: toolCall.function.name,
-							arguments: toolCall.function.arguments,
+				if (message?.tool_calls) {
+					for (const toolCall of message.tool_calls) {
+						if (toolCall.type === "function") {
+							yield {
+								type: "tool_call",
+								id: toolCall.id,
+								name: toolCall.function.name,
+								arguments: toolCall.function.arguments,
+							}
 						}
 					}
 				}
-			}
 
-			yield {
-				type: "text",
-				text: message.content || "",
-			}
+				yield {
+					type: "text",
+					text: message.content || "",
+				}
 
-			yield this.processUsageMetrics(response.usage, modelInfo)
+				yield this.processUsageMetrics(response.usage, modelInfo)
+
+				// Emit performance timing data via callback (frontend will calculate metrics)
+				const responseEndTimestamp = Date.now()
+				if (responseIdTimestamp && requestIdTimestamp && response.usage?.completion_tokens) {
+					// Emit timing data via callback
+					if (metadata?.onPerformanceTiming) {
+						metadata
+							.onPerformanceTiming({
+								requestIdTimestamp,
+								responseIdTimestamp,
+								responseEndTimestamp,
+								completionTokens: response.usage.completion_tokens,
+							})
+							.catch(() => {})
+					}
+				}
+			}
+		} catch (err) {
+			// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+			isDev && this.logger.error(`[createMessage] ${err}`)
+			throw err
+		} finally {
+			// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+			isDev && this.logger.info(`[ResponseID ${modelId} sse createMessage end]:`, requestId)
 		}
 	}
 
@@ -329,7 +383,7 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 					}
 				: { role: "system" as const, content: systemPrompt }
 
-			convertedMessages = [systemMessage, ...convertToOpenAiMessages(messages)]
+			convertedMessages = [systemMessage, ...convertToOpenAiMessages(messages, { mergeToolResultText: true })]
 		}
 
 		// Apply cache control logic
@@ -387,11 +441,13 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 			stream: true as const,
 			...(isGrokXAI ? {} : { stream_options: { include_usage: true } }),
 			...(reasoning && reasoning),
-			...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
-			...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
-			...(metadata?.toolProtocol === "native" && {
-				parallel_tool_calls: metadata.parallelToolCalls ?? false,
-			}),
+			...(isNativeProtocol(metadata?.toolProtocol)
+				? {
+						...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
+						...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
+						...{ parallel_tool_calls: metadata?.parallelToolCalls ?? false },
+					}
+				: undefined),
 			extra_body: {
 				mode: metadata?.mode,
 			},
@@ -417,19 +473,20 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 			role: "user",
 			content: systemPrompt,
 		}
-
 		const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { extra_body: any } = {
 			model: modelId,
 			messages: isDeepseekReasoner
 				? convertToR1Format([{ role: "user", content: systemPrompt }, ...messages])
 				: isLegacyFormat
 					? [systemMessage, ...convertToSimpleMessages(messages)]
-					: [systemMessage, ...convertToOpenAiMessages(messages)],
-			...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
-			...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
-			...(metadata?.toolProtocol === "native" && {
-				parallel_tool_calls: metadata.parallelToolCalls ?? false,
-			}),
+					: [systemMessage, ...convertToOpenAiMessages(messages, { mergeToolResultText: true })],
+			...(isNativeProtocol(metadata?.toolProtocol)
+				? {
+						...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
+						...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
+						...{ parallel_tool_calls: metadata?.parallelToolCalls ?? false },
+					}
+				: undefined),
 			extra_body: {
 				prompt_mode: metadata?.mode,
 			},
@@ -448,7 +505,21 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 		isAuto?: boolean,
 		selectedLLM?: string,
 		selectReason?: string,
+		requestId?: string,
+		isNative?: boolean,
+		responseIdTimestamp?: number,
+		requestIdTimestamp?: number,
+		onPerformanceTiming?: (timing: {
+			requestIdTimestamp?: number
+			responseIdTimestamp?: number
+			responseEndTimestamp?: number
+			completionTokens?: number
+		}) => Promise<void>,
 	): ApiStream {
+		// Check if request was aborted
+		if (this.abortController?.signal.aborted) {
+			return
+		}
 		const matcher = new XmlMatcher(
 			"think",
 			(chunk) =>
@@ -459,12 +530,12 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 		)
 
 		let lastUsage
+		const activeToolCallIds = new Set<string>()
 
 		// Use content buffer to reduce matcher.update() calls
 		const contentBuffer: string[] = []
 		let time = Date.now()
 		let isPrinted = false
-		const isDev = process.env.NODE_ENV === "development"
 
 		// Yield selected LLM info if available (for Auto model mode)
 		if (isAuto) {
@@ -476,14 +547,23 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 			}
 		}
 
+		const lastDeltaInfo = {
+			activeToolCallIds,
+		} as {
+			delta?: ChatCompletionChunk.Choice["delta"]
+			finishReason?: ChatCompletionChunk.Choice["finish_reason"]
+			activeToolCallIds?: Set<string>
+		}
 		// chunk
 		for await (const chunk of stream) {
+			// Check if request was aborted
 			if (this.abortController?.signal.aborted) {
 				break
 			}
-
 			const delta = chunk.choices?.[0]?.delta ?? {}
-
+			const finishReason = chunk.choices?.[0]?.finish_reason
+			lastDeltaInfo.finishReason = finishReason
+			lastDeltaInfo.delta = delta
 			// Cache content for batch processing
 			if (delta.content) {
 				contentBuffer.push(delta.content)
@@ -493,38 +573,43 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 				}
 				const now = Date.now()
 				// Process in batch when threshold is reached
-				if (
-					contentBuffer.length >= this.apiResponseRenderModeInfo.limit &&
-					time + this.apiResponseRenderModeInfo.interval <= now
-				) {
+				if (time + this.apiResponseRenderModeInfo.interval <= now) {
 					const batchedContent = contentBuffer.join("")
 					for (const processedChunk of matcher.update(batchedContent)) {
+						if (this.abortController?.signal.aborted) {
+							break
+						}
+						// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+						isDev &&
+							this.logger.info(
+								`[ResponseID ${this.options.zgsmModelId} sse rendering]:`,
+								requestId,
+								batchedContent,
+							)
 						yield processedChunk
 					}
 					contentBuffer.length = 0 // Clear buffer
+
 					time = now
 				}
 			}
 
 			// Process reasoning content
 			if ("reasoning_content" in delta && delta.reasoning_content) {
+				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+				isDev &&
+					this.logger.warn(
+						`[ResponseID ${this.options.zgsmModelId} sse "reasoning_content":`,
+						requestId,
+						delta.reasoning_content,
+					)
 				yield {
 					type: "reasoning",
-					text: (delta.reasoning_content as string | undefined) || "",
+					text: delta.reasoning_content as string,
 				}
 			}
 
-			if (delta.tool_calls) {
-				for (const toolCall of delta.tool_calls) {
-					yield {
-						type: "tool_call_partial",
-						index: toolCall.index,
-						id: toolCall.id,
-						name: toolCall.function?.name,
-						arguments: toolCall.function?.arguments,
-					}
-				}
-			}
+			yield* this.processToolCalls(delta, finishReason, activeToolCallIds, requestId, contentBuffer.length > 0)
 
 			// Cache usage information
 			if (chunk.usage) {
@@ -532,50 +617,132 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 			}
 		}
 
+		// Check if request was aborted
+		if (this.abortController?.signal.aborted) {
+			return
+		}
+
 		// Process remaining content
 		if (contentBuffer.length > 0) {
 			const remainingContent = contentBuffer.join("")
 			for (const processedChunk of matcher.update(remainingContent)) {
+				if (this.abortController?.signal.aborted) {
+					break
+				}
 				yield processedChunk
 			}
+			contentBuffer.length = 0 // Clear buffer
+			yield* this.processToolCalls(lastDeltaInfo.delta, lastDeltaInfo.finishReason, activeToolCallIds, requestId)
 		}
 
 		// Output final results
 		for (const chunk of matcher.final()) {
+			if (this.abortController?.signal.aborted) {
+				break
+			}
 			yield chunk
 		}
-
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+		isDev && this.logger.info(`[ResponseID ${this.options.zgsmModelId} sse render end]:`, requestId)
 		// Process usage metrics
 		if (lastUsage) {
 			yield this.processUsageMetrics(lastUsage, modelInfo)
+
+			// Emit performance timing data via callback (frontend will calculate metrics)
+			const responseEndTimestamp = Date.now()
+			if (onPerformanceTiming && responseIdTimestamp && requestIdTimestamp && lastUsage.completion_tokens) {
+				// Emit timing data via callback
+				onPerformanceTiming({
+					requestIdTimestamp,
+					responseIdTimestamp,
+					responseEndTimestamp,
+					completionTokens: lastUsage.completion_tokens,
+				}).catch(() => {})
+			}
+		}
+	}
+
+	/**
+	 * Helper generator to process tool calls from a stream chunk.
+	 * Tracks active tool call IDs and yields tool_call_partial and tool_call_end events.
+	 * @param delta - The delta object from the stream chunk
+	 * @param finishReason - The finish_reason from the stream chunk
+	 * @param activeToolCallIds - Set to track active tool call IDs (mutated in place)
+	 */
+	private *processToolCalls(
+		delta: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta | undefined,
+		finishReason: string | null | undefined,
+		activeToolCallIds: Set<string>,
+		requestId?: string,
+		skip: boolean = false,
+	): Generator<
+		| { type: "tool_call_partial"; index: number; id?: string; name?: string; arguments?: string }
+		| { type: "tool_call_end"; id: string }
+	> {
+		if (skip) {
+			return
+		}
+
+		if (delta?.tool_calls) {
+			for (const toolCall of delta.tool_calls) {
+				if (toolCall.id) {
+					activeToolCallIds.add(toolCall.id)
+				}
+				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+				isDev &&
+					this.logger.warn(
+						`[ResponseID ${this.options.zgsmModelId} sse "toolCall arguments":`,
+						requestId,
+						toolCall.function?.name,
+						toolCall.function?.arguments,
+					)
+				yield {
+					type: "tool_call_partial",
+					index: toolCall.index,
+					id: toolCall.id,
+					name: toolCall.function?.name,
+					arguments: toolCall.function?.arguments,
+				}
+			}
+		}
+
+		// Emit tool_call_end events when finish_reason is "tool_calls"
+		// This ensures tool calls are finalized even if the stream doesn't properly close
+		if (finishReason === "tool_calls" && activeToolCallIds.size > 0) {
+			for (const id of activeToolCallIds) {
+				yield { type: "tool_call_end", id }
+			}
+			activeToolCallIds.clear()
 		}
 	}
 
 	async updateModelInfo() {
-		const id = this.options.zgsmModelId ?? zgsmDefaultModelId
-		const info =
-			(
-				await getModels({
-					provider: "zgsm",
-					baseUrl: `${this.options.zgsmBaseUrl?.trim() || ZgsmAuthConfig.getInstance().getDefaultApiBaseUrl()}`,
-					apiKey: this.options.zgsmAccessToken,
-				})
-			)[id] ?? zgsmModels.default
+		try {
+			const id = this.options.zgsmModelId ?? zgsmDefaultModelId
+			const info =
+				(
+					await getModels({
+						provider: "zgsm",
+						baseUrl: `${this.options.zgsmBaseUrl?.trim() || ZgsmAuthConfig.getInstance().getDefaultApiBaseUrl()}`,
+						apiKey: this.options.zgsmAccessToken,
+					})
+				)[id] ?? zgsmModels.default
 
-		if (id.toLowerCase().includes("gemini")) {
-			Object.assign(info, {
-				supportsNativeTools: false,
-			})
+			this.modelInfo = info
+		} catch (error) {
+			this.logger.error(`[updateModelInfo] ${error.message}`)
+			this.modelInfo = zgsmModels.default
 		}
-
-		this.modelInfo = info
 	}
 
 	override getModel() {
 		const id = this.options.zgsmModelId ?? zgsmDefaultModelId
 		const defaultInfo = this.modelInfo
 		const info = this.options.useZgsmCustomConfig
-			? (this.options.zgsmAiCustomModelInfo ?? defaultInfo)
+			? {
+					...NATIVE_TOOL_DEFAULTS,
+					...(this.options.zgsmAiCustomModelInfo ?? defaultInfo),
+				}
 			: defaultInfo
 		const params = getModelParams({ format: "zgsm", modelId: id, model: info, settings: this.options })
 		return { id, info, ...params }
@@ -618,7 +785,7 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 							"user",
 						),
 					},
-					timeout: 15000,
+					timeout: 60_000,
 					signal: metadata?.signal,
 				}),
 			)
@@ -648,17 +815,19 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 						role: "developer",
 						content: `Formatting re-enabled\n${systemPrompt}`,
 					},
-					...convertToOpenAiMessages(messages),
+					...convertToOpenAiMessages(messages, { mergeToolResultText: true }),
 				],
 				stream: true,
 				...(isGrokXAI ? {} : { stream_options: { include_usage: true } }),
 				reasoning_effort: modelInfo.reasoningEffort as "low" | "medium" | "high" | undefined,
 				temperature: undefined,
-				...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
-				...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
-				...(metadata?.toolProtocol === "native" && {
-					parallel_tool_calls: metadata.parallelToolCalls ?? false,
-				}),
+				...(isNativeProtocol(metadata?.toolProtocol)
+					? {
+							...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
+							...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
+							...{ parallel_tool_calls: metadata?.parallelToolCalls ?? false },
+						}
+					: undefined),
 			}
 
 			// O3 family models do not support the deprecated max_tokens parameter
@@ -686,15 +855,17 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 						role: "developer",
 						content: `Formatting re-enabled\n${systemPrompt}`,
 					},
-					...convertToOpenAiMessages(messages),
+					...convertToOpenAiMessages(messages, { mergeToolResultText: true }),
 				],
 				reasoning_effort: modelInfo.reasoningEffort as "low" | "medium" | "high" | undefined,
 				temperature: undefined,
-				...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
-				...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
-				...(metadata?.toolProtocol === "native" && {
-					parallel_tool_calls: metadata.parallelToolCalls ?? false,
-				}),
+				...(isNativeProtocol(metadata?.toolProtocol)
+					? {
+							...(metadata?.tools && { tools: this.convertToolsForOpenAI(metadata.tools) }),
+							...(metadata?.tool_choice && { tool_choice: metadata.tool_choice }),
+							...{ parallel_tool_calls: metadata?.parallelToolCalls ?? false },
+						}
+					: undefined),
 			}
 
 			// O3 family models do not support the deprecated max_tokens parameter
@@ -737,11 +908,19 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 	}
 
 	private async *handleStreamResponse(stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>): ApiStream {
+		// Check if request was aborted
+		if (this.abortController?.signal.aborted) {
+			return
+		}
+		const activeToolCallIds = new Set<string>()
+
 		for await (const chunk of stream) {
+			// Check if request was aborted
 			if (this.abortController?.signal.aborted) {
 				break
 			}
 			const delta = chunk.choices?.[0]?.delta
+			const finishReason = chunk.choices?.[0]?.finish_reason
 
 			if (delta) {
 				if (delta.content) {
@@ -751,18 +930,7 @@ export class ZgsmAiHandler extends BaseProvider implements SingleCompletionHandl
 					}
 				}
 
-				// Emit raw tool call chunks - NativeToolCallParser handles state management
-				if (delta.tool_calls) {
-					for (const toolCall of delta.tool_calls) {
-						yield {
-							type: "tool_call_partial",
-							index: toolCall.index,
-							id: toolCall.id,
-							name: toolCall.function?.name,
-							arguments: toolCall.function?.arguments,
-						}
-					}
-				}
+				yield* this.processToolCalls(delta, finishReason, activeToolCallIds)
 			}
 
 			if (chunk.usage) {

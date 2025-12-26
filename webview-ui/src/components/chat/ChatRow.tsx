@@ -78,6 +78,7 @@ import { getJumpLine } from "@/utils/path-mentions"
 import { useZgsmUserInfo } from "@/hooks/useZgsmUserInfo"
 import { format } from "date-fns"
 import { PathTooltip } from "../ui/PathTooltip"
+import { TaskStatus } from "@roo/codeReview"
 
 // Helper function to get previous todos before a specific message
 function getPreviousTodos(messages: ClineMessage[], currentMessageTs: number): any[] {
@@ -200,7 +201,16 @@ export const ChatRowContent = ({
 }: ChatRowContentProps) => {
 	const { t, i18n } = useTranslation()
 
-	const { mcpServers, alwaysAllowMcp, currentCheckpoint, mode, apiConfiguration, clineMessages } = useExtensionState()
+	const {
+		mcpServers,
+		alwaysAllowMcp,
+		currentCheckpoint,
+		mode,
+		apiConfiguration,
+		clineMessages,
+		reviewTask,
+		showSpeedInfo,
+	} = useExtensionState()
 	const { logoPic, userInfo } = useZgsmUserInfo(apiConfiguration?.zgsmAccessToken)
 	const { info: model } = useSelectedModel(apiConfiguration)
 	const [showCopySuccess, setShowCopySuccess] = useState(false)
@@ -210,7 +220,6 @@ export const ChatRowContent = ({
 	const [editImages, setEditImages] = useState<string[]>([])
 	const { copyWithFeedback } = useCopyToClipboard()
 	const userEditRef = useRef<HTMLDivElement>(null)
-
 	// Handle message events for image selection during edit mode
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
@@ -264,23 +273,63 @@ export const ChatRowContent = ({
 		vscode.postMessage({ type: "selectImages", context: "edit", messageTs: message.ts })
 	}, [message.ts])
 
-	const [cost, apiReqCancelReason, apiReqStreamingFailedMessage, selectedLLM, selectReason, isAuto, originModelId] =
-		useMemo(() => {
-			if (message.text !== null && message.text !== undefined && message.say === "api_req_started") {
-				const info = safeJsonParse<ClineApiReqInfo>(message.text)
-				return [
-					info?.cost,
-					info?.cancelReason,
-					info?.streamingFailedMessage,
-					info?.selectedLLM,
-					info?.selectReason,
-					info?.isAuto,
-					info?.originModelId,
-				]
+	// Extract timing data and calculate performance metrics in the component
+	const [
+		cost,
+		apiReqCancelReason,
+		apiReqStreamingFailedMessage,
+		selectedLLM,
+		selectReason,
+		isAuto,
+		originModelId,
+		firstTokenLatency,
+		tokensPerSecond,
+		totalDuration,
+	] = useMemo(() => {
+		if (message.text !== null && message.text !== undefined && message.say === "api_req_started") {
+			const info = safeJsonParse<ClineApiReqInfo>(message.text)
+
+			let calculatedFirstTokenLatency: number | undefined
+			let calculatedTokensPerSecond: number | undefined
+			let calculatedTotalDuration: number | undefined
+
+			if (
+				info?.requestIdTimestamp &&
+				info?.responseIdTimestamp &&
+				info?.responseEndTimestamp &&
+				info?.completionTokens
+			) {
+				const generationTimeMs = info.responseEndTimestamp - info.responseIdTimestamp
+				const safeGenerationTimeMs = generationTimeMs > 0 ? generationTimeMs : Infinity
+
+				calculatedFirstTokenLatency = Number(
+					((info.responseIdTimestamp - info.requestIdTimestamp) / 1000).toFixed(1),
+				)
+				calculatedTotalDuration = Number(
+					((info.responseEndTimestamp - info.requestIdTimestamp) / 1000).toFixed(1),
+				)
+				calculatedTokensPerSecond =
+					safeGenerationTimeMs !== Infinity
+						? Number(((info.completionTokens / safeGenerationTimeMs) * 1000).toFixed(1))
+						: 0
 			}
 
-			return [undefined, undefined, undefined, undefined, undefined]
-		}, [message.text, message.say])
+			return [
+				info?.cost,
+				info?.cancelReason,
+				info?.streamingFailedMessage,
+				info?.selectedLLM,
+				info?.selectReason,
+				info?.isAuto,
+				info?.originModelId,
+				calculatedFirstTokenLatency,
+				calculatedTokensPerSecond,
+				calculatedTotalDuration,
+			]
+		}
+
+		return []
+	}, [message.text, message.say])
 
 	// When resuming task, last wont be api_req_failed but a resume_task
 	// message, so api_req_started will show loading spinner. That's why we just
@@ -353,7 +402,23 @@ export const ChatRowContent = ({
 					<span
 						className="codicon codicon-check"
 						style={{ color: successColor, marginBottom: "-1.5px" }}></span>,
-					<span style={{ color: successColor, fontWeight: "bold" }}>{t("chat:taskCompleted")}</span>,
+					<span style={{ color: successColor, fontWeight: "bold" }}>
+						{t("chat:taskCompleted")}{" "}
+						{reviewTask.status === TaskStatus.COMPLETED && (
+							<a
+								href="javascript:void(0)"
+								onClick={(e) => {
+									e.stopPropagation()
+									vscode.postMessage({
+										type: "switchTab",
+										tab: "codeReview",
+									})
+								}}
+								style={{ color: "inherit", textDecoration: "underline" }}>
+								{t("chat:subtasks.viewSubtask")}
+							</a>
+						)}
+					</span>,
 				]
 			case "api_req_retry_delayed":
 				return []
@@ -420,6 +485,7 @@ export const ChatRowContent = ({
 		message.text,
 		message.ts,
 		isMcpServerResponding,
+		reviewTask.status,
 		apiReqCancelReason,
 		cost,
 		apiRequestFailedMessage,
@@ -1214,20 +1280,41 @@ export const ChatRowContent = ({
 									${Number(cost || 0)?.toFixed(4)}
 								</div>
 							</div>
-							{selectReason && (
+							{(selectReason || firstTokenLatency !== undefined || tokensPerSecond !== undefined) && (
 								<div className="mt-2 flex items-center flex-wrap gap-2">
-									{(selectedLLM || originModelId) && (
+									{/* {(selectedLLM || originModelId) && (
 										<div
 											className="text-xs text-vscode-descriptionForeground border-vscode-dropdown-border/50 border px-1.5 py-0.5 rounded-lg"
 											title="Selected Model">
 											{isAuto ? t("chat:autoMode.selectedLLM", { selectedLLM }) : originModelId}
 										</div>
-									)}
+									)} */}
 									{selectReason && (
 										<div
 											className="text-xs text-vscode-descriptionForeground border-vscode-dropdown-border/50 border px-1.5 py-0.5 rounded-lg"
 											title="Selection Reason">
 											{t("chat:autoMode.selectReason", { selectReason })}
+										</div>
+									)}
+									{showSpeedInfo && firstTokenLatency !== undefined && (
+										<div
+											className="text-xs text-vscode-descriptionForeground border-vscode-dropdown-border/50 border px-1.5 py-0.5 rounded-lg"
+											title={t("chat:performance.firstToken")}>
+											{t("chat:performance.firstToken")}: {firstTokenLatency}s
+										</div>
+									)}
+									{showSpeedInfo && totalDuration !== undefined && (
+										<div
+											className="text-xs text-vscode-descriptionForeground border-vscode-dropdown-border/50 border px-1.5 py-0.5 rounded-lg"
+											title={t("chat:performance.totalDuration")}>
+											{t("chat:performance.totalDuration")}: {totalDuration}s
+										</div>
+									)}
+									{showSpeedInfo && tokensPerSecond !== undefined && (
+										<div
+											className="text-xs text-vscode-descriptionForeground border-vscode-dropdown-border/50 border px-1.5 py-0.5 rounded-lg"
+											title={t("chat:performance.tokensPerSecond")}>
+											{t("chat:performance.tokensPerSecond", { time: tokensPerSecond })}
 										</div>
 									)}
 								</div>
@@ -1247,12 +1334,17 @@ export const ChatRowContent = ({
 											<>
 												<br />
 												<br />
-												<Button
-													size="sm"
-													className="ml-6"
-													onClick={() => handleCopyErrorDetail(message.text || "")}>
-													{t("chat:copy.errorDetail")}
-												</Button>
+												<div className="relative inline-flex">
+													<Button
+														size="sm"
+														className="ml-6"
+														onClick={() => handleCopyErrorDetail(message.text || "")}>
+														{t("chat:copy.errorDetail")}
+													</Button>
+													<div
+														className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full cursor-pointer"
+														onClick={() => handleCopyErrorDetail(message.text || "")}></div>
+												</div>
 											</>
 										)
 									}
@@ -1331,12 +1423,17 @@ export const ChatRowContent = ({
 									<>
 										<br />
 										<br />
-										<Button
-											size="sm"
-											className="ml-6"
-											onClick={() => handleCopyErrorDetail(message.text || "")}>
-											{t("chat:copy.errorDetail")}
-										</Button>
+										<div className="relative inline-flex">
+											<Button
+												size="sm"
+												className="ml-6"
+												onClick={() => handleCopyErrorDetail(message.text || "")}>
+												{t("chat:copy.errorDetail")}
+											</Button>
+											<div
+												className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full cursor-pointer"
+												onClick={() => handleCopyErrorDetail(message.text || "")}></div>
+										</div>
 									</>
 								) : (
 									retryInfo
@@ -1497,6 +1594,7 @@ export const ChatRowContent = ({
 				case "error":
 					// Check if this is a model response error based on marker strings from backend
 					const isNoToolsUsedError = message.text === "MODEL_NO_TOOLS_USED"
+					const isNoAssistantMessagesError = message.text === "MODEL_NO_ASSISTANT_MESSAGES"
 
 					if (isNoToolsUsedError) {
 						return (
@@ -1505,6 +1603,17 @@ export const ChatRowContent = ({
 								title={t("chat:modelResponseIncomplete")}
 								message={t("chat:modelResponseErrors.noToolsUsed")}
 								errorDetails={t("chat:modelResponseErrors.noToolsUsedDetails")}
+							/>
+						)
+					}
+
+					if (isNoAssistantMessagesError) {
+						return (
+							<ErrorRow
+								type="error"
+								title={t("chat:modelResponseIncomplete")}
+								message={t("chat:modelResponseErrors.noAssistantMessages")}
+								errorDetails={t("chat:modelResponseErrors.noAssistantMessagesDetails")}
 							/>
 						)
 					}

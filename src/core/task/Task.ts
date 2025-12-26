@@ -54,6 +54,7 @@ import {
 } from "@roo-code/types"
 // import { CloudService, BridgeOrchestrator } from "@roo-code/cloud"
 import { TelemetryService } from "@roo-code/telemetry"
+import { customToolRegistry } from "@roo-code/core"
 import { resolveToolProtocol, detectToolProtocolFromHistory } from "../../utils/resolveToolProtocol"
 
 // api
@@ -62,7 +63,7 @@ import { ApiStream, GroundingSource } from "../../api/transform/stream"
 import { maybeRemoveImageBlocks } from "../../api/transform/image-cleaning"
 
 // shared
-import { findLastIndex } from "../../shared/array"
+import { findLast, findLastIndex } from "../../shared/array"
 import { combineApiRequests } from "../../shared/combineApiRequests"
 import { combineCommandSequences } from "../../shared/combineCommandSequences"
 import { t } from "../../i18n"
@@ -95,6 +96,7 @@ import { getWorkspacePath } from "../../utils/path"
 import { formatResponse } from "../prompts/responses"
 import { SYSTEM_PROMPT } from "../prompts/system"
 import { buildNativeToolsArray } from "./build-tools"
+// import { getRooDirectoriesForCwd } from "../../services/roo-config/index.js"
 
 // core modules
 import { ToolRepetitionDetector } from "../tools/ToolRepetitionDetector"
@@ -265,6 +267,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	currentRequestAbortController?: AbortController
 	skipPrevResponseIdOnce: boolean = false
 
+	// // Cancellation Token
+	// private cancellationTokenSource: vscode.CancellationTokenSource
+	// readonly cancellationToken: vscode.CancellationToken
+
 	// TaskStatus
 	idleAsk?: ClineMessage
 	resumableAsk?: ClineMessage
@@ -331,6 +337,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	consecutiveMistakeLimit: number
 	consecutiveMistakeCountForApplyDiff: Map<string, number> = new Map()
 	consecutiveNoToolUseCount: number = 0
+	consecutiveNoAssistantMessagesCount: number = 0
 	toolUsage: ToolUsage = {}
 
 	// Checkpoints
@@ -433,7 +440,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					" seconds",
 			)
 		}
-		
+
 		this.taskId = historyItem ? historyItem.id : crypto.randomUUID()
 		this.rootTaskId = historyItem ? historyItem.rootTaskId : rootTask?.taskId
 		this.parentTaskId = historyItem ? historyItem.parentTaskId : parentTask?.taskId
@@ -497,6 +504,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.checkpointTimeout = checkpointTimeout
 		this.enableBridge = enableBridge
 
+		// // Initialize cancellation token
+		// this.cancellationTokenSource = new vscode.CancellationTokenSource()
+		// this.cancellationToken = this.cancellationTokenSource.token
+
 		this.parentTask = parentTask
 		this.taskNumber = taskNumber
 		this.initialStatus = initialStatus
@@ -530,7 +541,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// For history items without a persisted protocol, we default to XML parser
 		// and will update it in resumeTaskFromHistory after detection.
 		const effectiveProtocol = this._taskToolProtocol || "xml"
-		this.assistantMessageParser = effectiveProtocol !== "native" ? new AssistantMessageParser() : undefined
+		this.assistantMessageParser =
+			effectiveProtocol !== "native" ? new AssistantMessageParser(this.getCustomToolNames()) : undefined
 
 		this.messageQueueService = new MessageQueueService()
 
@@ -1262,14 +1274,42 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				}
 			}
 		}
-
 		// No need to ask about tool calls in review mode; this is a temporary measure and needs to be removed later.
 		if (this._taskMode === "review" && type === "tool") {
 			this.approveAsk()
 		}
+		// Wait for askResponse to be set
+		await pWaitFor(
+			() => {
+				if (this.askResponse !== undefined || this.lastMessageTs !== askTs) {
+					return true
+				}
 
-		// Wait for askResponse to be set.
-		await pWaitFor(() => this.askResponse !== undefined || this.lastMessageTs !== askTs, { interval: 100 })
+				// If a queued message arrives while we're blocked on an ask (e.g. a follow-up
+				// suggestion click that was incorrectly queued due to UI state), consume it
+				// immediately so the task doesn't hang.
+				if (!this.messageQueueService.isEmpty()) {
+					const message = this.messageQueueService.dequeueMessage()
+					if (message) {
+						// If this is a tool approval ask, we need to approve first (yesButtonClicked)
+						// and include any queued text/images.
+						if (
+							type === "tool" ||
+							type === "command" ||
+							type === "browser_action_launch" ||
+							type === "use_mcp_server"
+						) {
+							this.handleWebviewAskResponse("yesButtonClicked", message.text, message.images)
+						} else {
+							this.handleWebviewAskResponse("messageResponse", message.text, message.images)
+						}
+					}
+				}
+
+				return false
+			},
+			{ interval: 100 },
+		)
 
 		if (this.lastMessageTs !== askTs) {
 			// Could happen if we send multiple asks in a row i.e. with
@@ -1506,10 +1546,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const useNativeTools = isNativeProtocol(this._taskToolProtocol ?? "xml")
 
 		// costrict: Get effective condensing prompt with automatic fallback
-		const effectiveCondensingPrompt = await getEffectiveCondensingPrompt(
-			customCondensingPrompt,
-			provider?.context,
-		)
+		const effectiveCondensingPrompt = await getEffectiveCondensingPrompt(customCondensingPrompt, provider?.context)
 
 		const {
 			messages,
@@ -1836,7 +1873,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// Update parser state to match the detected/resolved protocol
 			const shouldUseXmlParser = this._taskToolProtocol === "xml"
 			if (shouldUseXmlParser && !this.assistantMessageParser) {
-				this.assistantMessageParser = new AssistantMessageParser()
+				this.assistantMessageParser = new AssistantMessageParser(this.getCustomToolNames())
 			} else if (!shouldUseXmlParser && this.assistantMessageParser) {
 				this.assistantMessageParser.reset()
 				this.assistantMessageParser = undefined
@@ -2062,6 +2099,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		// Reset consecutive error counters on abort (manual intervention)
 		this.consecutiveNoToolUseCount = 0
+		this.consecutiveNoAssistantMessagesCount = 0
+
+		// // Cancel the cancellation token to signal all operations to stop
+		// try {
+		// 	this.cancellationTokenSource.cancel()
+		// } catch (error) {
+		// 	console.error("Error cancelling cancellation token:", error)
+		// }
 
 		// Force final token usage update before abort event
 		this.emitFinalTokenUsageUpdate()
@@ -2196,6 +2241,13 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		} catch (error) {
 			console.error("Error reverting diff changes:", error)
 		}
+
+		// // Dispose cancellation token source to free resources
+		// try {
+		// 	this.cancellationTokenSource.dispose()
+		// } catch (error) {
+		// 	console.error("Error disposing cancellation token source:", error)
+		// }
 	}
 
 	// Subtasks
@@ -2309,8 +2361,18 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// the user hits max requests and denies resetting the count.
 				break
 			} else {
+				const _nextUserContent = findLast(
+					nextUserContent,
+					(block) => block.type === "text" && typeof block.text === "string",
+				) as { type: string; text: string }
+
 				// Use the task's locked protocol, NOT the current settings (fallback to xml if not set)
-				nextUserContent = [{ type: "text", text: formatResponse.noToolsUsed(this._taskToolProtocol ?? "xml") }]
+				nextUserContent = [
+					{
+						type: "text",
+						text: formatResponse.noToolsUsed(this._taskToolProtocol ?? "xml", _nextUserContent?.text),
+					},
+				]
 			}
 		}
 	}
@@ -3255,6 +3317,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				)
 
 				if (hasTextContent || hasToolUses) {
+					// Reset counter when we get a successful response with content
+					this.consecutiveNoAssistantMessagesCount = 0
 					// Display grounding sources to the user if they exist
 					if (pendingGroundingSources.length > 0) {
 						const citationLinks = pendingGroundingSources.map((source, i) => `[${i + 1}](${source.url})`)
@@ -3348,7 +3412,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					const didToolUse = this.assistantMessageContent.some(
 						(block) => block.type === "tool_use" || block.type === "mcp_tool_use",
 					)
-
+					const preAssistantMessage =
+						this.assistantMessageContent[0] &&
+						["text", "reasoning"].includes(this.assistantMessageContent[0].type)
+							? (this.assistantMessageContent[0] as any).content ||
+								(this.assistantMessageContent[0] as any).text
+							: undefined
 					if (!didToolUse) {
 						// Increment consecutive no-tool-use counter
 						this.consecutiveNoToolUseCount++
@@ -3363,7 +3432,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 						// Use the task's locked protocol for consistent behavior
 						this.userMessageContent.push({
 							type: "text",
-							text: formatResponse.noToolsUsed(this._taskToolProtocol ?? "xml"),
+							text: formatResponse.noToolsUsed(
+								this._taskToolProtocol ?? "xml",
+								undefined,
+								preAssistantMessage,
+							),
 						})
 					} else {
 						// Reset counter when tools are used successfully
@@ -3390,6 +3463,15 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					let requestId = null
 					if (this.lastApiRequestHeaders) {
 						requestId = this.lastApiRequestHeaders["X-Request-ID"]
+					}
+
+					// Increment consecutive no-assistant-messages counter
+					this.consecutiveNoAssistantMessagesCount++
+
+					// Only show error and count toward mistake limit after 2 consecutive failures
+					// This provides a "grace retry" - first failure retries silently
+					if (this.consecutiveNoAssistantMessagesCount >= 2) {
+						await this.say("error", "MODEL_NO_ASSISTANT_MESSAGES")
 					}
 
 					// IMPORTANT: For native tool protocol, we already added the user message to
@@ -3507,6 +3589,15 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		return false
 	}
 
+	/**
+	 * Get the names of all loaded custom tools.
+	 * This is a synchronous method that returns the currently loaded custom tool names.
+	 * If custom tools experiment is not enabled, the registry will be empty.
+	 */
+	private getCustomToolNames(): string[] {
+		return customToolRegistry.list()
+	}
+
 	private async getSystemPrompt(): Promise<string> {
 		const { mcpEnabled } = (await this.providerRef.deref()?.getState()) ?? {}
 		let mcpHub: McpHub | undefined
@@ -3609,6 +3700,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				},
 				undefined, // todoList
 				this.api.getModel().id,
+				undefined,
+				provider.getSkillsManager(),
 			)
 		})()
 	}
@@ -3724,6 +3817,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// This provides more headroom before hitting token limits.
 			autoCondenseContextPercent = 85,
 			profileThresholds = {},
+			showSpeedInfo = false,
 		} = state ?? {}
 
 		// Get condensing configuration for automatic triggers.
@@ -3931,8 +4025,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// CRITICAL: Use the task's locked protocol to ensure tasks that started with XML
 		// tools continue using XML even if NTC settings have since changed.
 		const modelInfo = this.api.getModel().info
-		const taskProtocol = this._taskToolProtocol ?? "xml"
-		const shouldIncludeTools = taskProtocol === TOOL_PROTOCOL.NATIVE && (modelInfo.supportsNativeTools ?? false)
+		const taskProtocol = this._taskToolProtocol ?? TOOL_PROTOCOL.XML
+		const shouldIncludeTools =
+			taskProtocol === TOOL_PROTOCOL.NATIVE &&
+			(modelInfo.supportsNativeTools ?? ["zgsm", "gemini-cli"].includes(apiConfiguration?.apiProvider || ""))
 
 		// Build complete tools array: native tools + dynamic MCP tools, filtered by mode restrictions
 		let allTools: OpenAI.Chat.ChatCompletionTool[] = []
@@ -3978,11 +4074,46 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			language: state?.language,
 			instanceId: this.instanceId,
 			userId: id,
+			onRequestHeadersReady: (headers: Record<string, string>) => {
+				this.lastApiRequestHeaders = headers
+			},
+			onPerformanceTiming:
+				!showSpeedInfo || apiConfiguration?.apiProvider !== "zgsm"
+					? undefined
+					: async (timing: {
+							requestIdTimestamp?: number
+							responseIdTimestamp?: number
+							responseEndTimestamp?: number
+							completionTokens?: number
+						}) => {
+							// Find and update the api_req_started message with raw timing data
+							const lastApiReqIndex = findLastIndex(
+								this.clineMessages,
+								(msg) => msg.type === "say" && msg.say === "api_req_started",
+							)
+							if (lastApiReqIndex >= 0 && this.clineMessages[lastApiReqIndex]) {
+								const existingData = JSON.parse(this.clineMessages[lastApiReqIndex].text || "{}")
+								this.clineMessages[lastApiReqIndex].text = JSON.stringify({
+									...existingData,
+									requestIdTimestamp: timing.requestIdTimestamp,
+									responseIdTimestamp: timing.responseIdTimestamp,
+									responseEndTimestamp: timing.responseEndTimestamp,
+									completionTokens: timing.completionTokens,
+								} satisfies ClineApiReqInfo)
+								// Notify frontend that the message has been updated
+								const provider = this.providerRef.deref()
+								await provider?.postMessageToWebview({
+									type: "messageUpdated",
+									clineMessage: this.clineMessages[lastApiReqIndex],
+								})
+							}
+						},
 			// Include tools and tool protocol when using native protocol and model supports it
 			...(shouldIncludeTools
 				? {
 						tools: allTools,
 						tool_choice: "auto",
+						// tool_choice: apiConfiguration?.apiProvider === "zgsm" ? "required" : "auto",
 						toolProtocol: taskProtocol,
 						parallelToolCalls: parallelToolCallsEnabled,
 					}
@@ -3999,12 +4130,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const stream = this.api.createMessage(
 			systemPrompt,
 			cleanConversationHistory as unknown as Anthropic.Messages.MessageParam[],
-			{
-				...metadata,
-				onRequestHeadersReady: (headers: Record<string, string>) => {
-					this.lastApiRequestHeaders = headers
-				},
-			},
+			metadata,
 		)
 		const iterator = stream[Symbol.asyncIterator]()
 

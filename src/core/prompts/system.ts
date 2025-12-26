@@ -1,9 +1,15 @@
 import * as vscode from "vscode"
 import * as os from "os"
 
-import type { ModeConfig, PromptComponent, CustomModePrompts, TodoItem } from "@roo-code/types"
-
-import type { SystemPromptSettings } from "./types"
+import {
+	type ModeConfig,
+	type PromptComponent,
+	type CustomModePrompts,
+	type TodoItem,
+	getEffectiveProtocol,
+	isNativeProtocol,
+} from "@roo-code/types"
+import { customToolRegistry, formatXml } from "@roo-code/core"
 
 import { Mode, modes, defaultModeSlug, getModeBySlug, getGroupName, getModeSelection } from "../../shared/modes"
 import { DiffStrategy } from "../../shared/tools"
@@ -12,11 +18,12 @@ import { isEmpty } from "../../utils/object"
 
 import { McpHub } from "../../services/mcp/McpHub"
 import { CodeIndexManager } from "../../services/code-index/manager"
+import { SkillsManager } from "../../services/skills/SkillsManager"
 
 import { PromptVariables, loadSystemPromptFile } from "./sections/custom-system-prompt"
 
+import type { SystemPromptSettings } from "./types"
 import { getToolDescriptionsForMode } from "./tools"
-import { getEffectiveProtocol, isNativeProtocol } from "@roo-code/types"
 import { getCoStrictSystemPromptForMode } from "../costrict/prompts/system"
 import {
 	getRulesSection,
@@ -29,6 +36,7 @@ import {
 	getModesSection,
 	addCustomInstructions,
 	markdownFormattingSection,
+	getSkillsSection,
 } from "./sections"
 import { defaultLang } from "../../utils/language"
 import { getShell } from "../../utils/shell"
@@ -68,6 +76,7 @@ async function generatePrompt(data: {
 	todoList?: TodoItem[]
 	modelId?: string
 	shell?: string
+	skillsManager?: SkillsManager
 }): Promise<string> {
 	let {
 		context,
@@ -87,6 +96,7 @@ async function generatePrompt(data: {
 		rooIgnoreInstructions,
 		partialReadsEnabled,
 		parallelToolCallsEnabled,
+		skillsManager,
 		settings,
 		todoList,
 		modelId,
@@ -114,7 +124,7 @@ async function generatePrompt(data: {
 	// Determine the effective protocol (defaults to 'xml')
 	const effectiveProtocol = getEffectiveProtocol(settings?.toolProtocol)
 
-	const [modesSection, mcpServersSection] = await Promise.all([
+	const [modesSection, mcpServersSection, skillsSection] = await Promise.all([
 		getModesSection(context),
 		shouldIncludeMcp
 			? getMcpServersSection(
@@ -124,10 +134,11 @@ async function generatePrompt(data: {
 					!isNativeProtocol(effectiveProtocol),
 				)
 			: Promise.resolve(""),
+		getSkillsSection(skillsManager, mode as string),
 	])
 
 	// Build tools catalog section only for XML protocol
-	const toolsCatalog = isNativeProtocol(effectiveProtocol)
+	const builtInToolsCatalog = isNativeProtocol(effectiveProtocol)
 		? ""
 		: `\n\n${getToolDescriptionsForMode(
 				mode,
@@ -145,20 +156,32 @@ async function generatePrompt(data: {
 				modelId,
 			)}`
 
+	let customToolsSection = ""
+
+	if (experiments?.customTools && !isNativeProtocol(effectiveProtocol)) {
+		const customTools = customToolRegistry.getAllSerialized()
+
+		if (customTools.length > 0) {
+			customToolsSection = `\n\n${formatXml(customTools)}`
+		}
+	}
+
+	const toolsCatalog = builtInToolsCatalog + customToolsSection
+
 	const basePrompt = `${roleDefinition}
 
 ${markdownFormattingSection()}
 
-${getSharedToolUseSection(effectiveProtocol)}${toolsCatalog}
+${getSharedToolUseSection(effectiveProtocol, experiments)}${toolsCatalog}
 
-${getToolUseGuidelinesSection(effectiveProtocol, parallelToolCallsEnabled)}
+${getToolUseGuidelinesSection(effectiveProtocol, experiments)}
 
 ${mcpServersSection}
 
 ${getCapabilitiesSection(cwd, shouldIncludeMcp ? mcpHub : undefined)}
 
 ${modesSection}
-
+${skillsSection ? `\n${skillsSection}` : ""}
 ${getRulesSection(cwd, settings)}
 
 ${getSystemInfoSection(cwd, shell)}
@@ -200,6 +223,7 @@ export const SYSTEM_PROMPT = async (
 	todoList?: TodoItem[],
 	modelId?: string,
 	parallelToolCallsEnabled?: boolean,
+	skillsManager?: SkillsManager,
 ): Promise<string> => {
 	if (!context) {
 		throw new Error("Extension context is required for generating system prompt")
@@ -307,5 +331,6 @@ ${customInstructions}`
 		todoList,
 		modelId,
 		shell,
+		skillsManager,
 	})
 }
