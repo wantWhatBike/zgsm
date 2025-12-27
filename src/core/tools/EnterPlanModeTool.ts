@@ -9,12 +9,13 @@ const ENTER_PLAN_MODE_RESULT = `
 Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.
 
 In plan mode, you should:
-1. Use the new_task tool with mode="ask" to explore the codebase and collect task-related information. (1-3 times)
-2. Consolidate collected information and use the new_task tool with mode="architect" to design an implementation plan based on it.
-3. Validate the feasibility of the plan through a review of key files.
-4. Use the ask_multiple_choice tool if you need to clarify the approach
-5. Save the complete plan to the specified path as a file.
-6. When ready, use the exit_plan_mode tool to present your plan for approval
+1. Thoroughly explore the codebase to understand existing patterns by Using the new_task tool with mode="ask". (1-3 times)
+2. Identify similar features and architectural approaches
+3. Consider multiple approaches and their trade-offs
+4. Use ask_multiple_choice if you need to clarify the approach
+5. Design a concrete implementation strategy
+6. Save the complete plan file to the specified path.
+7. When ready, use exit_plan_mode to present your plan for approval
 
 Remember: DO NOT write or edit any files yet(except the plan file). This is a read-only exploration and planning phase.
 `
