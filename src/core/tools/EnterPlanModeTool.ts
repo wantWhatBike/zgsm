@@ -1,7 +1,7 @@
 import { Task } from "../task/Task"
 import { BaseTool, ToolCallbacks } from "./BaseTool"
 import type { ToolUse } from "../../shared/tools"
-import { PLAN_DIR_PATH, getPlanFilePath } from "../costrict/prompts/system"
+import { PLAN_DIR_PATH, getPlanFilePath } from "../costrict/context/system-reminder"
 import * as fs from "fs/promises"
 import * as path from "path"
 
@@ -14,7 +14,7 @@ In plan mode, you should:
 3. Consider multiple approaches and their trade-offs
 4. Use ask_multiple_choice if you need to clarify the approach
 5. Design a concrete implementation strategy
-6. Save the complete plan file to the specified path.
+6. Save the full plan file to the specified path.
 7. When ready, use exit_plan_mode to present your plan for approval
 
 Remember: DO NOT write or edit any files yet(except the plan file). This is a read-only exploration and planning phase.

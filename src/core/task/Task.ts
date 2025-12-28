@@ -101,6 +101,7 @@ import { buildNativeToolsArray } from "./build-tools"
 // core modules
 import { ToolRepetitionDetector } from "../tools/ToolRepetitionDetector"
 import { restoreTodoListForTask } from "../tools/UpdateTodoListTool"
+import { restorePlanModeStateForTask } from "../costrict/context/system-reminder"
 import { FileContextTracker } from "../context-tracking/FileContextTracker"
 import { RooIgnoreController } from "../ignore/RooIgnoreController"
 import { RooProtectedController } from "../protect/RooProtectedController"
@@ -140,6 +141,7 @@ import psTree from "ps-tree"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { getEffectiveCondensingPrompt } from "../costrict/prompts/prompt-helper"
+import { PlanModeState } from "../costrict/context/system-reminder"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -186,7 +188,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	todoList?: TodoItem[]
 
 	// CoStrict: Plan mode state (single source of truth per task)
-	planModeState?: import("../costrict/prompts/system").PlanModeState
+	planModeState?: PlanModeState
 
 	readonly rootTask: Task | undefined = undefined
 	readonly parentTask: Task | undefined = undefined
@@ -919,6 +921,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	async overwriteApiConversationHistory(newHistory: ApiMessage[]) {
 		this.apiConversationHistory = newHistory
+		// costrict: Restore plan mode state after apiConversationHistory is updated
+		// This is needed for task delegation resumption and message truncation scenarios
+		restorePlanModeStateForTask(this)
 		await this.saveApiConversationHistory()
 	}
 
@@ -1001,6 +1006,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	public async overwriteClineMessages(newMessages: ClineMessage[]) {
 		this.clineMessages = newMessages
 		restoreTodoListForTask(this)
+		// costrict: restore plan mode state
+		restorePlanModeStateForTask(this)
 		await this.saveClineMessages()
 
 		// When overwriting messages (e.g., during task resume), repopulate the cloud sync tracking Set
@@ -1855,6 +1862,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// This is important in case the user deletes messages without resuming
 		// the task first.
 		this.apiConversationHistory = await this.getSavedApiConversationHistory()
+
+		// costrict: Restore plan mode state after apiConversationHistory is loaded
+		restorePlanModeStateForTask(this)
 
 		// If we don't have a persisted tool protocol (old tasks before this feature),
 		// detect it from the API history. This ensures tasks that previously used

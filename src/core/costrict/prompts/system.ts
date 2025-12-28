@@ -13,29 +13,6 @@ import {
 	getMcpServersSection,
 } from "../../prompts/sections"
 
-/**
- * Constants for plan mode functionality
- */
-
-/**
- * Base directory for storing plan files
- */
-export const PLAN_DIR_PATH = ".cospec/plans"
-
-/**
- * Get the plan file path for a specific task
- */
-export function getPlanFilePath(taskId: string): string {
-	const shortId = taskId.substring(0, 8)
-	return `${PLAN_DIR_PATH}/${shortId}.plan.md`
-}
-
-export type PlanModeState = {
-	active: boolean
-	planFilePath: string
-	enteredAt: number
-}
-
 
 export type CoStrictPromptContext = {
 	vscodeContext: vscode.ExtensionContext
@@ -120,10 +97,6 @@ ${rolePrompt.guidelines}`
 		// 注意：即使是 native 协议（无工具描述），也要保留合理的换行分隔
 		const toolsSection = toolsCatalog
 			? `
-===
-Note:
-- The following tools are your capability catalog. Consult as needed for parameter formats.
-- You don't need to memorize all details - reference this section when executing.
 <tools>
 ${getSharedToolUseSection(effectiveProtocol)}
 ${toolsCatalog}
@@ -132,13 +105,9 @@ ${toolsCatalog}
 
 		const mcpSection = mcpServersSection
 			? `
-
 <mcp>
 ${mcpServersSection}
-</mcp>
-===
-
-`
+</mcp>`
 			: ""
 
 		// 组装最终提示词

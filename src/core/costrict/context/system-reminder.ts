@@ -17,6 +17,104 @@ export interface SystemReminderOptions {
 	todoListEnabled?: boolean
 }
 
+/**
+ * Constants for plan mode functionality
+ */
+
+/**
+ * Base directory for storing plan files
+ */
+export const PLAN_DIR_PATH = ".cospec/plans"
+
+/**
+ * Get the plan file path for a specific task
+ */
+export function getPlanFilePath(taskId: string): string {
+	const shortId = taskId.substring(0, 8)
+	return `${PLAN_DIR_PATH}/${shortId}.plan.md`
+}
+
+export type PlanModeState = {
+	active: boolean
+	planFilePath: string
+	enteredAt: number
+}
+
+// ============================================================================
+// Plan Mode State Persistence (从消息历史中恢复状态)
+// ============================================================================
+
+/**
+ * 从消息历史中提取最新的 plan mode 状态
+ *
+ * Plan mode state 通过检测 API 消息中的 tool_use 块来恢复：
+ * 1. EnterPlanMode 工具被调用时（tool_use.name === "enter_plan_mode"），状态推断为 active
+ * 2. ExitPlanMode 工具被调用时（tool_use.name === "exit_plan_mode"），状态推断为 inactive
+ * 3. planFilePath 从 taskId 派生，不需要持久化
+ * 4. 任务恢复时，从最后一个 enter_plan_mode/exit_plan_mode 工具调用推断状态
+ */
+function getLatestPlanModeState(messages: any[]): PlanModeState | undefined {
+	// 从后往前查找最新的 plan mode 工具调用
+	// 查找 assistant 消息中的 tool_use 块
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i]
+
+		// 检查 API 消息格式（assistant messages with content blocks）
+		if (msg.role === "assistant" && Array.isArray(msg.content)) {
+			// 检查每个 content block 是否是 tool_use
+			for (const block of msg.content) {
+				if (block.type === "tool_use") {
+					// 检查是否是 enter_plan_mode 工具
+					if (block.name === "enter_plan_mode") {
+						return {
+							active: true,
+							planFilePath: "", // 将在 restorePlanModeStateForTask 中重新生成
+							enteredAt: msg.ts || Date.now(),
+						}
+					}
+
+					// 检查是否是 exit_plan_mode 工具
+					if (block.name === "exit_plan_mode") {
+						return {
+							active: false,
+							planFilePath: "", // 将在 restorePlanModeStateForTask 中重新生成
+							enteredAt: msg.ts || Date.now(),
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return undefined
+}
+
+/**
+ * 恢复任务的 plan mode 状态（从消息历史）
+ * 单一数据源：apiConversationHistory 是唯一真相来源
+ *
+ * 注意：
+ * 1. planFilePath 从 taskId 派生，不需要从消息中恢复
+ * 2. 如果 apiConversationHistory 为空，不执行恢复（任务初始化时可能尚未加载）
+ */
+export function restorePlanModeStateForTask(task: Task): void {
+	// 防御性检查：如果 apiConversationHistory 为空，跳过恢复
+	// 这可能发生在 overwriteClineMessages() 在 apiConversationHistory 加载之前被调用
+	if (!task.apiConversationHistory || task.apiConversationHistory.length === 0) {
+		return
+	}
+
+	const state = getLatestPlanModeState(task.apiConversationHistory)
+	if (state) {
+		// planFilePath 从 taskId 重新生成，确保路径一致性
+		task.planModeState = {
+			active: state.active,
+			planFilePath: getPlanFilePath(task.taskId),
+			enteredAt: state.enteredAt,
+		}
+	}
+}
+
 // ============================================================================
 // Plan Mode Reminder 相关类型和辅助函数
 // ============================================================================
@@ -33,6 +131,11 @@ type PlanModeType = "initial" | "subagent" | "re-entry"
  * 检查 plan 文件是否存在
  */
 async function checkPlanFileExists(path: string): Promise<boolean> {
+	// 边界检查: 空路径直接返回 false
+	if (!path || path.trim() === "") {
+		return false
+	}
+
 	try {
 		await fs.access(path)
 		return true
@@ -42,32 +145,45 @@ async function checkPlanFileExists(path: string): Promise<boolean> {
 }
 
 /**
- * 识别 Plan Mode 场景类型
+ * 场景识别结果
+ */
+interface PlanModeContext {
+	type: PlanModeType
+	planExists: boolean
+}
+
+/**
+ * 识别 Plan Mode 场景类型并检测文件存在性
  *
  * 判断逻辑:
  * 1. 如果是子任务 (parentTaskId 存在) → subagent
- * 2. 如果 plan 文件存在 且 不是刚进入 (>1秒) → re-entry
+ * 2. 如果 plan 文件存在 且 不是刚进入 → re-entry
  * 3. 其他情况 → initial
+ *
+ * @returns PlanModeContext - 包含场景类型和文件存在性
  */
-async function getPlanModeType(task: Task): Promise<PlanModeType> {
+async function getPlanModeType(task: Task): Promise<PlanModeContext> {
+	const planPath = task.planModeState?.planFilePath || ""
+
+	// 统一检查文件存在性（只调用一次）
+	const planExists = await checkPlanFileExists(planPath)
+
 	// 1. 子任务检测
 	if (task.parentTaskId) {
-		return "subagent"
+		return { type: "subagent", planExists }
 	}
 
-	// 2. 重入检测: plan 文件存在 && 非刚进入 (>1秒)
-	if (task.planModeState?.planFilePath) {
-		const exists = await checkPlanFileExists(task.planModeState.planFilePath)
-		const isRecent =
-			task.planModeState.enteredAt && Date.now() - task.planModeState.enteredAt < 1000
-
-		if (exists && !isRecent) {
-			return "re-entry"
+	// 2. 重入检测: plan 文件存在 && 非刚进入
+	if (planExists && task.planModeState?.enteredAt !== undefined) {
+		const timeSinceEntry = Date.now() - task.planModeState.enteredAt
+		// 边界安全: enteredAt 必须是有效时间戳且时间差 >= 1000ms
+		if (timeSinceEntry >= 1000) {
+			return { type: "re-entry", planExists }
 		}
 	}
 
 	// 3. 默认: 初始进入
-	return "initial"
+	return { type: "initial", planExists }
 }
 
 /**
@@ -79,9 +195,8 @@ async function getPlanModeType(task: Task): Promise<PlanModeType> {
  * - re-entry: 重入指导,处理已存在的 plan 文件
  */
 async function buildPlanModeReminder(task: Task): Promise<string> {
-	const type = await getPlanModeType(task)
+	const { type, planExists } = await getPlanModeType(task)
 	const planPath = task.planModeState?.planFilePath || ""
-	const planExists = await checkPlanFileExists(planPath)
 
 	// ========== 共享变量: CoStrict 工具名称 ==========
 	// 注意: 使用实际的工具名 (来自 packages/types/src/tool.ts),
@@ -89,8 +204,8 @@ async function buildPlanModeReminder(task: Task): Promise<string> {
 	const toolNames = {
 		edit: "apply_diff",
 		write: "write_to_file",
-		ask: "ask_multiple_choice",
-		exit: "exit_plan_mode",
+		ask_user_questions: "ask_multiple_choice",
+		exit_plan_mode: "exit_plan_mode",
 		newTask: "new_task",
 	}
 
@@ -108,7 +223,7 @@ async function buildPlanModeReminder(task: Task): Promise<string> {
 ## Plan File Info:
 ${planFileInfo}
 You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
-Answer the user's query comprehensively, using the ${toolNames.ask} tool if you need to ask the user clarifying questions. If you do use the ${toolNames.ask}, make sure to ask all clarifying questions you need to fully understand the user's intent before proceeding.`
+Answer the user's query comprehensively, using the ${toolNames.ask_user_questions} tool if you need to ask the user clarifying questions. If you do use the ${toolNames.ask_user_questions}, make sure to ask all clarifying questions you need to fully understand the user's intent before proceeding.`
 	}
 
 	// 场景 2: 重入 (中等复杂度)
@@ -123,7 +238,7 @@ You are returning to plan mode after having previously exited it. A plan file ex
 3. Decide how to proceed:
    - **Different task**: If the user's request is for a different task—even if it's similar or related—start fresh by overwriting the existing plan
    - **Same task, continuing**: If this is explicitly a continuation or refinement of the exact same task, modify the existing plan while cleaning up outdated or irrelevant sections
-4. Continue on with the plan process and most importantly you should always edit the plan file one way or the other before calling ${toolNames.exit}
+4. Continue on with the plan process and most importantly you should always edit the plan file one way or the other before calling ${toolNames.exit_plan_mode}
 
 Treat this as a fresh planning session. Do not assume the existing plan is relevant without evaluating it first.`
 	}
@@ -143,7 +258,7 @@ Treat this as a fresh planning session. Do not assume the existing plan is relev
 	const multiAgentGuidelines =
 		planAgent.max > 1
 			? `
-- **Multiple agents**: Use up to ${planAgent.max} agents for complex tasks that benefit from different perspectives
+- **Multiple agents**: Use the ${toolNames.newTask} tool to launch agents up to ${planAgent.max} for complex tasks that benefit from different perspectives
 
 Examples of when to use multiple agents:
 - The task touches multiple parts of the codebase
@@ -171,23 +286,23 @@ Goal: Gain a comprehensive understanding of the user's request by reading throug
 
 1. Focus on understanding the user's request and the code associated with their request
 
-2. **Launch up to ${exploreAgent.max} ${toolNames.newTask}(mode="${exploreAgent.mode}") agents IN PARALLEL** (single message, multiple tool calls) to efficiently explore the codebase.
+2. **Use the ${toolNames.newTask}(mode="${exploreAgent.mode}") tool to launch agents up to ${exploreAgent.max}** to explore the codebase.
    - Use 1 agent when the task is isolated to known files, the user provided specific file paths, or you're making a small targeted change.
    - Use multiple agents when: the scope is uncertain, multiple areas of the codebase are involved, or you need to understand existing patterns before planning.
    - Quality over quantity - ${exploreAgent.max} agents maximum, but you should try to use the minimum number of agents necessary (usually just 1)
    - If using multiple agents: Provide each agent with a specific search focus or area to explore. Example: One agent searches for existing implementations, another explores related components, a third investigates testing patterns
 
-3. After exploring the code, use the ${toolNames.ask} tool to clarify ambiguities in the user request up front.
+3. After exploring the code, use the ${toolNames.ask_user_questions} tool to clarify ambiguities in the user request up front.
 
 ### Phase 2: Design
 Goal: Design an implementation approach.
 
-Launch ${toolNames.newTask}(mode="${planAgent.mode}") agent(s) to design the implementation based on the user's intent and your exploration results from Phase 1.
+Use the ${toolNames.newTask}(mode="${planAgent.mode}") tool to launch agent(s) to design the implementation based on the user's intent and your exploration results from Phase 1.
 
-You can launch up to ${planAgent.max} agent(s) in parallel.
+You can launch up to ${planAgent.max} agent(s).
 
 **Guidelines:**
-- **Default**: Launch at least 1 ${toolNames.newTask}(mode="${planAgent.mode}") agent for most tasks - it helps validate your understanding and consider alternatives
+- **Default**: Use the ${toolNames.newTask}(mode="${planAgent.mode}") to Launch at least 1 agent for most tasks - it helps validate your understanding and consider alternatives
 - **Skip agents**: Only for truly trivial tasks (typo fixes, single-line changes, simple renames)
 ${multiAgentGuidelines}
 In the ${toolNames.newTask} message parameter:
@@ -199,7 +314,7 @@ In the ${toolNames.newTask} message parameter:
 Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's intentions.
 1. Read the critical files identified by agents to deepen your understanding
 2. Ensure that the plans align with the user's original request
-3. Use ${toolNames.ask} to clarify any remaining questions with the user
+3. Use the ${toolNames.ask_user_questions} tool to clarify any remaining questions with the user
 
 ### Phase 4: Final Plan
 Goal: Write your final plan to the plan file (the only file you can edit).
@@ -207,9 +322,9 @@ Goal: Write your final plan to the plan file (the only file you can edit).
 - Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
 - Include the paths of critical files to be modified
 
-### Phase 5: Call ${toolNames.exit}
-At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call ${toolNames.exit} to indicate to the user that you are done planning.
-This is critical - your turn should only end with either asking the user a question or calling ${toolNames.exit}. Do not stop unless it's for these 2 reasons.
+### Phase 5: Call the ${toolNames.exit_plan_mode} tool
+At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call ${toolNames.exit_plan_mode} to indicate to the user that you are done planning.
+This is critical - your turn should only end with either asking the user a question or calling ${toolNames.exit_plan_mode}. Do not stop unless it's for these 2 reasons.
 
 NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.`
 }
@@ -233,19 +348,19 @@ export async function buildSystemReminder(
 ): Promise<string | undefined> {
 	const reminders: string[] = []
 
-	// 1. Plan Mode Reminder (动态生成)
-	if (task.planModeState?.active) {
-		const planReminder = await buildPlanModeReminder(task)
-		reminders.push(planReminder)
-	}
-
-	// 2. Todo List Reminder
+	// 1. Todo List Reminder
 	const todoListEnabled = options?.todoListEnabled ?? true
 	if (todoListEnabled) {
 		const todoReminder = formatReminderSection(task.todoList)
 		if (todoReminder) {
 			reminders.push(todoReminder)
 		}
+	}
+
+	// 2. Plan Mode Reminder (动态生成)
+	if (task.planModeState?.active) {
+		const planReminder = await buildPlanModeReminder(task)
+		reminders.push(planReminder)
 	}
 
 	// Return undefined if no reminders

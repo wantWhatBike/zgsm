@@ -55,14 +55,18 @@ export class ExitPlanModeTool extends BaseTool<"exit_plan_mode"> {
 			if (!approved) {
 				pushToolResult(
 					[
-						"Plan mode remains active. Continue refining your plan.",
+						"Plan mode remains active. The user wants you to continue refining the plan.",
 						"",
 						`Plan File: ${planFilePath}`,
 						"",
-						"Next steps:",
-						"1. Use the write_to_file tool to update your plan file",
-						"2. Document implementation approach, steps, and key decisions",
-						"3. Use exit_plan_mode again when ready for approval",
+						"Required workflow:",
+						"1. Ask the user via ask_multiple_choice tool:",
+						'   - "What aspects of the plan would you like me to revise?"',
+						'   - Provide options like: "Implementation approach", "Level of detail", "Technical decisions", etc.',
+						"2. Wait for user's feedback",
+						"3. Read the current plan file",
+						"4. Make the requested updates",
+						"5. Call the exit_plan_mode tool when ready",
 					].join("\n"),
 				)
 				return
